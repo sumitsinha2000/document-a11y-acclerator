@@ -17,14 +17,16 @@ class VeraPDFValidator:
     """
     
     def __init__(self):
+        self.verapdf_command = None
         self.verapdf_available = self._check_verapdf_installation()
         if self.verapdf_available:
-            print("[VeraPDF] veraPDF CLI is available")
+            print(f"[VeraPDF] veraPDF is available: {self.verapdf_command}")
         else:
-            print("[VeraPDF] veraPDF CLI not found - install from https://verapdf.org/")
+            print("[VeraPDF] veraPDF not found - install from https://verapdf.org/")
     
     def _check_verapdf_installation(self) -> bool:
         """Check if veraPDF CLI is installed and accessible"""
+        # Try 1: Check for verapdf wrapper script/executable
         try:
             result = subprocess.run(
                 ['verapdf', '--version'],
@@ -32,9 +34,105 @@ class VeraPDFValidator:
                 text=True,
                 timeout=5
             )
-            return result.returncode == 0
+            if result.returncode == 0:
+                self.verapdf_command = ['verapdf']
+                print("[VeraPDF] Found verapdf wrapper script")
+                return True
         except (subprocess.SubprocessError, FileNotFoundError):
+            pass
+        
+        # Try 2: Check for Java and veraPDF JAR file
+        java_available = self._check_java()
+        if not java_available:
+            print("[VeraPDF] Java not found - required for veraPDF JAR execution")
             return False
+        
+        # Look for veraPDF JAR in common locations
+        jar_path = self._find_verapdf_jar()
+        if jar_path:
+            self.verapdf_command = ['java', '-jar', jar_path]
+            print(f"[VeraPDF] Found veraPDF JAR: {jar_path}")
+            return True
+        
+        return False
+    
+    def _check_java(self) -> bool:
+        """Check if Java is installed and accessible"""
+        try:
+            result = subprocess.run(
+                ['java', '-version'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                print("[VeraPDF] Java is available")
+                return True
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass
+        return False
+    
+    def _find_verapdf_jar(self) -> Optional[str]:
+        """Find veraPDF JAR file in common installation locations"""
+        # Common installation paths
+        possible_paths = [
+            # Windows
+            r"C:\Program Files\veraPDF\verapdf.jar",
+            r"C:\Program Files (x86)\veraPDF\verapdf.jar",
+            r"C:\veraPDF\verapdf.jar",
+            # User-specific Windows paths
+            os.path.expanduser(r"~\veraPDF\verapdf.jar"),
+            os.path.expanduser(r"~\AppData\Local\veraPDF\verapdf.jar"),
+            # Linux/Mac
+            "/usr/local/verapdf/verapdf.jar",
+            "/opt/verapdf/verapdf.jar",
+            os.path.expanduser("~/veraPDF/verapdf.jar"),
+            # Environment variable
+            os.environ.get('VERAPDF_JAR', ''),
+        ]
+        
+        # Also check for verapdf-gui.jar (alternative name)
+        jar_names = ['verapdf.jar', 'verapdf-gui.jar', 'verapdf-cli.jar']
+        
+        for base_path in possible_paths:
+            if not base_path:
+                continue
+            
+            # Check exact path
+            if os.path.isfile(base_path):
+                print(f"[VeraPDF] Found JAR at: {base_path}")
+                return base_path
+            
+            # Check directory for JAR files
+            if os.path.isdir(base_path):
+                for jar_name in jar_names:
+                    jar_path = os.path.join(base_path, jar_name)
+                    if os.path.isfile(jar_path):
+                        print(f"[VeraPDF] Found JAR at: {jar_path}")
+                        return jar_path
+            
+            # Check parent directory
+            parent_dir = os.path.dirname(base_path)
+            if os.path.isdir(parent_dir):
+                for jar_name in jar_names:
+                    jar_path = os.path.join(parent_dir, jar_name)
+                    if os.path.isfile(jar_path):
+                        print(f"[VeraPDF] Found JAR at: {jar_path}")
+                        return jar_path
+        
+        # Try to find in current directory and subdirectories
+        current_dir = os.getcwd()
+        for root, dirs, files in os.walk(current_dir):
+            for jar_name in jar_names:
+                if jar_name in files:
+                    jar_path = os.path.join(root, jar_name)
+                    print(f"[VeraPDF] Found JAR at: {jar_path}")
+                    return jar_path
+            # Don't search too deep
+            if root.count(os.sep) - current_dir.count(os.sep) > 2:
+                break
+        
+        return None
     
     def is_available(self) -> bool:
         """Check if veraPDF validator is available"""
@@ -50,21 +148,24 @@ class VeraPDFValidator:
         Returns:
             Dictionary containing validation results with WCAG and PDF/UA issues
         """
-        if not self.verapdf_available:
+        if not self.verapdf_available or not self.verapdf_command:
             print("[VeraPDF] Validator not available, skipping validation")
             return self._get_empty_results()
         
         try:
             print(f"[VeraPDF] Validating {pdf_path}")
             
+            command = self.verapdf_command + [
+                '--format', 'json',  # JSON output for parsing
+                '--flavour', 'ua1',  # PDF/UA-1 profile (accessibility)
+                pdf_path
+            ]
+            
+            print(f"[VeraPDF] Running command: {' '.join(command)}")
+            
             # Run veraPDF with PDF/UA profile and JSON output
             result = subprocess.run(
-                [
-                    'verapdf',
-                    '--format', 'json',  # JSON output for parsing
-                    '--flavour', 'ua1',  # PDF/UA-1 profile (accessibility)
-                    pdf_path
-                ],
+                command,
                 capture_output=True,
                 text=True,
                 timeout=60  # 60 second timeout
