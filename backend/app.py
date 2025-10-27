@@ -635,7 +635,39 @@ def apply_fixes(scan_id):
         
         if result.get('success') and result.get('fixedFile'):
             try:
-                # Use unified query execution to save fix_history
+                # Re-scan the fixed PDF to get updated results
+                fixed_file_path = os.path.join('uploads', result['fixedFile'])
+                print(f"[AutoFix] Re-scanning fixed file: {result['fixedFile']}")
+                
+                analyzer = PDFAccessibilityAnalyzer()
+                new_results = analyzer.analyze(fixed_file_path)
+                new_summary = analyzer.calculate_summary(new_results)
+                
+                print(f"[AutoFix] ✓ Re-scan complete:")
+                print(f"[AutoFix]   Total issues: {new_summary.get('totalIssues', 0)}")
+                print(f"[AutoFix]   Compliance: {new_summary.get('complianceScore', 0)}%")
+                
+                # Update the scan record with new results
+                scan_data = {
+                    'results': new_results,
+                    'summary': new_summary
+                }
+                
+                print(f"[AutoFix] Updating database with new scan data...")
+                param_placeholder = '%s' if USE_POSTGRESQL else '?'
+                update_query = f'''
+                    UPDATE scans 
+                    SET scan_results = {param_placeholder}, status = {param_placeholder}
+                    WHERE id = {param_placeholder}
+                '''
+                execute_query(update_query, (json.dumps(scan_data), 'fixed', scan_id))
+                print(f"[AutoFix] ✓ Database updated successfully")
+                
+                # Add new results and summary to the response
+                result['newResults'] = new_results
+                result['newSummary'] = new_summary
+                
+                # Save fix history
                 param_placeholder = '%s' if USE_POSTGRESQL else '?'
                 insert_query = f'''
                     INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
@@ -648,9 +680,16 @@ def apply_fixes(scan_id):
                     json.dumps(result.get('fixesApplied', [])),
                     result.get('successCount', 0)
                 ))
-                print(f"[AutoFix] Fix history saved for {scan_id}")
-            except Exception as e:
-                print(f"[AutoFix] Warning: Failed to save fix history: {e}")
+                print(f"[AutoFix] ✓ Fix history saved for {scan_id}")
+                
+            except Exception as rescan_error:
+                print(f"[AutoFix] ERROR: Failed to re-scan PDF: {rescan_error}")
+                import traceback
+                traceback.print_exc()
+                # Return error since we couldn't update the results
+                return jsonify({
+                    'error': f'Fixes applied but failed to re-scan: {str(rescan_error)}'
+                }), 500
         
         return jsonify(result), 200
     except Exception as e:
