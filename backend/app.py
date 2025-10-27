@@ -698,6 +698,108 @@ def apply_fixes(scan_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/apply-semi-automated-fixes/<scan_id>', methods=['POST'])
+def apply_semi_automated_fixes(scan_id):
+    """Apply semi-automated fixes to a PDF (PDF/A fixes, etc.)"""
+    if not AUTO_FIX_AVAILABLE:
+        return jsonify({'error': 'Auto-fix engine not available'}), 503
+    
+    try:
+        pdf_path = os.path.join('uploads', scan_id)
+        
+        print(f"[SemiAutoFix] Looking for file: {pdf_path}")
+        
+        if not os.path.exists(pdf_path):
+            print(f"[SemiAutoFix] Error: File not found at {pdf_path}")
+            return jsonify({'error': f'PDF file not found: {scan_id}'}), 404
+        
+        print(f"[SemiAutoFix] Applying semi-automated fixes to: {pdf_path}")
+        
+        # Get scan results to determine which fixes to apply
+        param_placeholder = '%s' if USE_POSTGRESQL else '?'
+        query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
+        result = execute_query(query, (scan_id,), fetch=True)
+        
+        if not result:
+            return jsonify({'error': 'Scan not found'}), 404
+        
+        scan_data = result[0]['scan_results']
+        if isinstance(scan_data, str):
+            scan_data = json.loads(scan_data)
+        
+        if isinstance(scan_data, dict) and 'results' in scan_data:
+            scan_results = scan_data['results']
+        else:
+            scan_results = scan_data
+        
+        # Apply PDF/A fixes using the pdfa_fix_engine
+        from pdfa_fix_engine import apply_pdfa_fixes
+        
+        fix_result = apply_pdfa_fixes(pdf_path, scan_results)
+        
+        if fix_result.get('success'):
+            try:
+                # Re-scan the fixed PDF to get updated results
+                print(f"[SemiAutoFix] Re-scanning fixed file...")
+                
+                analyzer = PDFAccessibilityAnalyzer()
+                new_results = analyzer.analyze(pdf_path)
+                new_summary = analyzer.calculate_summary(new_results)
+                
+                print(f"[SemiAutoFix] ✓ Re-scan complete:")
+                print(f"[SemiAutoFix]   Total issues: {new_summary.get('totalIssues', 0)}")
+                print(f"[SemiAutoFix]   Compliance: {new_summary.get('complianceScore', 0)}%")
+                
+                # Update the scan record with new results
+                scan_data = {
+                    'results': new_results,
+                    'summary': new_summary
+                }
+                
+                print(f"[SemiAutoFix] Updating database with new scan data...")
+                param_placeholder = '%s' if USE_POSTGRESQL else '?'
+                update_query = f'''
+                    UPDATE scans 
+                    SET scan_results = {param_placeholder}, status = {param_placeholder}
+                    WHERE id = {param_placeholder}
+                '''
+                execute_query(update_query, (json.dumps(scan_data), 'fixed', scan_id))
+                print(f"[SemiAutoFix] ✓ Database updated successfully")
+                
+                # Add new results and summary to the response
+                fix_result['newResults'] = new_results
+                fix_result['newSummary'] = new_summary
+                
+                # Save fix history
+                param_placeholder = '%s' if USE_POSTGRESQL else '?'
+                insert_query = f'''
+                    INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
+                    VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                '''
+                execute_query(insert_query, (
+                    scan_id,
+                    scan_id,
+                    scan_id,  # Same file, modified in place
+                    json.dumps(fix_result.get('fixesApplied', [])),
+                    fix_result.get('successCount', 0)
+                ))
+                print(f"[SemiAutoFix] ✓ Fix history saved for {scan_id}")
+                
+            except Exception as rescan_error:
+                print(f"[SemiAutoFix] ERROR: Failed to re-scan PDF: {rescan_error}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({
+                    'error': f'Fixes applied but failed to re-scan: {str(rescan_error)}'
+                }), 500
+        
+        return jsonify(fix_result), 200
+    except Exception as e:
+        print(f"[SemiAutoFix] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/fix-history/<scan_id>', methods=['GET'])
 def get_fix_history(scan_id):
     """Get fix history for a specific scan"""

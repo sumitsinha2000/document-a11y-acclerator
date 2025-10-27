@@ -463,12 +463,22 @@ class AutoFixEngine:
             title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
             
             # Ensure docinfo exists and is an indirect object
-            if not hasattr(pdf, 'docinfo') or pdf.docinfo is None or len(pdf.docinfo) == 0:
+            if not hasattr(pdf, 'docinfo') or pdf.docinfo is None:
                 pdf.docinfo = pdf.make_indirect(Dictionary())
                 print("[AutoFixEngine] Created new docinfo dictionary")
             
-            # Add title to docinfo
-            if '/Title' not in pdf.docinfo or not pdf.docinfo.Title:
+            # Check if docinfo is empty or doesn't have Title
+            needs_title = True
+            try:
+                if '/Title' in pdf.docinfo and pdf.docinfo['/Title']:
+                    existing_title = str(pdf.docinfo['/Title'])
+                    if existing_title and existing_title.strip():
+                        needs_title = False
+                        print(f"[AutoFixEngine] Title already exists: {existing_title}")
+            except:
+                needs_title = True
+            
+            if needs_title:
                 pdf.docinfo['/Title'] = title
                 fixes_applied.append({
                     'type': 'addDocInfoTitle',
@@ -906,7 +916,7 @@ class AutoFixEngine:
                 shutil.move(temp_path, pdf_path)
                 temp_path = None  # Set to None since it's been moved
                 print(f"[AutoFixEngine] ✓ Original file replaced successfully")
-                
+            
             except Exception as save_error:
                 print(f"[AutoFixEngine] ERROR saving PDF: {save_error}")
                 import traceback
