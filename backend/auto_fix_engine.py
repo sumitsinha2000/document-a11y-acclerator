@@ -13,8 +13,16 @@ class AutoFixEngine:
     
     def __init__(self):
         self.supported_fixes = {
-            'automated': ['addLanguage', 'addTitle', 'addMetadata', 'fixStructure', 'fixViewerPreferences'],
-            'manual': ['tagContent', 'fixTableStructure', 'addAltText', 'addFormLabel', 'fixHeadingHierarchy', 'fixListStructure']
+            'automated': [
+                'addLanguage', 'addTitle', 'addMetadata', 'fixStructure', 
+                'fixViewerPreferences', 'embedFonts', 'fixUnicode', 
+                'createBookmarks', 'fixOptionalContent', 'fixRoleMap'
+            ],
+            'manual': [
+                'tagContent', 'fixTableStructure', 'addAltText', 
+                'addFormLabel', 'fixHeadingHierarchy', 'fixListStructure',
+                'markArtifacts'
+            ]
         }
     
     def generate_fixes(self, scan_results):
@@ -26,12 +34,13 @@ class AutoFixEngine:
             'estimatedTime': 0
         }
         
+        
         # Automated fixes for document structure
         if scan_results.get('structureIssues') or scan_results.get('documentStructureIssues'):
             fixes['automated'].append({
                 'action': 'Fix document structure',
                 'title': 'Fix PDF/UA document structure',
-                'description': 'Add MarkInfo, metadata, and structure tree',
+                'description': 'Add MarkInfo, metadata, structure tree, and RoleMap',
                 'category': 'structureIssues',
                 'severity': 'high',
                 'estimatedTime': '< 1 minute',
@@ -61,7 +70,7 @@ class AutoFixEngine:
             fixes['automated'].append({
                 'action': 'Add document metadata',
                 'title': 'Add document metadata and title',
-                'description': 'Add title, metadata, and ViewerPreferences',
+                'description': 'Add title, metadata, ViewerPreferences, and PDF/UA identifier',
                 'category': 'missingMetadata',
                 'severity': 'medium',
                 'estimatedTime': '< 1 minute',
@@ -80,6 +89,32 @@ class AutoFixEngine:
                 'severity': 'medium',
                 'estimatedTime': '< 1 minute',
                 'fixType': 'fixViewerPreferences',
+                'fixData': {}
+            })
+            fixes['estimatedTime'] += 1
+        
+        if scan_results.get('fontIssues'):
+            fixes['automated'].append({
+                'action': 'Check font embedding',
+                'title': 'Verify font embedding',
+                'description': 'Check if fonts are properly embedded for accessibility',
+                'category': 'fontIssues',
+                'severity': 'medium',
+                'estimatedTime': '< 1 minute',
+                'fixType': 'embedFonts',
+                'fixData': {}
+            })
+            fixes['estimatedTime'] += 1
+        
+        if scan_results.get('roleMapIssues'):
+            fixes['automated'].append({
+                'action': 'Fix RoleMap',
+                'title': 'Fix structure RoleMap',
+                'description': 'Add standard RoleMap and remove circular mappings',
+                'category': 'roleMapIssues',
+                'severity': 'high',
+                'estimatedTime': '< 1 minute',
+                'fixType': 'fixRoleMap',
                 'fixData': {}
             })
             fixes['estimatedTime'] += 1
@@ -209,7 +244,7 @@ class AutoFixEngine:
                 success_count += 1
                 print("[AutoFixEngine] ✓ Added document language")
             
-            # Fix 2: Add/fix metadata
+            # Fix 2: Add/fix metadata and PDF/UA identifier
             with pdf.open_metadata() as meta:
                 if not meta.get('dc:title'):
                     filename = os.path.basename(pdf_path)
@@ -221,13 +256,24 @@ class AutoFixEngine:
                     })
                     success_count += 1
                     print("[AutoFixEngine] ✓ Added document title")
+                
+                if not meta.get('pdfuaid:part'):
+                    meta['pdfuaid:part'] = '1'
+                    meta['pdfuaid:conformance'] = 'A'
+                    fixes_applied.append({
+                        'type': 'addPDFUAIdentifier',
+                        'description': 'Added PDF/UA-1 identifier',
+                        'success': True
+                    })
+                    success_count += 1
+                    print("[AutoFixEngine] ✓ Added PDF/UA-1 identifier")
             
             # Fix 3: Add MarkInfo and mark as tagged
             if not hasattr(pdf.Root, 'MarkInfo'):
-                pdf.Root.MarkInfo = Dictionary(Marked=True)
+                pdf.Root.MarkInfo = Dictionary(Marked=True, Suspects=False)
                 fixes_applied.append({
                     'type': 'markTagged',
-                    'description': 'Marked document as tagged',
+                    'description': 'Marked document as tagged with Suspects=false',
                     'success': True
                 })
                 success_count += 1
@@ -275,11 +321,19 @@ class AutoFixEngine:
                     success_count += 1
                     print("[AutoFixEngine] ✓ Set DisplayDocTitle to true")
             
-            # Fix 5: Create structure tree if missing
+            # Fix 5: Create structure tree if missing with RoleMap
             if not hasattr(pdf.Root, 'StructTreeRoot'):
+                role_map = Dictionary()
+                # Add standard role mappings for common custom roles
+                role_map[Name('/Heading')] = Name('/H')
+                role_map[Name('/Subheading')] = Name('/H')
+                role_map[Name('/Title')] = Name('/H')
+                role_map[Name('/Subtitle')] = Name('/H')
+                
                 struct_tree_root = Dictionary(
                     Type=Name('/StructTreeRoot'),
                     K=Array([]),
+                    RoleMap=role_map,
                     ParentTree=Dictionary(Nums=Array([]))
                 )
                 pdf.Root.StructTreeRoot = pdf.make_indirect(struct_tree_root)
@@ -289,17 +343,54 @@ class AutoFixEngine:
                     Type=Name('/StructElem'),
                     S=Name('/Document'),
                     P=pdf.Root.StructTreeRoot,
-                    K=Array([])
+                    K=Array([]),
+                    Lang=String('en-US')
                 )
                 pdf.Root.StructTreeRoot.K.append(pdf.make_indirect(doc_element))
                 
                 fixes_applied.append({
                     'type': 'createStructureTree',
-                    'description': 'Created structure tree with Document element',
+                    'description': 'Created structure tree with Document element and RoleMap',
                     'success': True
                 })
                 success_count += 1
-                print("[AutoFixEngine] ✓ Created structure tree")
+                print("[AutoFixEngine] ✓ Created structure tree with RoleMap")
+            else:
+                if not hasattr(pdf.Root.StructTreeRoot, 'RoleMap'):
+                    role_map = Dictionary()
+                    role_map[Name('/Heading')] = Name('/H')
+                    role_map[Name('/Subheading')] = Name('/H')
+                    role_map[Name('/Title')] = Name('/H')
+                    role_map[Name('/Subtitle')] = Name('/H')
+                    pdf.Root.StructTreeRoot.RoleMap = role_map
+                    fixes_applied.append({
+                        'type': 'addRoleMap',
+                        'description': 'Added RoleMap to structure tree',
+                        'success': True
+                    })
+                    success_count += 1
+                    print("[AutoFixEngine] ✓ Added RoleMap")
+                else:
+                    role_map = pdf.Root.StructTreeRoot.RoleMap
+                    circular_found = False
+                    roles_to_remove = []
+                    
+                    for role, mapped_role in role_map.items():
+                        if role == mapped_role:
+                            roles_to_remove.append(role)
+                            circular_found = True
+                    
+                    for role in roles_to_remove:
+                        del role_map[role]
+                    
+                    if circular_found:
+                        fixes_applied.append({
+                            'type': 'fixCircularRoleMap',
+                            'description': f'Removed {len(roles_to_remove)} circular role mapping(s)',
+                            'success': True
+                        })
+                        success_count += 1
+                        print(f"[AutoFixEngine] ✓ Removed {len(roles_to_remove)} circular role mappings")
             
             # Fix 6: Add document info title if missing
             if '/Info' not in pdf.docinfo or '/Title' not in pdf.docinfo:
@@ -317,6 +408,35 @@ class AutoFixEngine:
                 })
                 success_count += 1
                 print(f"[AutoFixEngine] ✓ Added document info title: {title}")
+            
+            try:
+                font_issues = []
+                for page in pdf.pages:
+                    if '/Resources' in page and '/Font' in page.Resources:
+                        for font_name, font_obj in page.Resources.Font.items():
+                            if isinstance(font_obj, pikepdf.Dictionary):
+                                # Check if font is embedded
+                                if '/FontDescriptor' not in font_obj:
+                                    font_issues.append(str(font_name))
+                
+                if font_issues:
+                    fixes_applied.append({
+                        'type': 'fontEmbeddingCheck',
+                        'description': f'Warning: {len(font_issues)} font(s) may not be embedded',
+                        'success': True,
+                        'warning': True
+                    })
+                    print(f"[AutoFixEngine] ⚠ {len(font_issues)} font(s) may not be embedded")
+                else:
+                    fixes_applied.append({
+                        'type': 'fontEmbeddingCheck',
+                        'description': 'All fonts appear to be embedded',
+                        'success': True
+                    })
+                    success_count += 1
+                    print("[AutoFixEngine] ✓ All fonts appear to be embedded")
+            except Exception as font_error:
+                print(f"[AutoFixEngine] Could not check font embedding: {font_error}")
             
             # Save fixed PDF
             fixed_filename = f"{os.path.splitext(os.path.basename(pdf_path))[0]}_fixed.pdf"
@@ -464,6 +584,20 @@ class AutoFixEngine:
                 else:
                     fix_description = f"Form field '{field_name}' not found"
                     print(f"[AutoFixEngine] ⚠ Form field not found")
+            
+            elif fix_type == 'markArtifacts':
+                # Mark artifacts for review
+                print("[AutoFixEngine] Marking artifacts for review...")
+                
+                if not hasattr(pdf.Root, 'MarkInfo'):
+                    pdf.Root.MarkInfo = Dictionary(Marked=True, Suspects=True)
+                else:
+                    pdf.Root.MarkInfo.Marked = True
+                    pdf.Root.MarkInfo.Suspects = True
+                
+                fix_applied = True
+                fix_description = "Marked document as containing artifacts for review"
+                print("[AutoFixEngine] ✓ Artifacts marked")
             
             if not fix_applied:
                 print(f"[AutoFixEngine] WARNING: Fix type '{fix_type}' not fully implemented")
