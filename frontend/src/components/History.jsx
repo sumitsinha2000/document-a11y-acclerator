@@ -9,6 +9,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState("all") // 'all', 'batches', 'individual'
   const [error, setError] = useState(null)
+  const [deletingBatch, setDeletingBatch] = useState(null)
 
   useEffect(() => {
     fetchHistory()
@@ -34,6 +35,45 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
       setError(error.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDeleteBatch = async (batchId, batchName, e) => {
+    e.stopPropagation() // Prevent triggering the card click
+
+    if (
+      !confirm(
+        `Are you sure you want to delete "${batchName}"? This will permanently delete all files and records in this batch.`,
+      )
+    ) {
+      return
+    }
+
+    try {
+      setDeletingBatch(batchId)
+      console.log("[v0] Deleting batch:", batchId)
+
+      const response = await fetch(`${API_ENDPOINTS.batchDetails(batchId)}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to delete batch")
+      }
+
+      const result = await response.json()
+      console.log("[v0] Batch deleted successfully:", result)
+
+      // Refresh history
+      await fetchHistory()
+
+      alert(`Successfully deleted batch with ${result.deletedFiles} files`)
+    } catch (error) {
+      console.error("[v0] Error deleting batch:", error)
+      alert(`Failed to delete batch: ${error.message}`)
+    } finally {
+      setDeletingBatch(null)
     }
   }
 
@@ -132,9 +172,30 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                     </svg>
                     <h3 className="font-semibold text-gray-900 dark:text-white">{batch.name || "Batch Upload"}</h3>
                   </div>
-                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
-                    {batch.fileCount} files
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                      {batch.fileCount} files
+                    </span>
+                    <button
+                      onClick={(e) => handleDeleteBatch(batch.batchId, batch.name, e)}
+                      disabled={deletingBatch === batch.batchId}
+                      className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Delete batch"
+                    >
+                      {deletingBatch === batch.batchId ? (
+                        <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                   {new Date(batch.uploadDate).toLocaleDateString()} at {new Date(batch.uploadDate).toLocaleTimeString()}

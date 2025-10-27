@@ -1636,71 +1636,141 @@ def export_batch(batch_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/batch/<batch_id>', methods=['GET'])
-def get_batch_details(batch_id):
-    """Get details for a specific batch"""
-    try:
-        # Use unified query execution to get batch details
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = 'SELECT * FROM batches WHERE id = ?' if not USE_POSTGRESQL else 'SELECT * FROM batches WHERE id = %s'
-        batch = execute_query(query, (batch_id,), fetch=True)
-        
-        if not batch:
-            return jsonify({'error': 'Batch not found'}), 404
-        
-        # Get all scans in the batch
-        # Use unified query execution to get scans in batch
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'''
-            SELECT id, filename, scan_results, upload_date
-            FROM scans
-            WHERE batch_id = {param_placeholder}
-            ORDER BY upload_date
-        '''
-        scans = execute_query(query, (batch_id,), fetch=True)
-        
-        scan_details = []
-        for scan in scans:
-            scan_data = scan['scan_results']
-            if isinstance(scan_data, str):
-                scan_data = json.loads(scan_data)
+@app.route('/api/batch/<batch_id>', methods=['GET', 'DELETE'])
+def batch_operations(batch_id):
+    """Get or delete batch details"""
+    if request.method == 'GET':
+        try:
+            param_placeholder = '%s' if USE_POSTGRESQL else '?'
+            query = 'SELECT * FROM batches WHERE id = ?' if not USE_POSTGRESQL else 'SELECT * FROM batches WHERE id = %s'
+            batch = execute_query(query, (batch_id,), fetch=True)
             
-            if isinstance(scan_data, dict) and 'results' in scan_data:
-                results = scan_data['results']
-                summary = scan_data.get('summary')
-            else:
-                results = scan_data
-                summary = None
+            if not batch:
+                return jsonify({'error': 'Batch not found'}), 404
             
-            # Calculate summary if not present
-            if not summary:
-                analyzer = PDFAccessibilityAnalyzer()
-                summary = analyzer.calculate_summary(results)
+            param_placeholder = '%s' if USE_POSTGRESQL else '?'
+            query = f'''
+                SELECT id, filename, scan_results, upload_date
+                FROM scans
+                WHERE batch_id = {param_placeholder}
+                ORDER BY upload_date
+            '''
+            scans = execute_query(query, (batch_id,), fetch=True)
             
-            scan_details.append({
-                'scanId': scan['id'],
-                'filename': scan['filename'],
-                'results': results,  # Include full results for issue aggregation
-                'summary': summary,
-                'uploadDate': scan['upload_date'].isoformat() if scan['upload_date'] else None
-            })
-        
-        return jsonify({
-            'batchId': batch[0]['id'],
-            'name': batch[0]['name'],
-            'uploadDate': batch[0]['upload_date'].isoformat() if batch[0]['upload_date'] else None,
-            'fileCount': batch[0]['file_count'],
-            'status': batch[0]['status'],
-            'totalIssues': batch[0]['total_issues'],
-            'fixedCount': batch[0]['fixed_count'],
-            'scans': scan_details
-        }), 200
-        
-    except Exception as e:
-        print(f"[Backend] Error fetching batch details: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+            scan_details = []
+            for scan in scans:
+                scan_data = scan['scan_results']
+                if isinstance(scan_data, str):
+                    scan_data = json.loads(scan_data)
+                
+                if isinstance(scan_data, dict) and 'results' in scan_data:
+                    results = scan_data['results']
+                    summary = scan_data.get('summary')
+                else:
+                    results = scan_data
+                    summary = None
+                
+                if not summary:
+                    analyzer = PDFAccessibilityAnalyzer()
+                    summary = analyzer.calculate_summary(results)
+                
+                scan_details.append({
+                    'scanId': scan['id'],
+                    'filename': scan['filename'],
+                    'results': results,
+                    'summary': summary,
+                    'uploadDate': scan['upload_date'].isoformat() if scan['upload_date'] else None
+                })
+            
+            return jsonify({
+                'batchId': batch[0]['id'],
+                'name': batch[0]['name'],
+                'uploadDate': batch[0]['upload_date'].isoformat() if batch[0]['upload_date'] else None,
+                'fileCount': batch[0]['file_count'],
+                'status': batch[0]['status'],
+                'totalIssues': batch[0]['total_issues'],
+                'fixedCount': batch[0]['fixed_count'],
+                'scans': scan_details
+            }), 200
+            
+        except Exception as e:
+            print(f"[Backend] Error fetching batch details: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 500
+    
+    elif request.method == 'DELETE':
+        try:
+            print(f"[Backend] ========== DELETING BATCH: {batch_id} ==========")
+            
+            # Get all scans in the batch
+            param_placeholder = '%s' if USE_POSTGRESQL else '?'
+            query = f'SELECT id FROM scans WHERE batch_id = {param_placeholder}'
+            scans = execute_query(query, (batch_id,), fetch=True)
+            
+            if not scans:
+                print(f"[Backend] No scans found for batch {batch_id}")
+                return jsonify({'error': 'Batch not found'}), 404
+            
+            print(f"[Backend] Found {len(scans)} scans to delete")
+            
+            # Delete physical files
+            deleted_files = 0
+            for scan in scans:
+                scan_id = scan['id']
+                file_path = os.path.join('uploads', scan_id)
+                
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        deleted_files += 1
+                        print(f"[Backend] ✓ Deleted file: {file_path}")
+                    except Exception as e:
+                        print(f"[Backend] ✗ Failed to delete file {file_path}: {e}")
+                
+                # Also check for fixed files
+                fixed_file_path = os.path.join('uploads', f"{scan_id}_fixed.pdf")
+                if os.path.exists(fixed_file_path):
+                    try:
+                        os.remove(fixed_file_path)
+                        print(f"[Backend] ✓ Deleted fixed file: {fixed_file_path}")
+                    except Exception as e:
+                        print(f"[Backend] ✗ Failed to delete fixed file {fixed_file_path}: {e}")
+            
+            # Delete fix history records
+            param_placeholder = '%s' if USE_POSTGRESQL else '?'
+            for scan in scans:
+                delete_query = f'DELETE FROM fix_history WHERE scan_id = {param_placeholder}'
+                execute_query(delete_query, (scan['id'],))
+            print(f"[Backend] ✓ Deleted fix history records")
+            
+            # Delete scan records
+            delete_scans_query = f'DELETE FROM scans WHERE batch_id = {param_placeholder}'
+            execute_query(delete_scans_query, (batch_id,))
+            print(f"[Backend] ✓ Deleted {len(scans)} scan records")
+            
+            # Delete batch record
+            delete_batch_query = f'DELETE FROM batches WHERE id = {param_placeholder}'
+            execute_query(delete_batch_query, (batch_id,))
+            print(f"[Backend] ✓ Deleted batch record")
+            
+            print(f"[Backend] ========== BATCH DELETION COMPLETE ==========")
+            print(f"[Backend] Deleted {deleted_files} physical files")
+            
+            return jsonify({
+                'success': True,
+                'message': f'Batch deleted successfully',
+                'deletedFiles': deleted_files,
+                'deletedScans': len(scans)
+            }), 200
+            
+        except Exception as e:
+            print(f"[Backend] ========== ERROR DELETING BATCH ==========")
+            print(f"[Backend] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/history', methods=['GET'])
 def get_history():

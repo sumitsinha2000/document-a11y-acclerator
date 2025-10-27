@@ -49,6 +49,10 @@ class PDFAFixEngine:
             warnings = []
             
             for issue in issues:
+                # If issue is a string, convert to dict
+                if isinstance(issue, str):
+                    issue = {'message': issue, 'severity': 'error'}
+                
                 severity = issue.get('severity', 'error')
                 message = issue.get('message', '')
                 
