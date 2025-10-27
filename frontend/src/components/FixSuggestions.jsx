@@ -7,6 +7,7 @@ import { API_ENDPOINTS } from "../config/api"
 
 export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [applying, setApplying] = useState(false)
+  const [applyingSemiAuto, setApplyingSemiAuto] = useState(false)
   const [fixedFile, setFixedFile] = useState(null)
   const [showEditor, setShowEditor] = useState(false)
 
@@ -100,6 +101,28 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       } catch (error) {
         console.error("[v0] FixSuggestions - Error refreshing after editor close:", error)
       }
+    }
+  }
+
+  const handleApplySemiAutomatedFixes = async () => {
+    setApplyingSemiAuto(true)
+    try {
+      const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`)
+      if (response.data.success) {
+        alert(response.data.message || "Semi-automated fixes applied successfully")
+
+        if (onRefresh) {
+          console.log("[v0] FixSuggestions - Refreshing data after semi-automated fixes")
+          await onRefresh()
+        }
+      } else {
+        alert(response.data.message || "Failed to apply semi-automated fixes")
+      }
+    } catch (error) {
+      console.error("Error applying semi-automated fixes:", error)
+      alert("Error applying semi-automated fixes: " + (error.response?.data?.message || error.message))
+    } finally {
+      setApplyingSemiAuto(false)
     }
   }
 
@@ -214,7 +237,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700">
             <h4 className="text-sm font-semibold text-yellow-600 dark:text-yellow-400 mb-1">Semi-Automated Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Require review & confirmation</p>
-            <div className="space-y-2">
+            <div className="space-y-2 mb-3">
               {validSemiAutomated.map((fix, idx) => (
                 <div
                   key={idx}
@@ -239,6 +262,13 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 </div>
               ))}
             </div>
+            <button
+              className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors"
+              onClick={handleApplySemiAutomatedFixes}
+              disabled={applyingSemiAuto}
+            >
+              {applyingSemiAuto ? "Applying..." : "Apply Semi-Automated Fixes"}
+            </button>
           </div>
         )}
 
