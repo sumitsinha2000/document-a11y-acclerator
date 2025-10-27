@@ -4,6 +4,8 @@ import os
 import json
 from datetime import datetime
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
@@ -65,6 +67,8 @@ except ImportError:
 app = Flask(__name__)
 CORS(app)
 
+db_lock = threading.Lock()
+
 def get_db_connection():
     """Get database connection (PostgreSQL or SQLite)"""
     try:
@@ -75,7 +79,7 @@ def get_db_connection():
             print("[Backend] ✓ Connected to PostgreSQL")
             return conn
         else:
-            conn = sqlite3.connect('accessibility_scans.db')
+            conn = sqlite3.connect('accessibility_scans.db', check_same_thread=False)  # Added check_same_thread=False for thread safety
             conn.row_factory = sqlite3.Row
             print("[Backend] ✓ Connected to SQLite")
             return conn
@@ -86,41 +90,42 @@ def get_db_connection():
         if USE_POSTGRESQL:
             print("[Backend] Falling back to SQLite...")
             # Fallback to SQLite
-            conn = sqlite3.connect('accessibility_scans.db')
+            conn = sqlite3.connect('accessibility_scans.db', check_same_thread=False)  # Added check_same_thread=False
             conn.row_factory = sqlite3.Row
             return conn
         raise
 
 def execute_query(query, params=None, fetch=False):
     """Execute database query with automatic parameter style conversion"""
-    try:
-        conn = get_db_connection()
-        c = conn.cursor()
-        
-        if not USE_POSTGRESQL and params and '%s' in query:
-            # Convert PostgreSQL style (%s) to SQLite style (?)
-            query = query.replace('%s', '?')
-        
-        if params:
-            c.execute(query, params)
-        else:
-            c.execute(query)
-        
-        if fetch:
-            results = c.fetchall()
-            conn.close()
-            return results
-        else:
-            conn.commit()
-            conn.close()
-            return None
-    except Exception as e:
-        print(f"[Backend] Database query error: {e}")
-        print(f"[Backend] Query: {query}")
-        print(f"[Backend] Params: {params}")
-        import traceback
-        traceback.print_exc()
-        raise
+    with db_lock:
+        try:
+            conn = get_db_connection()
+            c = conn.cursor()
+            
+            if not USE_POSTGRESQL and params and '%s' in query:
+                # Convert PostgreSQL style (%s) to SQLite style (?)
+                query = query.replace('%s', '?')
+            
+            if params:
+                c.execute(query, params)
+            else:
+                c.execute(query)
+            
+            if fetch:
+                results = c.fetchall()
+                conn.close()
+                return results
+            else:
+                conn.commit()
+                conn.close()
+                return None
+        except Exception as e:
+            print(f"[Backend] Database query error: {e}")
+            print(f"[Backend] Query: {query}")
+            print(f"[Backend] Params: {params}")
+            import traceback
+            traceback.print_exc()
+            raise
 
 def init_db():
     """Initialize database for storing scan history"""
@@ -953,10 +958,110 @@ def apply_manual_fix(scan_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+def process_single_file(file, idx, batch_id, total_files):
+    """
+    Process a single PDF file for batch scanning
+    Returns a tuple of (scan_result, issue_count) or (None, 0) on error
+    """
+    print(f"\n[Backend] ========== FILE {idx+1}/{total_files}: {file.filename} ==========")
+    try:
+        scan_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}_{os.path.splitext(file.filename)[0]}"
+        print(f"[Backend] Generated scan_id: {scan_id}")
+        
+        upload_dir = Path('uploads')
+        upload_dir.mkdir(exist_ok=True)
+        
+        file_path = upload_dir / scan_id
+        print(f"[Backend] Saving file to: {file_path}")
+        
+        try:
+            file.save(str(file_path))
+            file_size = os.path.getsize(file_path)
+            print(f"[Backend] ✓ File saved successfully ({file_size} bytes)")
+        except Exception as save_error:
+            print(f"[Backend] ERROR saving file: {save_error}")
+            raise
+        
+        print(f"[Backend] Starting PDF analysis...")
+        try:
+            analyzer = PDFAccessibilityAnalyzer()
+            issues = analyzer.analyze(str(file_path))
+            issue_count = sum(len(v) if isinstance(v, list) else 0 for v in issues.values())
+            print(f"[Backend] ✓ Analysis complete: {issue_count} issues found")
+            print(f"[Backend] Issue categories: {list(issues.keys())}")
+        except Exception as analysis_error:
+            print(f"[Backend] ERROR during analysis: {analysis_error}")
+            import traceback
+            traceback.print_exc()
+            raise
+        
+        try:
+            summary = analyzer.calculate_summary(issues)
+            print(f"[Backend] ✓ Summary calculated: {summary.get('totalIssues', 0)} total issues, {summary.get('complianceScore', 0)}% compliance")
+        except Exception as summary_error:
+            print(f"[Backend] ERROR calculating summary: {summary_error}")
+            summary = {'totalIssues': 0, 'complianceScore': 0}
+        
+        fixes = get_empty_fixes_structure()
+        try:
+            if AUTO_FIX_AVAILABLE:
+                auto_fix_engine = AutoFixEngine()
+                generated_fixes = auto_fix_engine.generate_fixes(issues)
+                fixes = ensure_fixes_structure(generated_fixes)
+            else:
+                fixes = generate_fix_suggestions(issues)
+            
+            fixes = ensure_fixes_structure(fixes)
+            fix_count = len(fixes.get('automated', [])) + len(fixes.get('semiAutomated', [])) + len(fixes.get('manual', []))
+            print(f"[Backend] ✓ Generated {fix_count} fix suggestions")
+        except Exception as fix_error:
+            print(f"[Backend] ERROR generating fixes: {fix_error}")
+            fixes = get_empty_fixes_structure()
+        
+        try:
+            scan_data = {
+                'results': issues,
+                'summary': summary
+            }
+            
+            # Use unified query execution to save scan (thread-safe with db_lock)
+            param_placeholder = '%s' if USE_POSTGRESQL else '?'
+            insert_query = f'''
+                INSERT INTO scans (id, filename, scan_results, batch_id)
+                VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+            '''
+            execute_query(insert_query, (scan_id, file.filename, json.dumps(scan_data), batch_id))
+            print(f"[Backend] ✓ Scan saved to database")
+        except Exception as db_error:
+            print(f"[Backend] ERROR saving scan to database: {db_error}")
+            import traceback
+            traceback.print_exc()
+        
+        issue_count = summary.get('totalIssues', 0)
+        
+        scan_result = {
+            'scanId': scan_id,
+            'filename': file.filename,
+            'results': issues,
+            'summary': summary,
+            'fixes': fixes
+        }
+        
+        print(f"[Backend] ✓ Completed scan for {file.filename}: {issue_count} issues")
+        
+        return (scan_result, issue_count)
+        
+    except Exception as e:
+        print(f"[Backend] ========== ERROR PROCESSING {file.filename} ==========")
+        print(f"[Backend] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return (None, 0)
+
 @app.route('/api/scan-batch', methods=['POST'])
 def scan_batch():
     """
-    Endpoint to scan multiple PDFs as a batch
+    Endpoint to scan multiple PDFs as a batch with parallel processing
     Expects multipart/form-data with multiple 'files' fields
     """
     print("[Backend] ========== BATCH SCAN REQUEST ==========")
@@ -1018,105 +1123,34 @@ def scan_batch():
         scan_results = []
         total_issues = 0
         
-        print(f"[Backend] ========== PROCESSING {len(pdf_files)} FILES ==========")
+        print(f"[Backend] ========== PROCESSING {len(pdf_files)} FILES IN PARALLEL ==========")
         
-        for idx, file in enumerate(pdf_files):
-            print(f"\n[Backend] ========== FILE {idx+1}/{len(pdf_files)}: {file.filename} ==========")
-            try:
-                scan_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}_{os.path.splitext(file.filename)[0]}" # Removed original filename from scan_id for cleaner uploads folder
-                print(f"[Backend] Generated scan_id: {scan_id}")
-                
-                upload_dir = Path('uploads')
-                upload_dir.mkdir(exist_ok=True)
-                
-                file_path = upload_dir / scan_id
-                print(f"[Backend] Saving file to: {file_path}")
-                
+        # Use max 4 workers to avoid overwhelming the system
+        max_workers = min(4, len(pdf_files))
+        print(f"[Backend] Using {max_workers} parallel workers")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all files for processing
+            future_to_file = {
+                executor.submit(process_single_file, file, idx, batch_id, len(pdf_files)): (file, idx)
+                for idx, file in enumerate(pdf_files)
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_file):
+                file, idx = future_to_file[future]
                 try:
-                    file.save(str(file_path))
-                    file_size = os.path.getsize(file_path)
-                    print(f"[Backend] ✓ File saved successfully ({file_size} bytes)")
-                except Exception as save_error:
-                    print(f"[Backend] ERROR saving file: {save_error}")
-                    raise
-                
-                print(f"[Backend] Starting PDF analysis...")
-                try:
-                    analyzer = PDFAccessibilityAnalyzer()
-                    issues = analyzer.analyze(str(file_path))
-                    issue_count = sum(len(v) if isinstance(v, list) else 0 for v in issues.values())
-                    print(f"[Backend] ✓ Analysis complete: {issue_count} issues found")
-                    print(f"[Backend] Issue categories: {list(issues.keys())}")
-                except Exception as analysis_error:
-                    print(f"[Backend] ERROR during analysis: {analysis_error}")
-                    import traceback
-                    traceback.print_exc()
-                    raise
-                
-                try:
-                    summary = analyzer.calculate_summary(issues)
-                    print(f"[Backend] ✓ Summary calculated: {summary.get('totalIssues', 0)} total issues, {summary.get('complianceScore', 0)}% compliance")
-                except Exception as summary_error:
-                    print(f"[Backend] ERROR calculating summary: {summary_error}")
-                    summary = {'totalIssues': 0, 'complianceScore': 0}
-                
-                fixes = get_empty_fixes_structure()
-                try:
-                    if AUTO_FIX_AVAILABLE:
-                        auto_fix_engine = AutoFixEngine()
-                        generated_fixes = auto_fix_engine.generate_fixes(issues)
-                        fixes = ensure_fixes_structure(generated_fixes)
+                    scan_result, issue_count = future.result()
+                    if scan_result:
+                        scan_results.append(scan_result)
+                        total_issues += issue_count
+                        print(f"[Backend] ✓ Collected result for {file.filename}")
                     else:
-                        fixes = generate_fix_suggestions(issues)
-                    
-                    fixes = ensure_fixes_structure(fixes)
-                    fix_count = len(fixes.get('automated', [])) + len(fixes.get('semiAutomated', [])) + len(fixes.get('manual', []))
-                    print(f"[Backend] ✓ Generated {fix_count} fix suggestions")
-                except Exception as fix_error:
-                    print(f"[Backend] ERROR generating fixes: {fix_error}")
-                    fixes = get_empty_fixes_structure()
-                
-                try:
-                    scan_data = {
-                        'results': issues,
-                        'summary': summary
-                    }
-                    
-                    # Use unified query execution to save scan
-                    param_placeholder = '%s' if USE_POSTGRESQL else '?'
-                    insert_query = f'''
-                        INSERT INTO scans (id, filename, scan_results, batch_id)
-                        VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
-                    '''
-                    execute_query(insert_query, (scan_id, file.filename, json.dumps(scan_data), batch_id))
-                    print(f"[Backend] ✓ Scan saved to database")
-                except Exception as db_error:
-                    print(f"[Backend] ERROR saving scan to database: {db_error}")
+                        print(f"[Backend] ✗ Failed to process {file.filename}")
+                except Exception as exc:
+                    print(f"[Backend] ✗ Exception processing {file.filename}: {exc}")
                     import traceback
                     traceback.print_exc()
-                
-                issue_count = summary.get('totalIssues', 0)
-                total_issues += issue_count
-                
-                scan_result = {
-                    'scanId': scan_id,
-                    'filename': file.filename,
-                    'results': issues,
-                    'summary': summary,
-                    'fixes': fixes
-                }
-                scan_results.append(scan_result)
-                
-                print(f"[Backend] ✓ Completed scan for {file.filename}: {issue_count} issues")
-                print(f"[Backend] Current scan_results length: {len(scan_results)}")
-                
-            except Exception as e:
-                print(f"[Backend] ========== ERROR PROCESSING {file.filename} ==========")
-                print(f"[Backend] Error: {e}")
-                import traceback
-                traceback.print_exc()
-                print(f"[Backend] Continuing with next file...")
-                continue
         
         print(f"\n[Backend] ========== BATCH PROCESSING COMPLETE ==========")
         print(f"[Backend] Successfully processed: {len(scan_results)}/{len(pdf_files)} files")
