@@ -18,6 +18,101 @@ def generate_fix_suggestions(issues):
     manual = []
     estimated_time = 0
     
+    if issues.get("wcagIssues") and len(issues["wcagIssues"]) > 0:
+        for issue in issues["wcagIssues"]:
+            severity = issue.get("severity", "high")
+            description = issue.get("description", "")
+            
+            # Determine if fix can be automated based on issue description
+            if "metadata" in description.lower() or "title" in description.lower():
+                automated.append({
+                    "id": f"wcag-metadata-{issue.get('criterion', 'unknown')}",
+                    "title": "Fix WCAG metadata issue",
+                    "description": description,
+                    "action": "Add document metadata and title",
+                    "severity": severity,
+                    "estimatedTime": 1,
+                    "category": "wcagIssues",
+                    "criterion": issue.get("criterion", ""),
+                    "location": {"criterion": issue.get("criterion", "")}
+                })
+                estimated_time += 1
+            elif "reading order" in description.lower():
+                manual.append({
+                    "id": f"wcag-reading-order-{issue.get('criterion', 'unknown')}",
+                    "title": "Fix reading order",
+                    "description": description,
+                    "action": "Define proper reading order",
+                    "severity": severity,
+                    "estimatedTime": 20,
+                    "category": "wcagIssues",
+                    "criterion": issue.get("criterion", ""),
+                    "location": {"criterion": issue.get("criterion", "")},
+                    "instructions": "Use PDF editor to create structure tree and define reading order"
+                })
+                estimated_time += 20
+            else:
+                # Default to semi-automated for other WCAG issues
+                semi_automated.append({
+                    "id": f"wcag-{issue.get('criterion', 'unknown')}",
+                    "title": f"Fix WCAG {issue.get('criterion', '')} issue",
+                    "description": description,
+                    "action": issue.get("remediation", "Review and fix WCAG compliance issue"),
+                    "severity": severity,
+                    "estimatedTime": 10,
+                    "category": "wcagIssues",
+                    "criterion": issue.get("criterion", ""),
+                    "location": {"clause": issue.get("clause", "")}
+                })
+                estimated_time += 10
+    
+    if issues.get("pdfuaIssues") and len(issues["pdfuaIssues"]) > 0:
+        for issue in issues["pdfuaIssues"]:
+            severity = issue.get("severity", "high")
+            description = issue.get("description", "")
+            
+            # Determine if fix can be automated based on issue description
+            if any(keyword in description.lower() for keyword in ["metadata stream", "viewerpreferences", "dc:title", "suspects"]):
+                automated.append({
+                    "id": f"pdfua-{issue.get('clause', 'unknown')}",
+                    "title": "Fix PDF/UA structure issue",
+                    "description": description,
+                    "action": "Add required PDF/UA metadata and structure",
+                    "severity": severity,
+                    "estimatedTime": 1,
+                    "category": "pdfuaIssues",
+                    "clause": issue.get("clause", ""),
+                    "location": {"clause": issue.get("clause", "")}
+                })
+                estimated_time += 1
+            elif "structure tree" in description.lower() and "no children" in description.lower():
+                automated.append({
+                    "id": f"pdfua-structure-tree-{issue.get('clause', 'unknown')}",
+                    "title": "Create structure tree",
+                    "description": description,
+                    "action": "Create structure tree with Document element",
+                    "severity": severity,
+                    "estimatedTime": 1,
+                    "category": "pdfuaIssues",
+                    "clause": issue.get("clause", ""),
+                    "location": {"clause": issue.get("clause", "")}
+                })
+                estimated_time += 1
+            else:
+                # Default to semi-automated for other PDF/UA issues
+                semi_automated.append({
+                    "id": f"pdfua-{issue.get('clause', 'unknown')}",
+                    "title": f"Fix PDF/UA {issue.get('clause', '')} issue",
+                    "description": description,
+                    "action": issue.get("remediation", "Review and fix PDF/UA compliance issue"),
+                    "severity": severity,
+                    "estimatedTime": 10,
+                    "category": "pdfuaIssues",
+                    "clause": issue.get("clause", ""),
+                    "location": {"clause": issue.get("clause", "")}
+                })
+                estimated_time += 10
+    
     # Automated fixes (can be applied programmatically)
     if issues.get("missingMetadata") and len(issues["missingMetadata"]) > 0:
         for issue in issues["missingMetadata"]:
