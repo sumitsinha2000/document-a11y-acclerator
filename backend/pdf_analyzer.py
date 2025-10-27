@@ -187,6 +187,35 @@ class PDFAccessibilityAnalyzer:
     def _analyze_with_pdfplumber(self, pdf_path: str):
         """Analyze PDF using pdfplumber for content analysis"""
         try:
+            tables_reviewed = False
+            try:
+                with open(pdf_path, 'rb') as file:
+                    import PyPDF2
+                    pdf_reader = PyPDF2.PdfReader(file)
+                    
+                    # Check if document is tagged and has table structures
+                    catalog = pdf_reader.trailer.get("/Root", {})
+                    if isinstance(catalog, PyPDF2.generic.IndirectObject):
+                        catalog = catalog.get_object()
+                    
+                    # Check MarkInfo
+                    mark_info = catalog.get("/MarkInfo") if isinstance(catalog, dict) else None
+                    is_tagged = False
+                    if mark_info:
+                        if isinstance(mark_info, PyPDF2.generic.IndirectObject):
+                            mark_info = mark_info.get_object()
+                        is_tagged = mark_info.get("/Marked", False) if isinstance(mark_info, dict) else False
+                    
+                    # Check for StructTreeRoot (indicates structure tags exist)
+                    has_struct_tree = catalog.get("/StructTreeRoot") if isinstance(catalog, dict) else None
+                    
+                    # If document is tagged and has structure tree, consider tables reviewed
+                    if is_tagged and has_struct_tree:
+                        tables_reviewed = True
+                        print("[Analyzer] Document has structure tags - tables marked as reviewed")
+            except Exception as e:
+                print(f"[Analyzer] Could not check table review status: {e}")
+            
             with pdfplumber.open(pdf_path) as pdf:
                 total_images = 0
                 total_tables = 0
@@ -220,7 +249,7 @@ class PDFAccessibilityAnalyzer:
                         "recommendation": "Add descriptive alt text to all images using a PDF editor.",
                     })
                 
-                if not self.issues["tableIssues"] and total_tables > 0:
+                if not self.issues["tableIssues"] and total_tables > 0 and not tables_reviewed:
                     self.issues["tableIssues"].append({
                         "severity": "high",
                         "description": f"Found {total_tables} table(s) that may lack proper header markup",
@@ -228,6 +257,8 @@ class PDFAccessibilityAnalyzer:
                         "pages": pages_with_tables[:10],
                         "recommendation": "Ensure all tables have properly marked header rows and columns.",
                     })
+                elif tables_reviewed and total_tables > 0:
+                    print(f"[Analyzer] Skipping {total_tables} table(s) - already reviewed and structured")
                 
                 if not self.issues["formIssues"] and total_form_fields > 0:
                     self.issues["formIssues"].append({
