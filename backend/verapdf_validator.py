@@ -78,15 +78,15 @@ class VeraPDFValidator:
         possible_paths = [
             # Windows
             r"C:\Program Files\veraPDF\verapdf.jar",
-            r"C:\Program Files (x86)\veraPDF\verapdf.jar",
+            r"C:\Program Files (x86)\verapdf\verapdf.jar",
             r"C:\veraPDF\verapdf.jar",
             # User-specific Windows paths
-            os.path.expanduser(r"~\veraPDF\verapdf.jar"),
-            os.path.expanduser(r"~\AppData\Local\veraPDF\verapdf.jar"),
+            os.path.expanduser(r"~\verapdf\verapdf.jar"),
+            os.path.expanduser(r"~\AppData\Local\ververapdfaPDF\verapdf.jar"),
             # Linux/Mac
             "/usr/local/verapdf/verapdf.jar",
             "/opt/verapdf/verapdf.jar",
-            os.path.expanduser("~/veraPDF/verapdf.jar"),
+            os.path.expanduser("~/verapdf/verapdf.jar"),
             # Environment variable
             os.environ.get('VERAPDF_JAR', ''),
         ]
