@@ -8,20 +8,53 @@
 \`\`\`
 Getting requirements to build wheel did not run successfully
 KeyError: '__version__'
+ERROR: Failed to build 'Pillow' when getting requirements to build wheel
 \`\`\`
 
-**Cause:** Outdated build tools (pip, setuptools, wheel) causing compatibility issues when building packages from source.
+**Cause:** Outdated build tools or incompatibility between setuptools and the package being built.
 
-**Solution:**
+**Solutions (try in order):**
 
-Before installing requirements, update your build tools:
-
+**Solution 1: Update build tools and use latest Pillow**
 \`\`\`bash
 # Update pip, setuptools, and wheel
 python -m pip install --upgrade pip setuptools wheel
 
-# Then install requirements
+# Install Pillow separately first (latest version with pre-built wheels)
+pip install Pillow
+
+# Then install remaining requirements
 pip install -r requirements.txt
+\`\`\`
+
+**Solution 2: Install Pillow from pre-built wheel**
+\`\`\`bash
+# Update build tools
+python -m pip install --upgrade pip setuptools wheel
+
+# Install Pillow with binary wheel (no build required)
+pip install --only-binary :all: Pillow
+
+# Then install remaining requirements
+pip install -r requirements.txt
+\`\`\`
+
+**Solution 3: Use conda for Pillow**
+\`\`\`bash
+# If using conda environment
+conda install pillow
+
+# Then install remaining requirements with pip
+pip install -r requirements.txt
+\`\`\`
+
+**Solution 4: Skip Pillow temporarily**
+\`\`\`bash
+# Install all packages except Pillow
+pip install Flask Flask-CORS PyPDF2 pdfplumber pytesseract pdf2image fpdf pikepdf psycopg2-binary python-dotenv
+
+# Try Pillow separately later
+pip install Pillow
 \`\`\`
 
 ### Issue 2: psycopg2-binary Installation Fails
