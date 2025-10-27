@@ -1,18 +1,20 @@
 import pikepdf
-from pikepdf import Pdf, Dictionary, Array, Name
+from pikepdf import Pdf, Dictionary, Array, Name, String
 import os
 from pathlib import Path
 import shutil
 import tempfile
 import pdfplumber
+from datetime import datetime
+import re
 
 class AutoFixEngine:
     """Engine for applying automated and manual fixes to PDFs"""
     
     def __init__(self):
         self.supported_fixes = {
-            'automated': ['addLanguage', 'addTitle', 'addMetadata'],
-            'manual': ['tagContent', 'fixTableStructure', 'addAltText', 'addFormLabel']
+            'automated': ['addLanguage', 'addTitle', 'addMetadata', 'fixStructure', 'fixViewerPreferences'],
+            'manual': ['tagContent', 'fixTableStructure', 'addAltText', 'addFormLabel', 'fixHeadingHierarchy', 'fixListStructure']
         }
     
     def generate_fixes(self, scan_results):
@@ -24,9 +26,23 @@ class AutoFixEngine:
             'estimatedTime': 0
         }
         
-        # Automated fixes
-        if scan_results.get('missingLanguage'):
-            for issue in scan_results['missingLanguage']:
+        # Automated fixes for document structure
+        if scan_results.get('structureIssues') or scan_results.get('documentStructureIssues'):
+            fixes['automated'].append({
+                'action': 'Fix document structure',
+                'title': 'Fix PDF/UA document structure',
+                'description': 'Add MarkInfo, metadata, and structure tree',
+                'category': 'structureIssues',
+                'severity': 'high',
+                'estimatedTime': '< 1 minute',
+                'fixType': 'fixStructure',
+                'fixData': {}
+            })
+            fixes['estimatedTime'] += 1
+        
+        # Automated fixes for language
+        if scan_results.get('missingLanguage') or scan_results.get('languageIssues'):
+            for issue in scan_results.get('missingLanguage', []) or scan_results.get('languageIssues', []):
                 fixes['automated'].append({
                     'action': 'Set document language',
                     'title': 'Set document language',
@@ -38,24 +54,71 @@ class AutoFixEngine:
                     'fixData': {'language': 'en-US'}
                 })
                 fixes['estimatedTime'] += 1
-                break  # Only add once
-        
-        if scan_results.get('missingMetadata'):
-            for issue in scan_results['missingMetadata']:
-                fixes['automated'].append({
-                    'action': 'Add document metadata',
-                    'title': 'Add document metadata',
-                    'description': 'Add title and other metadata to the document',
-                    'category': 'missingMetadata',
-                    'severity': 'medium',
-                    'estimatedTime': '< 1 minute',
-                    'fixType': 'addMetadata',
-                    'fixData': {}
-                })
-                fixes['estimatedTime'] += 1
                 break
         
-        # Manual fixes
+        # Automated fixes for metadata and title
+        if scan_results.get('missingMetadata') or scan_results.get('metadataIssues') or scan_results.get('titleIssues'):
+            fixes['automated'].append({
+                'action': 'Add document metadata',
+                'title': 'Add document metadata and title',
+                'description': 'Add title, metadata, and ViewerPreferences',
+                'category': 'missingMetadata',
+                'severity': 'medium',
+                'estimatedTime': '< 1 minute',
+                'fixType': 'addMetadata',
+                'fixData': {}
+            })
+            fixes['estimatedTime'] += 1
+        
+        # Automated fixes for ViewerPreferences
+        if scan_results.get('viewerPreferencesIssues'):
+            fixes['automated'].append({
+                'action': 'Fix ViewerPreferences',
+                'title': 'Set DisplayDocTitle',
+                'description': 'Configure ViewerPreferences to display document title',
+                'category': 'viewerPreferencesIssues',
+                'severity': 'medium',
+                'estimatedTime': '< 1 minute',
+                'fixType': 'fixViewerPreferences',
+                'fixData': {}
+            })
+            fixes['estimatedTime'] += 1
+        
+        # Semi-automated fixes for heading hierarchy
+        if scan_results.get('headingIssues'):
+            for issue in scan_results['headingIssues']:
+                fixes['semiAutomated'].append({
+                    'action': 'Fix heading hierarchy',
+                    'title': 'Fix heading hierarchy',
+                    'description': 'Correct heading levels to follow proper hierarchy',
+                    'category': 'headingIssues',
+                    'severity': 'medium',
+                    'estimatedTime': '5-10 minutes',
+                    'timeEstimate': '5-10 minutes',
+                    'fixType': 'fixHeadingHierarchy',
+                    'fixData': {}
+                })
+                fixes['estimatedTime'] += 7
+                break
+        
+        # Semi-automated fixes for list structure
+        if scan_results.get('listIssues'):
+            for issue in scan_results['listIssues']:
+                fixes['semiAutomated'].append({
+                    'action': 'Fix list structure',
+                    'title': 'Fix list structure',
+                    'description': 'Ensure lists have proper list items',
+                    'category': 'listIssues',
+                    'severity': 'medium',
+                    'estimatedTime': '5-10 minutes',
+                    'timeEstimate': '5-10 minutes',
+                    'fixType': 'fixListStructure',
+                    'fixData': {}
+                })
+                fixes['estimatedTime'] += 7
+                break
+        
+        # Manual fixes for tables
         if scan_results.get('tableIssues'):
             for issue in scan_results['tableIssues']:
                 fixes['manual'].append({
@@ -72,8 +135,10 @@ class AutoFixEngine:
                 })
                 fixes['estimatedTime'] += 30
         
-        if scan_results.get('missingAltText'):
-            for issue in scan_results['missingAltText']:
+        # Manual fixes for alt text
+        if scan_results.get('missingAltText') or scan_results.get('imageIssues'):
+            issues = scan_results.get('missingAltText', []) or scan_results.get('imageIssues', [])
+            for issue in issues:
                 fixes['manual'].append({
                     'action': 'Add alt text to images',
                     'title': 'Add alt text to images',
@@ -88,6 +153,7 @@ class AutoFixEngine:
                 })
                 fixes['estimatedTime'] += 10
         
+        # Manual fixes for form fields
         if scan_results.get('formIssues'):
             for issue in scan_results['formIssues']:
                 fixes['manual'].append({
@@ -103,6 +169,23 @@ class AutoFixEngine:
                     'fixData': {}
                 })
                 fixes['estimatedTime'] += 15
+        
+        # Manual fixes for annotations
+        if scan_results.get('annotationIssues'):
+            for issue in scan_results['annotationIssues']:
+                fixes['manual'].append({
+                    'action': 'Add annotation descriptions',
+                    'title': 'Add annotation descriptions',
+                    'description': 'Add descriptions to annotations and links',
+                    'category': 'annotationIssues',
+                    'severity': 'medium',
+                    'estimatedTime': '5-10 minutes',
+                    'timeEstimate': '5-10 minutes',
+                    'fixType': 'fixAnnotations',
+                    'fixData': {}
+                })
+                fixes['estimatedTime'] += 7
+                break
         
         return fixes
     
@@ -126,7 +209,7 @@ class AutoFixEngine:
                 success_count += 1
                 print("[AutoFixEngine] ✓ Added document language")
             
-            # Fix 2: Add metadata if missing
+            # Fix 2: Add/fix metadata
             with pdf.open_metadata() as meta:
                 if not meta.get('dc:title'):
                     filename = os.path.basename(pdf_path)
@@ -139,7 +222,7 @@ class AutoFixEngine:
                     success_count += 1
                     print("[AutoFixEngine] ✓ Added document title")
             
-            # Fix 3: Mark as tagged if not already
+            # Fix 3: Add MarkInfo and mark as tagged
             if not hasattr(pdf.Root, 'MarkInfo'):
                 pdf.Root.MarkInfo = Dictionary(Marked=True)
                 fixes_applied.append({
@@ -149,6 +232,91 @@ class AutoFixEngine:
                 })
                 success_count += 1
                 print("[AutoFixEngine] ✓ Marked document as tagged")
+            else:
+                if not pdf.Root.MarkInfo.get('/Marked', False):
+                    pdf.Root.MarkInfo.Marked = True
+                    fixes_applied.append({
+                        'type': 'markTagged',
+                        'description': 'Set MarkInfo.Marked to true',
+                        'success': True
+                    })
+                    success_count += 1
+                    print("[AutoFixEngine] ✓ Set MarkInfo.Marked to true")
+                
+                # Remove or set Suspects to false
+                if '/Suspects' in pdf.Root.MarkInfo and pdf.Root.MarkInfo.Suspects:
+                    pdf.Root.MarkInfo.Suspects = False
+                    fixes_applied.append({
+                        'type': 'fixSuspects',
+                        'description': 'Set MarkInfo.Suspects to false',
+                        'success': True
+                    })
+                    success_count += 1
+                    print("[AutoFixEngine] ✓ Set MarkInfo.Suspects to false")
+            
+            # Fix 4: Add ViewerPreferences
+            if not hasattr(pdf.Root, 'ViewerPreferences'):
+                pdf.Root.ViewerPreferences = Dictionary(DisplayDocTitle=True)
+                fixes_applied.append({
+                    'type': 'addViewerPreferences',
+                    'description': 'Added ViewerPreferences with DisplayDocTitle=true',
+                    'success': True
+                })
+                success_count += 1
+                print("[AutoFixEngine] ✓ Added ViewerPreferences")
+            else:
+                if not pdf.Root.ViewerPreferences.get('/DisplayDocTitle', False):
+                    pdf.Root.ViewerPreferences.DisplayDocTitle = True
+                    fixes_applied.append({
+                        'type': 'fixDisplayDocTitle',
+                        'description': 'Set ViewerPreferences.DisplayDocTitle to true',
+                        'success': True
+                    })
+                    success_count += 1
+                    print("[AutoFixEngine] ✓ Set DisplayDocTitle to true")
+            
+            # Fix 5: Create structure tree if missing
+            if not hasattr(pdf.Root, 'StructTreeRoot'):
+                struct_tree_root = Dictionary(
+                    Type=Name('/StructTreeRoot'),
+                    K=Array([]),
+                    ParentTree=Dictionary(Nums=Array([]))
+                )
+                pdf.Root.StructTreeRoot = pdf.make_indirect(struct_tree_root)
+                
+                # Create basic document structure
+                doc_element = Dictionary(
+                    Type=Name('/StructElem'),
+                    S=Name('/Document'),
+                    P=pdf.Root.StructTreeRoot,
+                    K=Array([])
+                )
+                pdf.Root.StructTreeRoot.K.append(pdf.make_indirect(doc_element))
+                
+                fixes_applied.append({
+                    'type': 'createStructureTree',
+                    'description': 'Created structure tree with Document element',
+                    'success': True
+                })
+                success_count += 1
+                print("[AutoFixEngine] ✓ Created structure tree")
+            
+            # Fix 6: Add document info title if missing
+            if '/Info' not in pdf.docinfo or '/Title' not in pdf.docinfo:
+                filename = os.path.basename(pdf_path)
+                title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
+                
+                if '/Info' not in pdf.docinfo:
+                    pdf.docinfo = Dictionary()
+                
+                pdf.docinfo.Title = title
+                fixes_applied.append({
+                    'type': 'addDocInfoTitle',
+                    'description': f'Added document info title: {title}',
+                    'success': True
+                })
+                success_count += 1
+                print(f"[AutoFixEngine] ✓ Added document info title: {title}")
             
             # Save fixed PDF
             fixed_filename = f"{os.path.splitext(os.path.basename(pdf_path))[0]}_fixed.pdf"

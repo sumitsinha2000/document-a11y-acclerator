@@ -1,6 +1,10 @@
 """
+DEPRECATED: Use auto_fix_engine.py instead
+
 PDF Accessibility Fix Engine
 Automatically fixes WCAG 2.1 and PDF/UA-1 compliance issues detected by the WCAG validator.
+
+All functionality from this file has been integrated into auto_fix_engine.py
 """
 
 import pikepdf
