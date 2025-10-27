@@ -298,9 +298,8 @@ def scan_pdf():
     try:
         print(f"[Backend] Processing file: {file.filename}")
         
-        scan_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.path.splitext(file.filename)[0]}" # Removed original filename from scan_id for cleaner uploads folder
+        scan_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.path.splitext(file.filename)[0]}"
         
-        # Save uploaded file with scan_id as filename
         upload_dir = Path('uploads')
         upload_dir.mkdir(exist_ok=True)
         
@@ -312,6 +311,24 @@ def scan_pdf():
             analyzer = PDFAccessibilityAnalyzer()
             scan_results = analyzer.analyze(str(file_path))
             print(f"[Backend] Analysis complete, found {sum(len(v) for v in scan_results.values())} issues")
+            
+            verapdf_status = {
+                'isActive': False,
+                'wcagCompliance': None,
+                'pdfuaCompliance': None,
+                'totalVeraPDFIssues': 0
+            }
+            
+            if analyzer.verapdf_validator and analyzer.verapdf_validator.is_available():
+                verapdf_status['isActive'] = True
+                # Calculate compliance from veraPDF issues
+                wcag_issues = len(scan_results.get('wcagIssues', []))
+                pdfua_issues = len(scan_results.get('pdfuaIssues', []))
+                verapdf_status['wcagCompliance'] = max(0, 100 - (wcag_issues * 10))
+                verapdf_status['pdfuaCompliance'] = max(0, 100 - (pdfua_issues * 10))
+                verapdf_status['totalVeraPDFIssues'] = wcag_issues + pdfua_issues
+                print(f"[Backend] veraPDF validation: WCAG {verapdf_status['wcagCompliance']}%, PDF/UA {verapdf_status['pdfuaCompliance']}%")
+            
         except Exception as e:
             print(f"[Backend] Error during PDF analysis: {e}")
             import traceback
@@ -357,7 +374,8 @@ def scan_pdf():
             'results': scan_results,
             'summary': None,
             'ocr': ocr_results,
-            'fixes': fix_suggestions
+            'fixes': fix_suggestions,
+            'verapdfStatus': verapdf_status  # Add veraPDF status to response
         }
         
         print(f"[Backend] Sending response with {total_fixes} fix suggestions")
@@ -400,7 +418,21 @@ def get_scan_details(scan_id):
                     results = analyzer.analyze(upload_path)
                     summary = analyzer.calculate_summary(results)
                     
-                    # Generate fixes
+                    verapdf_status = {
+                        'isActive': False,
+                        'wcagCompliance': None,
+                        'pdfuaCompliance': None,
+                        'totalVeraPDFIssues': 0
+                    }
+                    
+                    if analyzer.verapdf_validator and analyzer.verapdf_validator.is_available():
+                        verapdf_status['isActive'] = True
+                        wcag_issues = len(results.get('wcagIssues', []))
+                        pdfua_issues = len(results.get('pdfuaIssues', []))
+                        verapdf_status['wcagCompliance'] = max(0, 100 - (wcag_issues * 10))
+                        verapdf_status['pdfuaCompliance'] = max(0, 100 - (pdfua_issues * 10))
+                        verapdf_status['totalVeraPDFIssues'] = wcag_issues + pdfua_issues
+                    
                     fixes = get_empty_fixes_structure()
                     if AUTO_FIX_AVAILABLE:
                         try:
@@ -431,7 +463,8 @@ def get_scan_details(scan_id):
                         'results': results,
                         'summary': summary,
                         'fixes': fixes,
-                        'uploadDate': datetime.now().isoformat()
+                        'uploadDate': datetime.now().isoformat(),
+                        'verapdfStatus': verapdf_status  # Add veraPDF status
                     }), 200
                 except Exception as e:
                     print(f"[Backend] ERROR analyzing file: {e}")
@@ -463,6 +496,22 @@ def get_scan_details(scan_id):
             analyzer = PDFAccessibilityAnalyzer()
             summary = analyzer.calculate_summary(results)
         
+        verapdf_status = {
+            'isActive': False,
+            'wcagCompliance': None,
+            'pdfuaCompliance': None,
+            'totalVeraPDFIssues': 0
+        }
+        
+        # Check if results contain veraPDF issues
+        if 'wcagIssues' in results or 'pdfuaIssues' in results:
+            verapdf_status['isActive'] = True
+            wcag_issues = len(results.get('wcagIssues', []))
+            pdfua_issues = len(results.get('pdfuaIssues', []))
+            verapdf_status['wcagCompliance'] = max(0, 100 - (wcag_issues * 10))
+            verapdf_status['pdfuaCompliance'] = max(0, 100 - (pdfua_issues * 10))
+            verapdf_status['totalVeraPDFIssues'] = wcag_issues + pdfua_issues
+        
         fixes = get_empty_fixes_structure()
         
         if AUTO_FIX_AVAILABLE:
@@ -485,7 +534,8 @@ def get_scan_details(scan_id):
             'summary': summary,
             'fixes': fixes,
             'uploadDate': result[0]['upload_date'].isoformat() if result[0]['upload_date'] else None,
-            'batchId': result[0]['batch_id'] if result[0]['batch_id'] else None
+            'batchId': result[0]['batch_id'] if result[0]['batch_id'] else None,
+            'verapdfStatus': verapdf_status  # Add veraPDF status
         }
         
         print(f"[Backend] ✓ Returning scan details for {result[0]['filename']}")
@@ -1444,7 +1494,6 @@ def get_batch_details(batch_id):
                 results = scan_data['results']
                 summary = scan_data.get('summary')
             else:
-                # Old format - just results
                 results = scan_data
                 summary = None
             
