@@ -17,12 +17,20 @@ except ImportError:
     PDF_EXTRACT_KIT_AVAILABLE = False
     print("[Analyzer] PDF-Extract-Kit processor not available")
 
+try:
+    from verapdf_validator import VeraPDFValidator
+    VERAPDF_AVAILABLE = True
+except ImportError:
+    VERAPDF_AVAILABLE = False
+    print("[Analyzer] veraPDF validator not available")
+
 
 class PDFAccessibilityAnalyzer:
     """
     Analyzes PDF documents for accessibility compliance.
     Checks for WCAG 2.1 compliance across multiple dimensions.
     Uses PDF-Extract-Kit when available for enhanced analysis.
+    Now includes veraPDF validation for comprehensive WCAG 2.1 and PDF/UA compliance
     """
 
     def __init__(self):
@@ -36,6 +44,8 @@ class PDFAccessibilityAnalyzer:
             "tableIssues": [],
             "structureIssues": [],
             "readingOrderIssues": [],
+            "wcagIssues": [],
+            "pdfuaIssues": [],
         }
         
         self.pdf_extract_kit = None
@@ -46,6 +56,15 @@ class PDFAccessibilityAnalyzer:
                     print("[Analyzer] PDF-Extract-Kit integration enabled")
             except Exception as e:
                 print(f"[Analyzer] Could not initialize PDF-Extract-Kit: {e}")
+        
+        self.verapdf_validator = None
+        if VERAPDF_AVAILABLE:
+            try:
+                self.verapdf_validator = VeraPDFValidator()
+                if self.verapdf_validator.is_available():
+                    print("[Analyzer] veraPDF validator enabled for WCAG 2.1 and PDF/UA validation")
+            except Exception as e:
+                print(f"[Analyzer] Could not initialize veraPDF validator: {e}")
 
     def analyze(self, pdf_path: str) -> Dict[str, Any]:
         """
@@ -68,6 +87,10 @@ class PDFAccessibilityAnalyzer:
             
             self._analyze_with_pypdf2(pdf_path)
             self._analyze_with_pdfplumber(pdf_path)
+            
+            if self.verapdf_validator and self.verapdf_validator.is_available():
+                print("[Analyzer] Running veraPDF validation for WCAG 2.1 and PDF/UA compliance")
+                self._analyze_with_verapdf(pdf_path)
             
             total_issues = sum(len(v) for v in self.issues.values())
             print(f"[Analyzer] Analysis complete, found {total_issues} issues")
@@ -407,3 +430,38 @@ class PDFAccessibilityAnalyzer:
                 "mediumSeverity": 0,
                 "complianceScore": 50,
             }
+
+    def _analyze_with_verapdf(self, pdf_path: str):
+        """Analyze PDF using veraPDF for WCAG 2.1 and PDF/UA compliance validation"""
+        try:
+            validation_results = self.verapdf_validator.validate(pdf_path)
+            
+            # Merge WCAG issues
+            if validation_results.get("wcagIssues"):
+                self.issues["wcagIssues"].extend(validation_results["wcagIssues"])
+                print(f"[Analyzer] veraPDF found {len(validation_results['wcagIssues'])} WCAG issues")
+            
+            # Merge PDF/UA issues
+            if validation_results.get("pdfuaIssues"):
+                self.issues["pdfuaIssues"].extend(validation_results["pdfuaIssues"])
+                print(f"[Analyzer] veraPDF found {len(validation_results['pdfuaIssues'])} PDF/UA issues")
+            
+            # Merge structure issues (avoid duplicates)
+            if validation_results.get("structureIssues"):
+                existing_structure_count = len(self.issues["structureIssues"])
+                self.issues["structureIssues"].extend(validation_results["structureIssues"])
+                print(f"[Analyzer] veraPDF added {len(validation_results['structureIssues'])} structure issues")
+            
+            # Merge metadata issues
+            if validation_results.get("metadataIssues"):
+                self.issues["missingMetadata"].extend(validation_results["metadataIssues"])
+            
+            # Get compliance summary
+            compliance_summary = self.verapdf_validator.get_compliance_summary(validation_results)
+            print(f"[Analyzer] WCAG Compliance: {compliance_summary['wcagCompliance']}%")
+            print(f"[Analyzer] PDF/UA Compliance: {compliance_summary['pdfuaCompliance']}%")
+            
+        except Exception as e:
+            print(f"[Analyzer] Error in veraPDF validation: {e}")
+            import traceback
+            traceback.print_exc()

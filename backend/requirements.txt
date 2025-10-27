@@ -18,3 +18,11 @@ python-dotenv==1.0.0
 # - Improved form field detection
 # - Document structure analysis (headings, reading order)
 # - More accurate image and alt text detection
+
+# veraPDF (installed separately)
+# Installation instructions in VERAPDF_SETUP.md
+# When available, provides industry-standard validation:
+# - WCAG 2.1 Level A and AA compliance checking
+# - PDF/UA (ISO 14289-1) validation
+# - Section 508 compliance verification
+# - Detailed accessibility issue reporting with clause references
