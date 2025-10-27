@@ -75,7 +75,14 @@ class PDFAccessibilityAnalyzer:
         
         self.wcag_validator = None
         if WCAG_VALIDATOR_AVAILABLE:
-            print("[Analyzer] Built-in WCAG 2.1 and PDF/UA-1 validator enabled")
+            try:
+                print("[Analyzer] ✓ Built-in WCAG 2.1 and PDF/UA-1 validator enabled")
+                self.wcag_validator_available = True
+            except Exception as e:
+                print(f"[Analyzer] Could not initialize WCAG validator: {e}")
+                self.wcag_validator_available = False
+        else:
+            self.wcag_validator_available = False
 
     def analyze(self, pdf_path: str) -> Dict[str, Any]:
         """
@@ -103,7 +110,7 @@ class PDFAccessibilityAnalyzer:
                 print("[Analyzer] Running veraPDF validation for WCAG 2.1 and PDF/UA compliance")
                 self._analyze_with_verapdf(pdf_path)
             
-            if not (self.verapdf_validator and self.verapdf_validator.is_available()) and WCAG_VALIDATOR_AVAILABLE:
+            if not (self.verapdf_validator and self.verapdf_validator.is_available()) and self.wcag_validator_available:
                 print("[Analyzer] Running built-in WCAG 2.1 and PDF/UA-1 validation")
                 self._analyze_with_wcag_validator(pdf_path)
             
@@ -484,29 +491,47 @@ class PDFAccessibilityAnalyzer:
     def _analyze_with_wcag_validator(self, pdf_path: str):
         """Analyze PDF using built-in WCAG 2.1 and PDF/UA-1 validator"""
         try:
+            print(f"[Analyzer] ========== WCAG VALIDATOR ANALYSIS ==========")
+            print(f"[Analyzer] Analyzing: {pdf_path}")
+            
             validator = WCAGValidator(pdf_path)
             validation_results = validator.validate()
             
+            print(f"[Analyzer] Validation complete. Results keys: {list(validation_results.keys())}")
+            
             # Merge WCAG issues
             if validation_results.get("wcagIssues"):
+                wcag_count = len(validation_results["wcagIssues"])
                 self.issues["wcagIssues"].extend(validation_results["wcagIssues"])
-                print(f"[Analyzer] WCAG Validator found {len(validation_results['wcagIssues'])} WCAG issues")
+                print(f"[Analyzer] ✓ WCAG Validator found {wcag_count} WCAG 2.1 issues")
+                for i, issue in enumerate(validation_results["wcagIssues"][:3]):
+                    print(f"[Analyzer]   Issue {i+1}: {issue.get('criterion', 'N/A')} - {issue.get('description', 'N/A')[:80]}")
             
             # Merge PDF/UA issues
             if validation_results.get("pdfuaIssues"):
+                pdfua_count = len(validation_results["pdfuaIssues"])
                 self.issues["pdfuaIssues"].extend(validation_results["pdfuaIssues"])
-                print(f"[Analyzer] WCAG Validator found {len(validation_results['pdfuaIssues'])} PDF/UA issues")
+                print(f"[Analyzer] ✓ WCAG Validator found {pdfua_count} PDF/UA-1 issues")
+                for i, issue in enumerate(validation_results["pdfuaIssues"][:3]):
+                    print(f"[Analyzer]   Issue {i+1}: {issue.get('clause', 'N/A')} - {issue.get('description', 'N/A')[:80]}")
             
             # Get compliance summary
             wcag_score = validation_results.get('wcagScore', 0)
             pdfua_score = validation_results.get('pdfuaScore', 0)
             wcag_compliance = validation_results.get('wcagCompliance', {})
             
-            print(f"[Analyzer] WCAG Compliance Score: {wcag_score}%")
-            print(f"[Analyzer] PDF/UA Compliance Score: {pdfua_score}%")
-            print(f"[Analyzer] WCAG Levels - A: {wcag_compliance.get('A', False)}, AA: {wcag_compliance.get('AA', False)}, AAA: {wcag_compliance.get('AAA', False)}")
+            print(f"[Analyzer] ========== COMPLIANCE SCORES ==========")
+            print(f"[Analyzer] WCAG 2.1 Compliance Score: {wcag_score}%")
+            print(f"[Analyzer] PDF/UA-1 Compliance Score: {pdfua_score}%")
+            print(f"[Analyzer] WCAG Levels:")
+            print(f"[Analyzer]   Level A:   {'✓ PASS' if wcag_compliance.get('A', False) else '✗ FAIL'}")
+            print(f"[Analyzer]   Level AA:  {'✓ PASS' if wcag_compliance.get('AA', False) else '✗ FAIL'}")
+            print(f"[Analyzer]   Level AAA: {'✓ PASS' if wcag_compliance.get('AAA', False) else '✗ FAIL'}")
+            print(f"[Analyzer] ========================================")
             
         except Exception as e:
-            print(f"[Analyzer] Error in WCAG validation: {e}")
+            print(f"[Analyzer] ========== ERROR IN WCAG VALIDATION ==========")
+            print(f"[Analyzer] Error: {e}")
             import traceback
             traceback.print_exc()
+            print(f"[Analyzer] ==========================================")
