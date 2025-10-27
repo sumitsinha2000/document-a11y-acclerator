@@ -398,7 +398,7 @@ class AutoFixEngine:
                 title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
                 
                 if '/Info' not in pdf.docinfo:
-                    pdf.docinfo = Dictionary()
+                    pdf.docinfo = pdf.make_indirect(Dictionary())
                 
                 pdf.docinfo.Title = title
                 fixes_applied.append({
