@@ -34,7 +34,6 @@ class AutoFixEngine:
             'estimatedTime': 0
         }
         
-        
         # Automated fixes for document structure
         if scan_results.get('structureIssues') or scan_results.get('documentStructureIssues'):
             fixes['automated'].append({
@@ -221,6 +220,95 @@ class AutoFixEngine:
                 })
                 fixes['estimatedTime'] += 7
                 break
+        
+        # Handle WCAG issues
+        if scan_results.get('wcagIssues') and len(scan_results['wcagIssues']) > 0:
+            for issue in scan_results['wcagIssues']:
+                severity = issue.get('severity', 'high')
+                description = issue.get('description', '')
+                
+                # Determine if fix can be automated
+                if any(keyword in description.lower() for keyword in ['metadata', 'title', 'dc:title']):
+                    fixes['automated'].append({
+                        'action': 'Fix WCAG metadata issue',
+                        'title': f"Fix {issue.get('criterion', 'WCAG')} issue",
+                        'description': description,
+                        'category': 'wcagIssues',
+                        'severity': severity,
+                        'estimatedTime': '< 1 minute',
+                        'fixType': 'addMetadata',
+                        'fixData': {'criterion': issue.get('criterion', '')}
+                    })
+                    fixes['estimatedTime'] += 1
+                elif 'reading order' in description.lower():
+                    fixes['manual'].append({
+                        'action': 'Fix reading order',
+                        'title': 'Define proper reading order',
+                        'description': description,
+                        'category': 'wcagIssues',
+                        'severity': severity,
+                        'estimatedTime': '20-30 minutes',
+                        'fixType': 'fixReadingOrder',
+                        'fixData': {'criterion': issue.get('criterion', '')},
+                        'instructions': 'Use PDF editor to create structure tree and define reading order'
+                    })
+                    fixes['estimatedTime'] += 25
+                else:
+                    fixes['semiAutomated'].append({
+                        'action': f"Fix {issue.get('criterion', 'WCAG')} issue",
+                        'title': f"Fix {issue.get('criterion', 'WCAG')} compliance",
+                        'description': description,
+                        'category': 'wcagIssues',
+                        'severity': severity,
+                        'estimatedTime': '10-15 minutes',
+                        'fixType': 'fixWCAG',
+                        'fixData': {'criterion': issue.get('criterion', '')}
+                    })
+                    fixes['estimatedTime'] += 12
+        
+        # Handle PDF/UA issues
+        if scan_results.get('pdfuaIssues') and len(scan_results['pdfuaIssues']) > 0:
+            for issue in scan_results['pdfuaIssues']:
+                severity = issue.get('severity', 'high')
+                description = issue.get('description', '')
+                
+                # Determine if fix can be automated
+                if any(keyword in description.lower() for keyword in ['metadata stream', 'viewerpreferences', 'dc:title', 'suspects']):
+                    fixes['automated'].append({
+                        'action': 'Fix PDF/UA structure issue',
+                        'title': f"Fix {issue.get('clause', 'PDF/UA')} issue",
+                        'description': description,
+                        'category': 'pdfuaIssues',
+                        'severity': severity,
+                        'estimatedTime': '< 1 minute',
+                        'fixType': 'fixStructure',
+                        'fixData': {'clause': issue.get('clause', '')}
+                    })
+                    fixes['estimatedTime'] += 1
+                elif 'structure tree' in description.lower() and 'no children' in description.lower():
+                    fixes['automated'].append({
+                        'action': 'Create structure tree',
+                        'title': 'Add structure tree children',
+                        'description': description,
+                        'category': 'pdfuaIssues',
+                        'severity': severity,
+                        'estimatedTime': '< 1 minute',
+                        'fixType': 'fixStructure',
+                        'fixData': {'clause': issue.get('clause', '')}
+                    })
+                    fixes['estimatedTime'] += 1
+                else:
+                    fixes['semiAutomated'].append({
+                        'action': f"Fix {issue.get('clause', 'PDF/UA')} issue",
+                        'title': f"Fix PDF/UA {issue.get('clause', '')} compliance",
+                        'description': description,
+                        'category': 'pdfuaIssues',
+                        'severity': severity,
+                        'estimatedTime': '10-15 minutes',
+                        'fixType': 'fixPDFUA',
+                        'fixData': {'clause': issue.get('clause', '')}
+                    })
+                    fixes['estimatedTime'] += 12
         
         return fixes
     
