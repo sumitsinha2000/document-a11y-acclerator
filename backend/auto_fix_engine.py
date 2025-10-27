@@ -213,7 +213,12 @@ class AutoFixEngine:
             if fix_type == 'tagContent' and fix_data.get('tagType') == 'Table':
                 print("[AutoFixEngine] Fixing table structure...")
                 
-                # Just mark document as tagged - don't create complex structure trees
+                # Ensure document has language set
+                if not hasattr(pdf.Root, 'Lang') or not pdf.Root.Lang:
+                    pdf.Root.Lang = 'en-US'
+                    print("[AutoFixEngine] Added document language (en-US)")
+                
+                # Mark document as tagged
                 if not hasattr(pdf.Root, 'MarkInfo'):
                     pdf.Root.MarkInfo = pikepdf.Dictionary(Marked=True)
                 else:
@@ -228,7 +233,12 @@ class AutoFixEngine:
             elif fix_type == 'fixTableStructure':
                 print("[AutoFixEngine] Fixing table structure (fixTableStructure)...")
                 
-                # Just mark document as tagged
+                # Ensure document has language set
+                if not hasattr(pdf.Root, 'Lang') or not pdf.Root.Lang:
+                    pdf.Root.Lang = 'en-US'
+                    print("[AutoFixEngine] Added document language (en-US)")
+                
+                # Mark document as tagged
                 if not hasattr(pdf.Root, 'MarkInfo'):
                     pdf.Root.MarkInfo = pikepdf.Dictionary(Marked=True)
                 else:
@@ -275,6 +285,11 @@ class AutoFixEngine:
             
             if not fix_applied:
                 print(f"[AutoFixEngine] WARNING: Fix type '{fix_type}' not fully implemented")
+                # Ensure document has language set
+                if not hasattr(pdf.Root, 'Lang') or not pdf.Root.Lang:
+                    pdf.Root.Lang = 'en-US'
+                    print("[AutoFixEngine] Added document language (en-US)")
+                
                 # Still mark as applied for basic tagging
                 if not hasattr(pdf.Root, 'MarkInfo'):
                     pdf.Root.MarkInfo = pikepdf.Dictionary(Marked=True)
