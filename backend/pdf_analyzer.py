@@ -24,6 +24,13 @@ except ImportError:
     VERAPDF_AVAILABLE = False
     print("[Analyzer] veraPDF validator not available")
 
+try:
+    from wcag_validator import WCAGValidator
+    WCAG_VALIDATOR_AVAILABLE = True
+except ImportError:
+    WCAG_VALIDATOR_AVAILABLE = False
+    print("[Analyzer] WCAG validator not available")
+
 
 class PDFAccessibilityAnalyzer:
     """
@@ -65,6 +72,10 @@ class PDFAccessibilityAnalyzer:
                     print("[Analyzer] veraPDF validator enabled for WCAG 2.1 and PDF/UA validation")
             except Exception as e:
                 print(f"[Analyzer] Could not initialize veraPDF validator: {e}")
+        
+        self.wcag_validator = None
+        if WCAG_VALIDATOR_AVAILABLE:
+            print("[Analyzer] Built-in WCAG 2.1 and PDF/UA-1 validator enabled")
 
     def analyze(self, pdf_path: str) -> Dict[str, Any]:
         """
@@ -91,6 +102,10 @@ class PDFAccessibilityAnalyzer:
             if self.verapdf_validator and self.verapdf_validator.is_available():
                 print("[Analyzer] Running veraPDF validation for WCAG 2.1 and PDF/UA compliance")
                 self._analyze_with_verapdf(pdf_path)
+            
+            if not (self.verapdf_validator and self.verapdf_validator.is_available()) and WCAG_VALIDATOR_AVAILABLE:
+                print("[Analyzer] Running built-in WCAG 2.1 and PDF/UA-1 validation")
+                self._analyze_with_wcag_validator(pdf_path)
             
             total_issues = sum(len(v) for v in self.issues.values())
             print(f"[Analyzer] Analysis complete, found {total_issues} issues")
@@ -463,5 +478,35 @@ class PDFAccessibilityAnalyzer:
             
         except Exception as e:
             print(f"[Analyzer] Error in veraPDF validation: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _analyze_with_wcag_validator(self, pdf_path: str):
+        """Analyze PDF using built-in WCAG 2.1 and PDF/UA-1 validator"""
+        try:
+            validator = WCAGValidator(pdf_path)
+            validation_results = validator.validate()
+            
+            # Merge WCAG issues
+            if validation_results.get("wcagIssues"):
+                self.issues["wcagIssues"].extend(validation_results["wcagIssues"])
+                print(f"[Analyzer] WCAG Validator found {len(validation_results['wcagIssues'])} WCAG issues")
+            
+            # Merge PDF/UA issues
+            if validation_results.get("pdfuaIssues"):
+                self.issues["pdfuaIssues"].extend(validation_results["pdfuaIssues"])
+                print(f"[Analyzer] WCAG Validator found {len(validation_results['pdfuaIssues'])} PDF/UA issues")
+            
+            # Get compliance summary
+            wcag_score = validation_results.get('wcagScore', 0)
+            pdfua_score = validation_results.get('pdfuaScore', 0)
+            wcag_compliance = validation_results.get('wcagCompliance', {})
+            
+            print(f"[Analyzer] WCAG Compliance Score: {wcag_score}%")
+            print(f"[Analyzer] PDF/UA Compliance Score: {pdfua_score}%")
+            print(f"[Analyzer] WCAG Levels - A: {wcag_compliance.get('A', False)}, AA: {wcag_compliance.get('AA', False)}, AAA: {wcag_compliance.get('AAA', False)}")
+            
+        except Exception as e:
+            print(f"[Analyzer] Error in WCAG validation: {e}")
             import traceback
             traceback.print_exc()

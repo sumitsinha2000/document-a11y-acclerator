@@ -5,7 +5,8 @@ An automated PDF accessibility scanning and remediation tool with WCAG 2.1, PDF/
 ## Features
 
 - Scan PDFs for accessibility issues
-- **WCAG 2.1 and PDF/UA compliance validation** (with veraPDF)
+- **Built-in WCAG 2.1 and PDF/UA-1 validator** (no external dependencies required)
+- **Enhanced validation with veraPDF** (optional)
 - Batch processing support
 - Automated fix suggestions
 - Manual PDF editing capabilities
@@ -38,7 +39,7 @@ pip install -r requirements.txt
 4. **(Optional) Install veraPDF for Enhanced Validation**:
    - veraPDF provides industry-standard WCAG 2.1 and PDF/UA compliance checking
    - See [VERAPDF_SETUP.md](backend/VERAPDF_SETUP.md) for installation instructions
-   - The app works without veraPDF but provides enhanced validation when installed
+   - **Note**: The app includes a built-in WCAG validator and works perfectly without veraPDF
 
 5. **(Optional) Install PDF-Extract-Kit for Advanced Analysis**:
    - See [PDF_EXTRACT_KIT_SETUP.md](backend/PDF_EXTRACT_KIT_SETUP.md) for installation instructions
@@ -82,13 +83,22 @@ The frontend will run on `http://localhost:3000`
 
 The tool validates PDFs against:
 
-- **WCAG 2.1** (Web Content Accessibility Guidelines) - Level A and AA
-- **PDF/UA** (ISO 14289-1) - PDF Universal Accessibility standard
+- **WCAG 2.1** (Web Content Accessibility Guidelines) - Level A, AA, and AAA
+- **PDF/UA-1** (ISO 14289-1) - PDF Universal Accessibility standard
 - **Section 508** - U.S. federal accessibility requirements
 
 ### Validation Layers
 
-1. **Core Analysis** (Always Active):
+1. **Built-in WCAG 2.1 & PDF/UA-1 Validator** (Always Active):
+   - No external dependencies required
+   - Based on veraPDF WCAG algorithms
+   - Comprehensive validation of 15+ WCAG criteria
+   - PDF/UA-1 structure and tagging validation
+   - Detailed issue reports with WCAG criterion references
+   - Remediation recommendations for each issue
+   - See [WCAG_VALIDATOR_INFO.md](backend/WCAG_VALIDATOR_INFO.md) for details
+
+2. **Core Analysis** (Always Active):
    - Metadata validation
    - Document structure and tagging
    - Image alt text detection
@@ -97,18 +107,30 @@ The tool validates PDFs against:
    - Language specification
    - Color contrast checks
 
-2. **Enhanced Analysis** (When PDF-Extract-Kit is installed):
+3. **Enhanced Analysis** (When PDF-Extract-Kit is installed):
    - Advanced layout analysis
    - Improved table detection
    - Better form field detection
    - Document structure analysis
    - Reading order validation
 
-3. **Standards Validation** (When veraPDF is installed):
-   - WCAG 2.1 compliance checking with criterion references
-   - PDF/UA validation with clause references
+4. **Standards Validation** (When veraPDF is installed):
+   - Official PDF Association validator
+   - Most comprehensive WCAG 2.1 compliance checking
+   - PDF/UA validation with detailed clause references
    - Section 508 compliance verification
-   - Detailed remediation recommendations
+   - Industry-standard validation results
+
+### Which Validator Should I Use?
+
+| Validator | Setup Required | Accuracy | Speed | Recommendation |
+|-----------|---------------|----------|-------|----------------|
+| **Built-in** | None | Good | Fast | **Recommended for most users** |
+| **veraPDF** | Java + veraPDF | Excellent | Slower | Optional for maximum accuracy |
+
+**For most users**: The built-in validator provides comprehensive WCAG 2.1 and PDF/UA-1 validation without any setup. It's fast, reliable, and covers all major accessibility requirements.
+
+**For maximum accuracy**: Install veraPDF CLI for the official PDF Association validator with the most comprehensive validation available.
 
 ## Troubleshooting
 
@@ -131,25 +153,37 @@ If you see "ERR_CONNECTION_REFUSED" errors:
 - **PostgreSQL**: Ensure PostgreSQL is running and credentials are correct in `.env`
 - **SQLite**: The app will automatically create `accessibility_scans.db` in the backend directory
 
+### Installation Issues
+
+If you encounter errors during `pip install -r requirements.txt`:
+
+1. See [INSTALLATION_TROUBLESHOOTING.md](backend/INSTALLATION_TROUBLESHOOTING.md) for common solutions
+2. Most issues are related to Pillow build dependencies
+3. Try installing Pillow separately first: `pip install Pillow`
+
 ### veraPDF Not Detected
 
-If veraPDF validation is not running:
+If veraPDF validation is not running (optional):
 
-1. Verify veraPDF is installed: `verapdf --version`
-2. Ensure veraPDF is in your system PATH
+1. Verify veraPDF is installed: `verapdf --version` or `java -jar /path/to/verapdf.jar --version`
+2. Ensure veraPDF is in your system PATH or set `VERAPDF_JAR` environment variable
 3. Restart the backend server after installing veraPDF
 4. Check backend logs for veraPDF initialization messages
+5. **Note**: The app works perfectly without veraPDF using the built-in validator
 
 ## Technology Stack
 
 - **Frontend**: React, Vite, Tailwind CSS
 - **Backend**: Python, Flask, PostgreSQL/SQLite
 - **PDF Processing**: PyPDF2, pikepdf, pdfplumber
+- **Built-in Validation**: Custom WCAG 2.1 & PDF/UA-1 validator (based on veraPDF algorithms)
 - **Enhanced Analysis**: PDF-Extract-Kit (optional)
 - **Standards Validation**: veraPDF (optional)
 
 ## Documentation
 
-- [veraPDF Setup Guide](backend/VERAPDF_SETUP.md) - WCAG 2.1 and PDF/UA validation
+- [Built-in WCAG Validator Info](backend/WCAG_VALIDATOR_INFO.md) - Comprehensive validation details
+- [veraPDF Setup Guide](backend/VERAPDF_SETUP.md) - Optional enhanced validation
 - [PDF-Extract-Kit Setup Guide](backend/PDF_EXTRACT_KIT_SETUP.md) - Advanced PDF analysis
 - [PostgreSQL Setup Guide](backend/POSTGRESQL_SETUP.md) - Database configuration
+- [Installation Troubleshooting](backend/INSTALLATION_TROUBLESHOOTING.md) - Common setup issues
