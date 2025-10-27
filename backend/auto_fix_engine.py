@@ -244,22 +244,54 @@ class AutoFixEngine:
                 success_count += 1
                 print("[AutoFixEngine] ✓ Added document language")
             
-            # Fix 2: Add/fix metadata and PDF/UA identifier
-            with pdf.open_metadata() as meta:
+            filename = os.path.basename(pdf_path)
+            title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
+            
+            # Ensure docinfo exists and is an indirect object
+            if not hasattr(pdf, 'docinfo') or pdf.docinfo is None or len(pdf.docinfo) == 0:
+                pdf.docinfo = pdf.make_indirect(Dictionary())
+                print("[AutoFixEngine] Created new docinfo dictionary")
+            
+            # Add title to docinfo
+            if '/Title' not in pdf.docinfo or not pdf.docinfo.Title:
+                pdf.docinfo['/Title'] = title
+                fixes_applied.append({
+                    'type': 'addDocInfoTitle',
+                    'description': f'Added document info title: {title}',
+                    'success': True
+                })
+                success_count += 1
+                print(f"[AutoFixEngine] ✓ Added document info title: {title}")
+            
+            # Fix 2: Add/fix metadata stream and PDF/UA identifier
+            if not hasattr(pdf.Root, 'Metadata') or pdf.Root.Metadata is None:
+                # Create metadata stream
+                with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
+                    # Metadata stream will be created automatically
+                    pass
+                fixes_applied.append({
+                    'type': 'addMetadataStream',
+                    'description': 'Added metadata stream to document',
+                    'success': True
+                })
+                success_count += 1
+                print("[AutoFixEngine] ✓ Added metadata stream")
+            
+            with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
+                # Add dc:title
                 if not meta.get('dc:title'):
-                    filename = os.path.basename(pdf_path)
-                    meta['dc:title'] = os.path.splitext(filename)[0]
+                    meta['dc:title'] = title
                     fixes_applied.append({
-                        'type': 'addMetadata',
-                        'description': 'Added document title',
+                        'type': 'addDCTitle',
+                        'description': 'Added dc:title to metadata',
                         'success': True
                     })
                     success_count += 1
-                    print("[AutoFixEngine] ✓ Added document title")
+                    print("[AutoFixEngine] ✓ Added dc:title to metadata")
                 
+                # Add PDF/UA identifier
                 if not meta.get('pdfuaid:part'):
                     meta['pdfuaid:part'] = '1'
-                    meta['pdfuaid:conformance'] = 'A'
                     fixes_applied.append({
                         'type': 'addPDFUAIdentifier',
                         'description': 'Added PDF/UA-1 identifier',
@@ -270,7 +302,7 @@ class AutoFixEngine:
             
             # Fix 3: Add MarkInfo and mark as tagged
             if not hasattr(pdf.Root, 'MarkInfo'):
-                pdf.Root.MarkInfo = Dictionary(Marked=True, Suspects=False)
+                pdf.Root.MarkInfo = pdf.make_indirect(Dictionary(Marked=True, Suspects=False))
                 fixes_applied.append({
                     'type': 'markTagged',
                     'description': 'Marked document as tagged with Suspects=false',
@@ -280,7 +312,7 @@ class AutoFixEngine:
                 print("[AutoFixEngine] ✓ Marked document as tagged")
             else:
                 if not pdf.Root.MarkInfo.get('/Marked', False):
-                    pdf.Root.MarkInfo.Marked = True
+                    pdf.Root.MarkInfo['/Marked'] = True
                     fixes_applied.append({
                         'type': 'markTagged',
                         'description': 'Set MarkInfo.Marked to true',
@@ -290,8 +322,8 @@ class AutoFixEngine:
                     print("[AutoFixEngine] ✓ Set MarkInfo.Marked to true")
                 
                 # Remove or set Suspects to false
-                if '/Suspects' in pdf.Root.MarkInfo and pdf.Root.MarkInfo.Suspects:
-                    pdf.Root.MarkInfo.Suspects = False
+                if '/Suspects' in pdf.Root.MarkInfo and pdf.Root.MarkInfo.get('/Suspects', False):
+                    pdf.Root.MarkInfo['/Suspects'] = False
                     fixes_applied.append({
                         'type': 'fixSuspects',
                         'description': 'Set MarkInfo.Suspects to false',
@@ -302,7 +334,7 @@ class AutoFixEngine:
             
             # Fix 4: Add ViewerPreferences
             if not hasattr(pdf.Root, 'ViewerPreferences'):
-                pdf.Root.ViewerPreferences = Dictionary(DisplayDocTitle=True)
+                pdf.Root.ViewerPreferences = pdf.make_indirect(Dictionary(DisplayDocTitle=True))
                 fixes_applied.append({
                     'type': 'addViewerPreferences',
                     'description': 'Added ViewerPreferences with DisplayDocTitle=true',
@@ -312,7 +344,7 @@ class AutoFixEngine:
                 print("[AutoFixEngine] ✓ Added ViewerPreferences")
             else:
                 if not pdf.Root.ViewerPreferences.get('/DisplayDocTitle', False):
-                    pdf.Root.ViewerPreferences.DisplayDocTitle = True
+                    pdf.Root.ViewerPreferences['/DisplayDocTitle'] = True
                     fixes_applied.append({
                         'type': 'fixDisplayDocTitle',
                         'description': 'Set ViewerPreferences.DisplayDocTitle to true',
@@ -321,43 +353,71 @@ class AutoFixEngine:
                     success_count += 1
                     print("[AutoFixEngine] ✓ Set DisplayDocTitle to true")
             
-            # Fix 5: Create structure tree if missing with RoleMap
+            # Fix 5: Create structure tree if missing with RoleMap and proper children
             if not hasattr(pdf.Root, 'StructTreeRoot'):
-                role_map = Dictionary()
-                # Add standard role mappings for common custom roles
+                role_map = pdf.make_indirect(Dictionary())
                 role_map[Name('/Heading')] = Name('/H')
                 role_map[Name('/Subheading')] = Name('/H')
                 role_map[Name('/Title')] = Name('/H')
                 role_map[Name('/Subtitle')] = Name('/H')
                 
-                struct_tree_root = Dictionary(
+                # Create parent tree for structure elements
+                parent_tree = pdf.make_indirect(Dictionary(Nums=Array([])))
+                
+                struct_tree_root = pdf.make_indirect(Dictionary(
                     Type=Name('/StructTreeRoot'),
                     K=Array([]),
                     RoleMap=role_map,
-                    ParentTree=Dictionary(Nums=Array([]))
-                )
-                pdf.Root.StructTreeRoot = pdf.make_indirect(struct_tree_root)
+                    ParentTree=parent_tree
+                ))
+                pdf.Root.StructTreeRoot = struct_tree_root
                 
-                # Create basic document structure
-                doc_element = Dictionary(
+                # Create Document element with language
+                doc_element = pdf.make_indirect(Dictionary(
                     Type=Name('/StructElem'),
                     S=Name('/Document'),
                     P=pdf.Root.StructTreeRoot,
                     K=Array([]),
                     Lang=String('en-US')
-                )
-                pdf.Root.StructTreeRoot.K.append(pdf.make_indirect(doc_element))
+                ))
+                
+                # Add Document element to structure tree
+                pdf.Root.StructTreeRoot.K.append(doc_element)
                 
                 fixes_applied.append({
                     'type': 'createStructureTree',
-                    'description': 'Created structure tree with Document element and RoleMap',
+                    'description': 'Created structure tree with Document element, RoleMap, and ParentTree',
                     'success': True
                 })
                 success_count += 1
-                print("[AutoFixEngine] ✓ Created structure tree with RoleMap")
+                print("[AutoFixEngine] ✓ Created structure tree with proper children")
             else:
+                if not hasattr(pdf.Root.StructTreeRoot, 'K') or len(pdf.Root.StructTreeRoot.K) == 0:
+                    # Add Document element if structure tree has no children
+                    doc_element = pdf.make_indirect(Dictionary(
+                        Type=Name('/StructElem'),
+                        S=Name('/Document'),
+                        P=pdf.Root.StructTreeRoot,
+                        K=Array([]),
+                        Lang=String('en-US')
+                    ))
+                    
+                    if not hasattr(pdf.Root.StructTreeRoot, 'K'):
+                        pdf.Root.StructTreeRoot.K = Array([])
+                    
+                    pdf.Root.StructTreeRoot.K.append(doc_element)
+                    
+                    fixes_applied.append({
+                        'type': 'addStructureChildren',
+                        'description': 'Added Document element to structure tree',
+                        'success': True
+                    })
+                    success_count += 1
+                    print("[AutoFixEngine] ✓ Added children to structure tree")
+                
+                # Add RoleMap if missing
                 if not hasattr(pdf.Root.StructTreeRoot, 'RoleMap'):
-                    role_map = Dictionary()
+                    role_map = pdf.make_indirect(Dictionary())
                     role_map[Name('/Heading')] = Name('/H')
                     role_map[Name('/Subheading')] = Name('/H')
                     role_map[Name('/Title')] = Name('/H')
@@ -371,6 +431,7 @@ class AutoFixEngine:
                     success_count += 1
                     print("[AutoFixEngine] ✓ Added RoleMap")
                 else:
+                    # Check for circular mappings
                     role_map = pdf.Root.StructTreeRoot.RoleMap
                     circular_found = False
                     roles_to_remove = []
@@ -391,23 +452,6 @@ class AutoFixEngine:
                         })
                         success_count += 1
                         print(f"[AutoFixEngine] ✓ Removed {len(roles_to_remove)} circular role mappings")
-            
-            # Fix 6: Add document info title if missing
-            if '/Info' not in pdf.docinfo or '/Title' not in pdf.docinfo:
-                filename = os.path.basename(pdf_path)
-                title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
-                
-                if '/Info' not in pdf.docinfo:
-                    pdf.docinfo = pdf.make_indirect(Dictionary())
-                
-                pdf.docinfo.Title = title
-                fixes_applied.append({
-                    'type': 'addDocInfoTitle',
-                    'description': f'Added document info title: {title}',
-                    'success': True
-                })
-                success_count += 1
-                print(f"[AutoFixEngine] ✓ Added document info title: {title}")
             
             try:
                 font_issues = []
