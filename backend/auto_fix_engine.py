@@ -461,15 +461,20 @@ class AutoFixEngine:
         try:
             print(f"[AutoFixEngine] Opening PDF: {pdf_path}")
             
-            if self.ai_engine and self.ai_engine.is_available():
+            if self.ai_engine and hasattr(self.ai_engine, 'is_available') and self.ai_engine.is_available():
                 print("[AutoFixEngine] 🤖 Using AI-powered fixes...")
                 try:
-                    ai_result = self.ai_engine.apply_ai_fixes(pdf_path, fix_type='automated')
-                    if ai_result.get('success'):
-                        print(f"[AutoFixEngine] ✓ AI fixes applied successfully: {ai_result.get('fixesApplied', 0)} fixes")
+                    # Extract issues from PDF for AI analysis
+                    issues = self.ai_engine._extract_issues_from_pdf(pdf_path)
+                    
+                    # Call the comprehensive AI fix method
+                    ai_result = self.ai_engine.apply_ai_powered_fixes(pdf_path, issues)
+                    
+                    if ai_result.get('success') and ai_result.get('successCount', 0) > 0:
+                        print(f"[AutoFixEngine] ✓ AI fixes applied successfully: {ai_result.get('successCount', 0)} fixes")
                         return ai_result
                     else:
-                        print(f"[AutoFixEngine] ⚠ AI fixes failed: {ai_result.get('error', 'Unknown error')}")
+                        print(f"[AutoFixEngine] ⚠ AI fixes returned no changes: {ai_result.get('error', 'No fixes applied')}")
                         print("[AutoFixEngine] Falling back to traditional fixes...")
                 except Exception as ai_error:
                     print(f"[AutoFixEngine] ⚠ AI error: {ai_error}")
@@ -480,6 +485,7 @@ class AutoFixEngine:
                 print("[AutoFixEngine] AI not available, using traditional fixes")
             
             # Traditional fixes (fallback or when AI not available)
+            print("[AutoFixEngine] Using traditional automated fixes...")
             pdf = pikepdf.open(pdf_path)
             
             fixes_applied = []
