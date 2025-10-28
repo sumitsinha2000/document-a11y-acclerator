@@ -20,14 +20,93 @@ class SambaNovaRemediationEngine:
         self.model = os.environ.get('SAMBANOVA_MODEL', 'Meta-Llama-3.3-70B-Instruct')
         
         if not self.api_key:
-            raise ValueError("SAMBANOVA_API_KEY environment variable not set")
+            print("[SambaNova] WARNING: SAMBANOVA_API_KEY not set - AI features disabled")
+            self.client = None
+        else:
+            try:
+                from sambanova import SambaNova
+                self.client = SambaNova(
+                    api_key=self.api_key,
+                    base_url=self.base_url
+                )
+                print(f"[SambaNova] ✓ Initialized with model: {self.model}")
+            except Exception as e:
+                print(f"[SambaNova] ERROR: Failed to initialize client: {e}")
+                self.client = None
+    
+    def is_available(self) -> bool:
+        """Check if SambaNova AI is available and configured"""
+        return self.client is not None and self.api_key is not None
+    
+    def apply_ai_fixes(self, pdf_path: str, fix_type: str = 'automated') -> Dict[str, Any]:
+        """
+        Apply AI-powered fixes to a PDF
         
-        self.client = SambaNova(
-            api_key=self.api_key,
-            base_url=self.base_url
-        )
+        Args:
+            pdf_path: Path to the PDF file
+            fix_type: Type of fixes to apply ('automated', 'semi-automated', 'manual')
+            
+        Returns:
+            Dictionary with fix results
+        """
+        if not self.is_available():
+            return {
+                'success': False,
+                'error': 'SambaNova AI not available'
+            }
         
-        print(f"[SambaNova] ✓ Initialized with model: {self.model}")
+        try:
+            print(f"[SambaNova] Applying {fix_type} AI fixes to: {pdf_path}")
+            
+            # Analyze the PDF first to understand issues
+            with pdfplumber.open(pdf_path) as plumber_pdf:
+                # Extract basic info
+                total_pages = len(plumber_pdf.pages)
+                has_text = any(page.extract_text() for page in plumber_pdf.pages[:3])
+                
+            # For now, delegate to the comprehensive apply_ai_powered_fixes method
+            # In the future, we can add fix_type-specific logic here
+            issues = self._extract_issues_from_pdf(pdf_path)
+            
+            return self.apply_ai_powered_fixes(pdf_path, issues)
+            
+        except Exception as e:
+            print(f"[SambaNova] ERROR in apply_ai_fixes: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _extract_issues_from_pdf(self, pdf_path: str) -> Dict[str, List[Any]]:
+        """Extract issues from PDF for AI analysis"""
+        issues = {
+            'wcagIssues': [],
+            'pdfuaIssues': [],
+            'pdfaIssues': [],
+            'structureIssues': []
+        }
+        
+        try:
+            pdf = pikepdf.open(pdf_path)
+            
+            # Check for common issues
+            if not hasattr(pdf.Root, 'Lang') or not pdf.Root.Lang:
+                issues['wcagIssues'].append({'description': 'Document language not specified', 'severity': 'medium'})
+            
+            if not hasattr(pdf.Root, 'MarkInfo') or not pdf.Root.MarkInfo.get('/Marked', False):
+                issues['structureIssues'].append({'description': 'Document not marked as tagged', 'severity': 'high'})
+            
+            if not hasattr(pdf, 'docinfo') or '/Title' not in pdf.docinfo:
+                issues['wcagIssues'].append({'description': 'Document title not specified', 'severity': 'medium'})
+            
+            pdf.close()
+            
+        except Exception as e:
+            print(f"[SambaNova] Could not extract issues: {e}")
+        
+        return issues
     
     def analyze_issues(self, issues: Dict[str, List[Any]]) -> Dict[str, Any]:
         """

@@ -35,7 +35,16 @@ class AutoFixEngine:
                 'removeEncryption', 'addOutputIntent', 'fixAnnotationAppearances'
             ]
         }
-        self.ai_engine = SambaNovaRemediationEngine() if SAMBANOVA_AVAILABLE else None
+        self.ai_engine = None
+        if SAMBANOVA_AVAILABLE:
+            try:
+                self.ai_engine = SambaNovaRemediationEngine()
+                if not self.ai_engine.is_available():
+                    print("[AutoFixEngine] SambaNova API key not configured")
+                    self.ai_engine = None
+            except Exception as e:
+                print(f"[AutoFixEngine] Could not initialize AI engine: {e}")
+                self.ai_engine = None
     
     def generate_fixes(self, scan_results):
         """Generate fix suggestions based on scan results"""
@@ -464,7 +473,11 @@ class AutoFixEngine:
                         print("[AutoFixEngine] Falling back to traditional fixes...")
                 except Exception as ai_error:
                     print(f"[AutoFixEngine] ⚠ AI error: {ai_error}")
+                    import traceback
+                    traceback.print_exc()
                     print("[AutoFixEngine] Falling back to traditional fixes...")
+            else:
+                print("[AutoFixEngine] AI not available, using traditional fixes")
             
             # Traditional fixes (fallback or when AI not available)
             pdf = pikepdf.open(pdf_path)

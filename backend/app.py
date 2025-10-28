@@ -351,7 +351,7 @@ def scan_pdf():
                 verapdf_status['pdfuaCompliance'] = max(0, 100 - (pdfua_issues * 10))
                 verapdf_status['totalVeraPDFIssues'] = wcag_issues + pdfua_issues
                 print(f"[Backend] veraPDF validation: WCAG {verapdf_status['wcagCompliance']}%, PDF/UA {verapdf_status['pdfuaCompliance']}%")
-            
+        
         except Exception as e:
             print(f"[Backend] Error during PDF analysis: {e}")
             import traceback
@@ -731,16 +731,15 @@ def apply_semi_automated_fixes(scan_id):
             print(f"[SemiAutoFix] Error: File not found at {pdf_path}")
             return jsonify({'error': f'PDF file not found: {scan_id}'}), 404
         
+        ai_success = False
         try:
-            from sambanova_remediation import SambaNovaRemediationEngine
-            ai_engine = SambaNovaRemediationEngine()
-            
-            if ai_engine.is_available():
-                print("[SemiAutoFix] 🤖 Using AI-powered semi-automated fixes...")
-                ai_result = ai_engine.apply_ai_fixes(pdf_path, fix_type='semi-automated')
+            if AI_REMEDIATION_AVAILABLE and AI_REMEDIATION_ENGINE:
+                print("[SemiAutoFix] 🤖 Attempting AI-powered semi-automated fixes...")
+                ai_result = AI_REMEDIATION_ENGINE.apply_ai_fixes(pdf_path, fix_type='semi-automated')
                 
                 if ai_result.get('success'):
                     print(f"[SemiAutoFix] ✓ AI fixes applied successfully")
+                    ai_success = True
                     
                     # Re-scan and update database
                     try:
@@ -777,12 +776,13 @@ def apply_semi_automated_fixes(scan_id):
                             INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
                             VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
                         '''
+                        fixes_count = len(ai_result.get('fixesApplied', []))
                         execute_query(insert_query, (
                             scan_id,
                             scan_id,
                             scan_id,
                             json.dumps(ai_result.get('fixesApplied', [])),
-                            ai_result.get('fixesApplied', 0) # Assuming fixesApplied contains a list of fixes, its length is the count
+                            fixes_count
                         ))
                         
                         return jsonify(ai_result), 200
@@ -795,95 +795,100 @@ def apply_semi_automated_fixes(scan_id):
                             'error': f'Fixes applied but failed to re-scan: {str(rescan_error)}'
                         }), 500
                 else:
-                    print(f"[SemiAutoFix] ⚠ AI fixes failed, falling back to traditional fixes")
+                    print(f"[SemiAutoFix] ⚠ AI fixes failed: {ai_result.get('error', 'Unknown')}, falling back to traditional fixes")
         except Exception as ai_error:
-            print(f"[SemiAutoFix] ⚠ AI not available or encountered an error: {ai_error}")
+            print(f"[SemiAutoFix] ⚠ AI error: {ai_error}")
             import traceback
             traceback.print_exc()
+        
+        if not ai_success:
             print("[SemiAutoFix] Using traditional semi-automated fixes...")
-        
-        # Traditional semi-automated fixes (fallback)
-        print(f"[SemiAutoFix] Applying traditional semi-automated fixes to: {pdf_path}")
-        
-        # Get scan results to determine which fixes to apply
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
-        result = execute_query(query, (scan_id,), fetch=True)
-        
-        if not result:
-            return jsonify({'error': 'Scan not found'}), 404
-        
-        scan_data = result[0]['scan_results']
-        if isinstance(scan_data, str):
-            scan_data = json.loads(scan_data)
-        
-        if isinstance(scan_data, dict) and 'results' in scan_data:
-            scan_results = scan_data['results']
+            
+            # Get scan results to determine which fixes to apply
+            param_placeholder = '%s' if USE_POSTGRESQL else '?'
+            query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
+            result = execute_query(query, (scan_id,), fetch=True)
+            
+            if not result:
+                return jsonify({'error': 'Scan not found'}), 404
+            
+            scan_data = result[0]['scan_results']
+            if isinstance(scan_data, str):
+                scan_data = json.loads(scan_data)
+            
+            if isinstance(scan_data, dict) and 'results' in scan_data:
+                scan_results = scan_data['results']
+            else:
+                scan_results = scan_data
+            
+            # Apply PDF/A fixes using the pdfa_fix_engine
+            from pdfa_fix_engine import apply_pdfa_fixes
+            
+            fix_result = apply_pdfa_fixes(pdf_path, scan_results)
+            
+            if fix_result.get('success'):
+                try:
+                    # Re-scan the fixed PDF to get updated results
+                    print(f"[SemiAutoFix] Re-scanning fixed file...")
+                    
+                    analyzer = PDFAccessibilityAnalyzer()
+                    new_results = analyzer.analyze(pdf_path)
+                    new_summary = analyzer.calculate_summary(new_results)
+                    
+                    print(f"[SemiAutoFix] ✓ Re-scan complete:")
+                    print(f"[SemiAutoFix]   Total issues: {new_summary.get('totalIssues', 0)}")
+                    print(f"[SemiAutoFix]   Compliance: {new_summary.get('complianceScore', 0)}%")
+                    
+                    # Update the scan record with new results
+                    scan_data = {
+                        'results': new_results,
+                        'summary': new_summary
+                    }
+                    
+                    print(f"[SemiAutoFix] Updating database with new scan data...")
+                    param_placeholder = '%s' if USE_POSTGRESQL else '?'
+                    update_query = f'''
+                        UPDATE scans 
+                        SET scan_results = {param_placeholder}, status = {param_placeholder}
+                        WHERE id = {param_placeholder}
+                    '''
+                    execute_query(update_query, (json.dumps(scan_data), 'fixed', scan_id))
+                    print(f"[SemiAutoFix] ✓ Database updated successfully")
+                    
+                    # Add new results and summary to the response
+                    fix_result['newResults'] = new_results
+                    fix_result['newSummary'] = new_summary
+                    
+                    # Save fix history
+                    param_placeholder = '%s' if USE_POSTGRESQL else '?'
+                    insert_query = f'''
+                        INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
+                        VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                    '''
+                    execute_query(insert_query, (
+                        scan_id,
+                        scan_id,
+                        scan_id,  # Same file, modified in place
+                        json.dumps(fix_result.get('fixesApplied', [])),
+                        fix_result.get('successCount', 0)
+                    ))
+                    print(f"[SemiAutoFix] ✓ Fix history saved for {scan_id}")
+                    
+                except Exception as rescan_error:
+                    print(f"[SemiAutoFix] ERROR: Failed to re-scan PDF: {rescan_error}")
+                    import traceback
+                    traceback.print_exc()
+                    return jsonify({
+                        'error': f'Fixes applied but failed to re-scan: {str(rescan_error)}'
+                    }), 500
+            
+            return jsonify(fix_result), 200
         else:
-            scan_results = scan_data
-        
-        # Apply PDF/A fixes using the pdfa_fix_engine
-        from pdfa_fix_engine import apply_pdfa_fixes
-        
-        fix_result = apply_pdfa_fixes(pdf_path, scan_results)
-        
-        if fix_result.get('success'):
-            try:
-                # Re-scan the fixed PDF to get updated results
-                print(f"[SemiAutoFix] Re-scanning fixed file...")
-                
-                analyzer = PDFAccessibilityAnalyzer()
-                new_results = analyzer.analyze(pdf_path)
-                new_summary = analyzer.calculate_summary(new_results)
-                
-                print(f"[SemiAutoFix] ✓ Re-scan complete:")
-                print(f"[SemiAutoFix]   Total issues: {new_summary.get('totalIssues', 0)}")
-                print(f"[SemiAutoFix]   Compliance: {new_summary.get('complianceScore', 0)}%")
-                
-                # Update the scan record with new results
-                scan_data = {
-                    'results': new_results,
-                    'summary': new_summary
-                }
-                
-                print(f"[SemiAutoFix] Updating database with new scan data...")
-                param_placeholder = '%s' if USE_POSTGRESQL else '?'
-                update_query = f'''
-                    UPDATE scans 
-                    SET scan_results = {param_placeholder}, status = {param_placeholder}
-                    WHERE id = {param_placeholder}
-                '''
-                execute_query(update_query, (json.dumps(scan_data), 'fixed', scan_id))
-                print(f"[SemiAutoFix] ✓ Database updated successfully")
-                
-                # Add new results and summary to the response
-                fix_result['newResults'] = new_results
-                fix_result['newSummary'] = new_summary
-                
-                # Save fix history
-                param_placeholder = '%s' if USE_POSTGRESQL else '?'
-                insert_query = f'''
-                    INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
-                    VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
-                '''
-                execute_query(insert_query, (
-                    scan_id,
-                    scan_id,
-                    scan_id,  # Same file, modified in place
-                    json.dumps(fix_result.get('fixesApplied', [])),
-                    fix_result.get('successCount', 0)
-                ))
-                print(f"[SemiAutoFix] ✓ Fix history saved for {scan_id}")
-                
-            except Exception as rescan_error:
-                print(f"[SemiAutoFix] ERROR: Failed to re-scan PDF: {rescan_error}")
-                import traceback
-                traceback.print_exc()
-                return jsonify({
-                    'error': f'Fixes applied but failed to re-scan: {str(rescan_error)}'
-                }), 500
-        
-        return jsonify(fix_result), 200
+            # This case should ideally not be reached if ai_success is False
+            # but it's here for robustness.
+            print("[SemiAutoFix] Error: Both AI and traditional fixes failed.")
+            return jsonify({'error': 'Failed to apply fixes by any method.'}), 500
+
     except Exception as e:
         print(f"[SemiAutoFix] Error: {str(e)}")
         import traceback
