@@ -18,50 +18,72 @@ def generate_fix_suggestions(issues):
     manual = []
     estimated_time = 0
     
+    processed_issues = set()
+    
     if issues.get("wcagIssues") and len(issues["wcagIssues"]) > 0:
         for issue in issues["wcagIssues"]:
             severity = issue.get("severity", "high")
             description = issue.get("description", "")
+            criterion = issue.get("criterion", "")
+            
+            issue_key = f"wcag-{criterion}-{description}"
+            if issue_key in processed_issues:
+                continue
+            processed_issues.add(issue_key)
             
             # Determine if fix can be automated based on issue description
-            if "metadata" in description.lower() or "title" in description.lower():
+            if "title" in description.lower() and "info dictionary" in description.lower():
+                # Specific fix for document title in info dictionary
                 automated.append({
-                    "id": f"wcag-metadata-{issue.get('criterion', 'unknown')}",
+                    "id": f"wcag-title-info-{criterion}",
+                    "title": "Fix 2.4.2 issue",
+                    "description": "Document title not specified in info dictionary",
+                    "action": "Add document title to info dictionary",
+                    "severity": severity,
+                    "estimatedTime": 1,
+                    "category": "wcagIssues",
+                    "criterion": criterion,
+                    "location": {"criterion": criterion}
+                })
+                estimated_time += 1
+            elif "metadata" in description.lower() or "dc:title" in description.lower():
+                automated.append({
+                    "id": f"wcag-metadata-{criterion}",
                     "title": "Fix WCAG metadata issue",
                     "description": description,
                     "action": "Add document metadata and title",
                     "severity": severity,
                     "estimatedTime": 1,
                     "category": "wcagIssues",
-                    "criterion": issue.get("criterion", ""),
-                    "location": {"criterion": issue.get("criterion", "")}
+                    "criterion": criterion,
+                    "location": {"criterion": criterion}
                 })
                 estimated_time += 1
             elif "reading order" in description.lower():
                 manual.append({
-                    "id": f"wcag-reading-order-{issue.get('criterion', 'unknown')}",
+                    "id": f"wcag-reading-order-{criterion}",
                     "title": "Fix reading order",
                     "description": description,
                     "action": "Define proper reading order",
                     "severity": severity,
                     "estimatedTime": 20,
                     "category": "wcagIssues",
-                    "criterion": issue.get("criterion", ""),
-                    "location": {"criterion": issue.get("criterion", "")},
+                    "criterion": criterion,
+                    "location": {"criterion": criterion},
                     "instructions": "Use PDF editor to create structure tree and define reading order"
                 })
                 estimated_time += 20
             else:
                 # Default to semi-automated for other WCAG issues
                 semi_automated.append({
-                    "id": f"wcag-{issue.get('criterion', 'unknown')}",
-                    "title": f"Fix WCAG {issue.get('criterion', '')} issue",
+                    "id": f"wcag-{criterion}",
+                    "title": f"Fix WCAG {criterion} issue",
                     "description": description,
                     "action": issue.get("remediation", "Review and fix WCAG compliance issue"),
                     "severity": severity,
                     "estimatedTime": 10,
                     "category": "wcagIssues",
-                    "criterion": issue.get("criterion", ""),
+                    "criterion": criterion,
                     "location": {"clause": issue.get("clause", "")}
                 })
                 estimated_time += 10
@@ -70,46 +92,67 @@ def generate_fix_suggestions(issues):
         for issue in issues["pdfuaIssues"]:
             severity = issue.get("severity", "high")
             description = issue.get("description", "")
+            clause = issue.get("clause", "")
+            
+            issue_key = f"pdfua-{clause}-{description}"
+            if issue_key in processed_issues:
+                continue
+            processed_issues.add(issue_key)
             
             # Determine if fix can be automated based on issue description
-            if any(keyword in description.lower() for keyword in ["metadata stream", "viewerpreferences", "dc:title", "suspects"]):
+            if any(keyword in description.lower() for keyword in ["metadata stream", "viewerpreferences", "suspects"]):
                 automated.append({
-                    "id": f"pdfua-{issue.get('clause', 'unknown')}",
+                    "id": f"pdfua-{clause}",
                     "title": "Fix PDF/UA structure issue",
                     "description": description,
                     "action": "Add required PDF/UA metadata and structure",
                     "severity": severity,
                     "estimatedTime": 1,
                     "category": "pdfuaIssues",
-                    "clause": issue.get("clause", ""),
-                    "location": {"clause": issue.get("clause", "")}
+                    "clause": clause,
+                    "location": {"clause": clause}
                 })
                 estimated_time += 1
+            elif "dc:title" in description.lower():
+                # Skip dc:title from PDF/UA if already handled by WCAG
+                if f"wcag-2.4.2-{description}" not in processed_issues:
+                    automated.append({
+                        "id": f"pdfua-dctitle-{clause}",
+                        "title": "Add dc:title to metadata",
+                        "description": description,
+                        "action": "Add dc:title to XMP metadata",
+                        "severity": severity,
+                        "estimatedTime": 1,
+                        "category": "pdfuaIssues",
+                        "clause": clause,
+                        "location": {"clause": clause}
+                    })
+                    estimated_time += 1
             elif "structure tree" in description.lower() and "no children" in description.lower():
                 automated.append({
-                    "id": f"pdfua-structure-tree-{issue.get('clause', 'unknown')}",
+                    "id": f"pdfua-structure-tree-{clause}",
                     "title": "Create structure tree",
                     "description": description,
                     "action": "Create structure tree with Document element",
                     "severity": severity,
                     "estimatedTime": 1,
                     "category": "pdfuaIssues",
-                    "clause": issue.get("clause", ""),
-                    "location": {"clause": issue.get("clause", "")}
+                    "clause": clause,
+                    "location": {"clause": clause}
                 })
                 estimated_time += 1
             else:
                 # Default to semi-automated for other PDF/UA issues
                 semi_automated.append({
-                    "id": f"pdfua-{issue.get('clause', 'unknown')}",
-                    "title": f"Fix PDF/UA {issue.get('clause', '')} issue",
+                    "id": f"pdfua-{clause}",
+                    "title": f"Fix PDF/UA {clause} issue",
                     "description": description,
                     "action": issue.get("remediation", "Review and fix PDF/UA compliance issue"),
                     "severity": severity,
                     "estimatedTime": 10,
                     "category": "pdfuaIssues",
-                    "clause": issue.get("clause", ""),
-                    "location": {"clause": issue.get("clause", "")}
+                    "clause": clause,
+                    "location": {"clause": clause}
                 })
                 estimated_time += 10
     

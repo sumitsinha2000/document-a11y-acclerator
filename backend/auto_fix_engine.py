@@ -304,7 +304,7 @@ class AutoFixEngine:
                 else:
                     fixes['semiAutomated'].append({
                         'action': f"Fix {issue.get('clause', 'PDF/UA')} issue",
-                        'title': f"Fix PDF/UA {issue.get('clause', '')} compliance",
+                        'title': f"Fix PDF/UA {issue.get('clause', 'PDF/UA')} compliance",
                         'description': description,
                         'category': 'pdfuaIssues',
                         'severity': severity,
@@ -470,15 +470,17 @@ class AutoFixEngine:
             # Check if docinfo is empty or doesn't have Title
             needs_title = True
             try:
-                if '/Title' in pdf.docinfo and pdf.docinfo['/Title']:
+                if '/Title' in pdf.docinfo:
                     existing_title = str(pdf.docinfo['/Title'])
                     if existing_title and existing_title.strip():
                         needs_title = False
                         print(f"[AutoFixEngine] Title already exists: {existing_title}")
-            except:
+            except Exception as e:
+                print(f"[AutoFixEngine] Error checking title: {e}")
                 needs_title = True
             
             if needs_title:
+                # Set the title directly using the key
                 pdf.docinfo['/Title'] = title
                 fixes_applied.append({
                     'type': 'addDocInfoTitle',
@@ -783,13 +785,10 @@ class AutoFixEngine:
                     pdf.Root.MarkInfo.Marked = True
                 
                 if not hasattr(pdf.Root, 'StructTreeRoot'):
-                    # Create a basic structure tree root
                     pdf.Root.StructTreeRoot = pdf.make_indirect(Dictionary(
                         Type=Name('/StructTreeRoot')
                     ))
                     print("[AutoFixEngine] Created StructTreeRoot for table accessibility")
-                
-                print("[AutoFixEngine] Document marked as tagged for table accessibility")
                 
                 fix_applied = True
                 fix_description = "Marked document as tagged for table accessibility"

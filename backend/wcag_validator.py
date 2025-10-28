@@ -260,7 +260,17 @@ class WCAGValidator:
             # (Already checked in _validate_document_structure)
             
             # Check document info dictionary title
-            if '/Info' not in self.pdf.docinfo or '/Title' not in self.pdf.docinfo:
+            has_title = False
+            try:
+                if hasattr(self.pdf, 'docinfo') and self.pdf.docinfo is not None:
+                    if '/Title' in self.pdf.docinfo:
+                        title = str(self.pdf.docinfo['/Title'])
+                        if title and title.strip():
+                            has_title = True
+            except Exception as e:
+                logger.error(f"[WCAGValidator] Error checking docinfo title: {e}")
+            
+            if not has_title:
                 self._add_wcag_issue(
                     'Document title not specified in info dictionary',
                     '2.4.2',
@@ -269,17 +279,6 @@ class WCAGValidator:
                     'Add a Title entry to the document information dictionary'
                 )
                 self.wcag_compliance['A'] = False
-            else:
-                title = str(self.pdf.docinfo.Title)
-                if not title or title.strip() == '':
-                    self._add_wcag_issue(
-                        'Document title is empty',
-                        '2.4.2',
-                        'A',
-                        'medium',
-                        'Provide a meaningful title for the document'
-                    )
-                    self.wcag_compliance['A'] = False
                     
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating document title: {str(e)}")
