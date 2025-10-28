@@ -155,9 +155,7 @@ class PDFAFixEngine:
             pdf.save(
                 temp_path,
                 linearize=False,
-                object_stream_mode=Pdf.ObjectStreamMode.preserve,
-                compress_streams=True,
-                stream_decode_level=Pdf.StreamDecodeLevel.none
+                compress_streams=True
             )
             
             print(f"[PDFAFixEngine] ✓ PDF saved to temp file")
