@@ -467,19 +467,20 @@ class AutoFixEngine:
                 pdf.docinfo = pdf.make_indirect(Dictionary())
                 print("[AutoFixEngine] Created new docinfo dictionary")
             
-            # Check if docinfo is empty or doesn't have Title
-            needs_title = True
+            # Check if docinfo needs title
+            needs_docinfo_title = True
             try:
                 if '/Title' in pdf.docinfo:
                     existing_title = str(pdf.docinfo['/Title'])
                     if existing_title and existing_title.strip():
-                        needs_title = False
-                        print(f"[AutoFixEngine] Title already exists: {existing_title}")
+                        needs_docinfo_title = False
+                        title = existing_title  # Use existing title
+                        print(f"[AutoFixEngine] DocInfo title already exists: {existing_title}")
             except Exception as e:
-                print(f"[AutoFixEngine] Error checking title: {e}")
-                needs_title = True
+                print(f"[AutoFixEngine] Error checking docinfo title: {e}")
+                needs_docinfo_title = True
             
-            if needs_title:
+            if needs_docinfo_title:
                 # Set the title directly using the key
                 pdf.docinfo['/Title'] = title
                 fixes_applied.append({
@@ -490,7 +491,7 @@ class AutoFixEngine:
                 success_count += 1
                 print(f"[AutoFixEngine] ✓ Added document info title: {title}")
             
-            # Fix 2: Add/fix metadata stream and PDF/UA identifier
+            # Fix 2: Add/fix metadata stream with dc:title and PDF/UA identifier
             if not hasattr(pdf.Root, 'Metadata') or pdf.Root.Metadata is None:
                 # Create metadata stream
                 with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
@@ -505,16 +506,25 @@ class AutoFixEngine:
                 print("[AutoFixEngine] ✓ Added metadata stream")
             
             with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
-                # Add dc:title
-                if not meta.get('dc:title'):
+                # Add or update dc:title
+                needs_dc_title = True
+                try:
+                    existing_dc_title = meta.get('dc:title', '')
+                    if existing_dc_title and str(existing_dc_title).strip():
+                        needs_dc_title = False
+                        print(f"[AutoFixEngine] dc:title already exists: {existing_dc_title}")
+                except:
+                    needs_dc_title = True
+                
+                if needs_dc_title:
                     meta['dc:title'] = title
                     fixes_applied.append({
                         'type': 'addDCTitle',
-                        'description': 'Added dc:title to metadata',
+                        'description': f'Added dc:title to XMP metadata: {title}',
                         'success': True
                     })
                     success_count += 1
-                    print("[AutoFixEngine] ✓ Added dc:title to metadata")
+                    print(f"[AutoFixEngine] ✓ Added dc:title to XMP metadata: {title}")
                 
                 # Add PDF/UA identifier
                 if not meta.get('pdfuaid:part'):

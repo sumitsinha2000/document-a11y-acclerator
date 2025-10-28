@@ -233,13 +233,19 @@ class WCAGValidator:
         Based on veraPDF rules: 7.1-5, 7.1-6
         """
         try:
-            # Rule 7.1-5: Check for dc:title in metadata stream
             has_dc_title = False
             if '/Metadata' in self.pdf.Root:
-                # Check metadata stream for dc:title
-                # This would require parsing XMP metadata
-                logger.info("[WCAGValidator] Metadata stream dc:title check requires XMP parsing")
-                has_dc_title = True  # Assume present for now
+                try:
+                    with self.pdf.open_metadata() as meta:
+                        # Check if dc:title exists and is not empty
+                        dc_title = meta.get('dc:title', '')
+                        if dc_title and str(dc_title).strip():
+                            has_dc_title = True
+                            logger.info(f"[WCAGValidator] Found dc:title: {dc_title}")
+                        else:
+                            logger.info("[WCAGValidator] dc:title is missing or empty")
+                except Exception as e:
+                    logger.error(f"[WCAGValidator] Error reading XMP metadata: {e}")
             
             if not has_dc_title:
                 self._add_wcag_issue(
@@ -255,22 +261,29 @@ class WCAGValidator:
                     'high',
                     'Add dc:title entry to document metadata stream'
                 )
+                self.wcag_compliance['A'] = False
             
             # Rule 7.1-6: Check ViewerPreferences DisplayDocTitle
             # (Already checked in _validate_document_structure)
             
-            # Check document info dictionary title
-            has_title = False
+            has_docinfo_title = False
             try:
                 if hasattr(self.pdf, 'docinfo') and self.pdf.docinfo is not None:
                     if '/Title' in self.pdf.docinfo:
                         title = str(self.pdf.docinfo['/Title'])
                         if title and title.strip():
-                            has_title = True
+                            has_docinfo_title = True
+                            logger.info(f"[WCAGValidator] Found docinfo title: {title}")
+                        else:
+                            logger.info("[WCAGValidator] Docinfo title is empty")
+                    else:
+                        logger.info("[WCAGValidator] Docinfo /Title key not found")
+                else:
+                    logger.info("[WCAGValidator] Docinfo dictionary not found")
             except Exception as e:
                 logger.error(f"[WCAGValidator] Error checking docinfo title: {e}")
             
-            if not has_title:
+            if not has_docinfo_title:
                 self._add_wcag_issue(
                     'Document title not specified in info dictionary',
                     '2.4.2',

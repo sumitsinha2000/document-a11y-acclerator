@@ -79,8 +79,18 @@ class PDFAValidator:
     
     def _validate_file_structure(self):
         """Validate PDF file structure requirements"""
-        # Check PDF version
         version = self.pdf.pdf_version
+        if not isinstance(version, tuple):
+            # If version is a string like "1.7", convert to tuple
+            try:
+                if isinstance(version, str):
+                    parts = version.split('.')
+                    version = (int(parts[0]), int(parts[1]))
+                else:
+                    version = (1, 4)  # Default to 1.4 if can't parse
+            except:
+                version = (1, 4)
+        
         if version > (1, 4):  # PDF/A-1 requires PDF 1.4
             self.issues.append({
                 'category': 'pdfaIssues',
@@ -98,7 +108,7 @@ class PDFAValidator:
                 'message': 'Document is not linearized (fast web view)',
                 'remediation': 'Linearize PDF for better web performance'
             })
-    
+        
     def _validate_graphics(self):
         """Validate graphics and color requirements"""
         root = self.pdf.Root
