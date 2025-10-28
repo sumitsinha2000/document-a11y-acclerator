@@ -39,7 +39,6 @@ class AutoFixEngine:
         if SAMBANOVA_AVAILABLE:
             try:
                 self.ai_engine = SambaNovaRemediationEngine()
-                # Check for hasattr and is_available
                 if not hasattr(self.ai_engine, 'is_available') or not self.ai_engine.is_available():
                     print("[AutoFixEngine] SambaNova API key not configured")
                     self.ai_engine = None
@@ -457,11 +456,11 @@ class AutoFixEngine:
         
         return fixes
     
-    # COMPLETELY REWRITTEN to ensure fixes actually modify and save the PDF
+    # COMPLETELY REWRITTEN with veraPDF-inspired approach
     def apply_automated_fixes(self, pdf_path):
         """
         Apply automated fixes to a PDF
-        FIXED: Now replaces the original file instead of creating a new one
+        COMPLETELY REWRITTEN with veraPDF-inspired approach
         """
         pdf = None
         temp_path = None
@@ -473,123 +472,133 @@ class AutoFixEngine:
             
             temp_path = f"{pdf_path}.temp"
             
-            # Open PDF
-            pdf = pikepdf.open(pdf_path)
+            pdf = pikepdf.open(pdf_path, allow_overwriting_input=False)
             print(f"[AutoFixEngine] ✓ PDF opened successfully")
             
             fixes_applied = []
-            success_count = 0
             
-            # Apply all fixes (language, title, metadata, structure, etc.)
             try:
+                lang_fixed = False
                 if not hasattr(pdf.Root, 'Lang') or not pdf.Root.Lang:
                     pdf.Root.Lang = 'en-US'
+                    lang_fixed = True
+                    print("[AutoFixEngine] ✓ Added document language (en-US)")
+                else:
+                    print(f"[AutoFixEngine] Language already set: {pdf.Root.Lang}")
+                
+                if lang_fixed:
                     fixes_applied.append({
                         'type': 'addLanguage',
                         'description': 'Added document language (en-US)',
                         'success': True
                     })
-                    success_count += 1
-                    print("[AutoFixEngine] ✓ Added document language")
-                else:
-                    print(f"[AutoFixEngine] Language already set: {pdf.Root.Lang}")
             except Exception as e:
-                print(f"[AutoFixEngine] Error adding language: {e}")
+                print(f"[AutoFixEngine] ✗ Error adding language: {e}")
             
             try:
+                title_fixed = False
                 filename = os.path.basename(pdf_path)
                 title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
                 
+                # Ensure docinfo exists
                 if not hasattr(pdf, 'docinfo') or pdf.docinfo is None:
                     pdf.docinfo = pdf.make_indirect(Dictionary())
                     print("[AutoFixEngine] Created new docinfo dictionary")
                 
+                # Add title to DocInfo
                 if '/Title' not in pdf.docinfo or not str(pdf.docinfo.get('/Title', '')).strip():
                     pdf.docinfo['/Title'] = title
-                    fixes_applied.append({
-                        'type': 'addDocInfoTitle',
-                        'description': f'Added document title: {title}',
-                        'success': True
-                    })
-                    success_count += 1
+                    title_fixed = True
                     print(f"[AutoFixEngine] ✓ Added DocInfo title: {title}")
                 
+                # Add title to XMP metadata
                 with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
                     if not meta.get('dc:title'):
                         meta['dc:title'] = title
-                        fixes_applied.append({
-                            'type': 'addDCTitle',
-                            'description': f'Added dc:title to XMP: {title}',
-                            'success': True
-                        })
-                        success_count += 1
+                        title_fixed = True
                         print(f"[AutoFixEngine] ✓ Added XMP dc:title: {title}")
                     
+                    # Add PDF/UA identifier
                     if not meta.get('pdfuaid:part'):
                         meta['pdfuaid:part'] = '1'
-                        fixes_applied.append({
-                            'type': 'addPDFUAIdentifier',
-                            'description': 'Added PDF/UA-1 identifier',
-                            'success': True
-                        })
-                        success_count += 1
+                        title_fixed = True
                         print("[AutoFixEngine] ✓ Added PDF/UA-1 identifier")
+                
+                if title_fixed:
+                    fixes_applied.append({
+                        'type': 'addTitle',
+                        'description': f'Added document title and metadata: {title}',
+                        'success': True
+                    })
             except Exception as e:
-                print(f"[AutoFixEngine] Error adding title/metadata: {e}")
+                print(f"[AutoFixEngine] ✗ Error adding title/metadata: {e}")
                 import traceback
                 traceback.print_exc()
             
             try:
+                markinfo_fixed = False
                 if not hasattr(pdf.Root, 'MarkInfo'):
                     pdf.Root.MarkInfo = pdf.make_indirect(Dictionary(
                         Marked=True,
                         Suspects=False
                     ))
+                    markinfo_fixed = True
+                    print("[AutoFixEngine] ✓ Created MarkInfo dictionary")
+                else:
+                    if not pdf.Root.MarkInfo.get('/Marked', False):
+                        pdf.Root.MarkInfo['/Marked'] = True
+                        markinfo_fixed = True
+                        print("[AutoFixEngine] ✓ Set Marked=true")
+                    
+                    if pdf.Root.MarkInfo.get('/Suspects', True):
+                        pdf.Root.MarkInfo['/Suspects'] = False
+                        markinfo_fixed = True
+                        print("[AutoFixEngine] ✓ Set Suspects=false")
+                
+                if markinfo_fixed:
                     fixes_applied.append({
                         'type': 'markTagged',
                         'description': 'Marked document as tagged',
                         'success': True
                     })
-                    success_count += 1
-                    print("[AutoFixEngine] ✓ Marked document as tagged")
-                else:
-                    if not pdf.Root.MarkInfo.get('/Marked', False):
-                        pdf.Root.MarkInfo['/Marked'] = True
-                        print("[AutoFixEngine] ✓ Set Marked=true")
-                    
-                    if pdf.Root.MarkInfo.get('/Suspects', False):
-                        pdf.Root.MarkInfo['/Suspects'] = False
-                        print("[AutoFixEngine] ✓ Set Suspects=false")
             except Exception as e:
-                print(f"[AutoFixEngine] Error setting MarkInfo: {e}")
+                print(f"[AutoFixEngine] ✗ Error setting MarkInfo: {e}")
             
             try:
+                viewer_fixed = False
                 if not hasattr(pdf.Root, 'ViewerPreferences'):
                     pdf.Root.ViewerPreferences = pdf.make_indirect(Dictionary(
                         DisplayDocTitle=True
                     ))
-                    fixes_applied.append({
-                        'type': 'addViewerPreferences',
-                        'description': 'Added ViewerPreferences',
-                        'success': True
-                    })
-                    success_count += 1
-                    print("[AutoFixEngine] ✓ Added ViewerPreferences")
+                    viewer_fixed = True
+                    print("[AutoFixEngine] ✓ Created ViewerPreferences")
                 else:
                     if not pdf.Root.ViewerPreferences.get('/DisplayDocTitle', False):
                         pdf.Root.ViewerPreferences['/DisplayDocTitle'] = True
+                        viewer_fixed = True
                         print("[AutoFixEngine] ✓ Set DisplayDocTitle=true")
+                
+                if viewer_fixed:
+                    fixes_applied.append({
+                        'type': 'fixViewerPreferences',
+                        'description': 'Set ViewerPreferences to display document title',
+                        'success': True
+                    })
             except Exception as e:
-                print(f"[AutoFixEngine] Error setting ViewerPreferences: {e}")
+                print(f"[AutoFixEngine] ✗ Error setting ViewerPreferences: {e}")
             
             try:
+                struct_fixed = False
                 if not hasattr(pdf.Root, 'StructTreeRoot'):
+                    # Create RoleMap
                     role_map = pdf.make_indirect(Dictionary())
                     role_map[Name('/Heading')] = Name('/H')
                     role_map[Name('/Subheading')] = Name('/H')
                     
+                    # Create ParentTree
                     parent_tree = pdf.make_indirect(Dictionary(Nums=Array([])))
                     
+                    # Create StructTreeRoot
                     struct_tree_root = pdf.make_indirect(Dictionary(
                         Type=Name('/StructTreeRoot'),
                         K=Array([]),
@@ -598,6 +607,7 @@ class AutoFixEngine:
                     ))
                     pdf.Root.StructTreeRoot = struct_tree_root
                     
+                    # Create Document element
                     doc_element = pdf.make_indirect(Dictionary(
                         Type=Name('/StructElem'),
                         S=Name('/Document'),
@@ -607,15 +617,10 @@ class AutoFixEngine:
                     ))
                     
                     pdf.Root.StructTreeRoot.K.append(doc_element)
-                    
-                    fixes_applied.append({
-                        'type': 'createStructureTree',
-                        'description': 'Created structure tree with Document element',
-                        'success': True
-                    })
-                    success_count += 1
-                    print("[AutoFixEngine] ✓ Created structure tree")
+                    struct_fixed = True
+                    print("[AutoFixEngine] ✓ Created structure tree with Document element")
                 else:
+                    # Structure tree exists, check if it has children
                     if not hasattr(pdf.Root.StructTreeRoot, 'K') or len(pdf.Root.StructTreeRoot.K) == 0:
                         doc_element = pdf.make_indirect(Dictionary(
                             Type=Name('/StructElem'),
@@ -629,52 +634,60 @@ class AutoFixEngine:
                             pdf.Root.StructTreeRoot.K = Array([])
                         
                         pdf.Root.StructTreeRoot.K.append(doc_element)
-                        success_count += 1
+                        struct_fixed = True
                         print("[AutoFixEngine] ✓ Added Document element to structure tree")
                     
+                    # Check RoleMap
                     if not hasattr(pdf.Root.StructTreeRoot, 'RoleMap'):
                         role_map = pdf.make_indirect(Dictionary())
                         role_map[Name('/Heading')] = Name('/H')
                         pdf.Root.StructTreeRoot.RoleMap = role_map
-                        success_count += 1
-                        print("[AutoFixEngine] ✓ Added RoleMap")
+                        struct_fixed = True
+                        print("[AutoFixEngine] ✓ Added RoleMap to structure tree")
+                
+                if struct_fixed:
+                    fixes_applied.append({
+                        'type': 'createStructureTree',
+                        'description': 'Created or fixed structure tree',
+                        'success': True
+                    })
             except Exception as e:
-                print(f"[AutoFixEngine] Error creating structure tree: {e}")
+                print(f"[AutoFixEngine] ✗ Error creating structure tree: {e}")
                 import traceback
                 traceback.print_exc()
             
             print(f"[AutoFixEngine] ========== SAVING PDF ==========")
-            print(f"[AutoFixEngine] Applied {success_count} fixes, now saving...")
+            print(f"[AutoFixEngine] Applied {len(fixes_applied)} fixes, now saving...")
             print(f"[AutoFixEngine] Saving to temp file: {temp_path}")
             
             pdf.save(
                 temp_path,
                 linearize=False,
-                object_stream_mode=pikepdf.ObjectStreamMode.preserve
+                object_stream_mode=pikepdf.ObjectStreamMode.preserve,
+                compress_streams=True,
+                stream_decode_level=pikepdf.StreamDecodeLevel.none
             )
             
             print(f"[AutoFixEngine] ✓ PDF saved to temp file")
             print(f"[AutoFixEngine] Temp file size: {os.path.getsize(temp_path)} bytes")
             
-            # Close the PDF
             pdf.close()
             pdf = None
             
             print(f"[AutoFixEngine] Replacing original file with fixed version...")
-            import shutil
             shutil.move(temp_path, pdf_path)
             print(f"[AutoFixEngine] ✓ Original file replaced")
             print(f"[AutoFixEngine] Final file size: {os.path.getsize(pdf_path)} bytes")
             
             print(f"[AutoFixEngine] ========== FIXES COMPLETE ==========")
-            print(f"[AutoFixEngine] Total fixes applied: {success_count}")
+            print(f"[AutoFixEngine] Total fixes applied: {len(fixes_applied)}")
             
             return {
                 'success': True,
                 'fixedFile': os.path.basename(pdf_path),
                 'fixesApplied': fixes_applied,
-                'successCount': success_count,
-                'message': f'Successfully applied {success_count} automated fixes'
+                'successCount': len(fixes_applied),
+                'message': f'Successfully applied {len(fixes_applied)} automated fixes'
             }
             
         except Exception as e:
@@ -704,16 +717,7 @@ class AutoFixEngine:
             }
     
     def apply_single_fix(self, pdf_path, fix_config):
-        """
-        Apply a single manual fix to a PDF
-        
-        Args:
-            pdf_path: Path to the PDF file
-            fix_config: Dictionary with 'type', 'data', and 'page' keys
-        
-        Returns:
-            Dictionary with 'success', 'description', and optional 'error' keys
-        """
+        """Apply a single manual fix to a PDF"""
         fix_type = fix_config.get('type')
         fix_data = fix_config.get('data', {})
         page = fix_config.get('page', 1)
@@ -727,6 +731,7 @@ class AutoFixEngine:
         COMPLETELY REWRITTEN to ensure changes persist
         """
         pdf = None
+        temp_path = None
         try:
             print(f"[AutoFixEngine] ========== APPLYING MANUAL FIX ==========")
             print(f"[AutoFixEngine] Fix type: {fix_type}")
@@ -734,7 +739,9 @@ class AutoFixEngine:
             print(f"[AutoFixEngine] PDF path: {pdf_path}")
             print(f"[AutoFixEngine] File exists: {os.path.exists(pdf_path)}")
             
-            pdf = pikepdf.open(pdf_path, allow_overwriting_input=True)
+            temp_path = f"{pdf_path}.temp"
+            
+            pdf = pikepdf.open(pdf_path, allow_overwriting_input=False)
             print(f"[AutoFixEngine] ✓ PDF opened")
             
             fix_applied = False
@@ -828,21 +835,26 @@ class AutoFixEngine:
                 }
             
             print(f"[AutoFixEngine] ========== SAVING MANUAL FIX ==========")
-            print(f"[AutoFixEngine] Saving changes to: {pdf_path}")
+            print(f"[AutoFixEngine] Saving changes to temp file: {temp_path}")
             
-            # Save directly (overwrite original)
             pdf.save(
-                pdf_path,
+                temp_path,
                 linearize=False,
-                object_stream_mode=pikepdf.ObjectStreamMode.preserve
+                object_stream_mode=pikepdf.ObjectStreamMode.preserve,
+                compress_streams=True,
+                stream_decode_level=pikepdf.StreamDecodeLevel.none
             )
             
-            print(f"[AutoFixEngine] ✓ PDF saved successfully")
-            print(f"[AutoFixEngine] File size after save: {os.path.getsize(pdf_path)} bytes")
+            print(f"[AutoFixEngine] ✓ PDF saved to temp file")
+            print(f"[AutoFixEngine] Temp file size: {os.path.getsize(temp_path)} bytes")
             
-            # Close PDF
             pdf.close()
             pdf = None
+            
+            print(f"[AutoFixEngine] Replacing original file...")
+            shutil.move(temp_path, pdf_path)
+            print(f"[AutoFixEngine] ✓ Original file replaced")
+            print(f"[AutoFixEngine] File size after save: {os.path.getsize(pdf_path)} bytes")
             
             print(f"[AutoFixEngine] ========== MANUAL FIX COMPLETE ==========")
             
@@ -858,6 +870,13 @@ class AutoFixEngine:
             print(f"[AutoFixEngine] ERROR: {e}")
             import traceback
             traceback.print_exc()
+            
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                    print(f"[AutoFixEngine] Cleaned up temp file")
+                except:
+                    pass
             
             if pdf:
                 try:
