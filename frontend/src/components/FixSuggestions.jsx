@@ -48,7 +48,10 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           filename: response.data.fixedFile,
           message: response.data.message,
         })
-        alert(response.data.message)
+        const aiMessage = response.data.aiEnhanced
+          ? "✨ AI-enhanced fixes applied successfully!"
+          : response.data.message
+        alert(aiMessage)
 
         if (onRefresh) {
           console.log("[v0] FixSuggestions - Refreshing data after automated fixes")
@@ -111,7 +114,10 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     try {
       const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`)
       if (response.data.success) {
-        alert(response.data.message || "Semi-automated fixes applied successfully")
+        const aiMessage = response.data.aiEnhanced
+          ? "✨ AI-enhanced semi-automated fixes applied successfully!"
+          : response.data.message || "Semi-automated fixes applied successfully"
+        alert(aiMessage)
 
         if (onRefresh) {
           console.log("[v0] FixSuggestions - Refreshing data after semi-automated fixes")

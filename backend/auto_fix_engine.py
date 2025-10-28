@@ -9,6 +9,13 @@ from datetime import datetime
 import re
 from pdfa_fix_engine import apply_pdfa_fixes
 
+try:
+    from sambanova_remediation import SambaNovaRemediationEngine
+    SAMBANOVA_AVAILABLE = True
+except ImportError:
+    SAMBANOVA_AVAILABLE = False
+    print("[AutoFixEngine] SambaNova AI not available - using traditional fixes only")
+
 class AutoFixEngine:
     """Engine for applying automated and manual fixes to PDFs"""
     
@@ -28,6 +35,7 @@ class AutoFixEngine:
                 'removeEncryption', 'addOutputIntent', 'fixAnnotationAppearances'
             ]
         }
+        self.ai_engine = SambaNovaRemediationEngine() if SAMBANOVA_AVAILABLE else None
     
     def generate_fixes(self, scan_results):
         """Generate fix suggestions based on scan results"""
@@ -440,9 +448,25 @@ class AutoFixEngine:
         return fixes
     
     def apply_automated_fixes(self, pdf_path):
-        """Apply automated fixes to a PDF"""
+        """Apply automated fixes to a PDF with optional AI enhancement"""
         try:
             print(f"[AutoFixEngine] Opening PDF: {pdf_path}")
+            
+            if self.ai_engine and self.ai_engine.is_available():
+                print("[AutoFixEngine] 🤖 Using AI-powered fixes...")
+                try:
+                    ai_result = self.ai_engine.apply_ai_fixes(pdf_path, fix_type='automated')
+                    if ai_result.get('success'):
+                        print(f"[AutoFixEngine] ✓ AI fixes applied successfully: {ai_result.get('fixesApplied', 0)} fixes")
+                        return ai_result
+                    else:
+                        print(f"[AutoFixEngine] ⚠ AI fixes failed: {ai_result.get('error', 'Unknown error')}")
+                        print("[AutoFixEngine] Falling back to traditional fixes...")
+                except Exception as ai_error:
+                    print(f"[AutoFixEngine] ⚠ AI error: {ai_error}")
+                    print("[AutoFixEngine] Falling back to traditional fixes...")
+            
+            # Traditional fixes (fallback or when AI not available)
             pdf = pikepdf.open(pdf_path)
             
             fixes_applied = []
