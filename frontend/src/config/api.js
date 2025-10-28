@@ -21,6 +21,7 @@ export const API_ENDPOINTS = {
   aiManualGuide: `${API_BASE_URL}/api/ai-manual-guide`,
   aiGenerateAltText: `${API_BASE_URL}/api/ai-generate-alt-text`,
   aiSuggestStructure: (scanId) => `${API_BASE_URL}/api/ai-suggest-structure/${scanId}`,
+  aiApplyFixes: (scanId) => `${API_BASE_URL}/api/ai-apply-fixes/${scanId}`,
 }
 
 export default API_BASE_URL

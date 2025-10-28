@@ -24,6 +24,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const [aiStrategy, setAiStrategy] = useState(null)
   const [aiIssueType, setAiIssueType] = useState("")
   const [aiFixCategory, setAiFixCategory] = useState("")
+  const [aiDirectFixLoading, setAiDirectFixLoading] = useState(false)
   const tabRefs = useRef([])
   const tabContainerRef = useRef(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
@@ -219,6 +220,43 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
   }
 
+  const handleAiDirectFix = async () => {
+    setAiDirectFixLoading(true)
+    try {
+      const currentScan = scans[selectedFileIndex]
+      const scanId = currentScan.scanId || currentScan.id
+
+      console.log("[v0] Applying AI-powered direct fixes to:", scanId)
+
+      const response = await axios.post(API_ENDPOINTS.aiApplyFixes(scanId))
+
+      if (response.data.success) {
+        console.log("[v0] AI fixes applied successfully:", response.data)
+
+        // Refresh the scan data with new results
+        if (response.data.newResults && response.data.newSummary) {
+          await refreshScanData(response.data.newSummary, response.data.newResults)
+        } else {
+          await refreshScanData()
+        }
+
+        alert(
+          `AI fixes applied successfully!\n\n` +
+            `Fixes applied: ${response.data.successCount || 0}\n` +
+            `New compliance score: ${response.data.newSummary?.complianceScore || 0}%`,
+        )
+      } else {
+        throw new Error(response.data.error || "Failed to apply AI fixes")
+      }
+    } catch (error) {
+      console.error("[v0] Error applying AI fixes:", error)
+      const errorMessage = error.response?.data?.error || error.message || "Failed to apply AI fixes"
+      alert(`Error: ${errorMessage}`)
+    } finally {
+      setAiDirectFixLoading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -260,6 +298,38 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         <div className="flex items-center justify-between mb-4">
           <Breadcrumb items={breadcrumbItems} />
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleAiDirectFix}
+              disabled={aiDirectFixLoading}
+              className="px-3 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Apply AI-powered fixes directly to the PDF"
+            >
+              {aiDirectFixLoading ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                  <span className="text-sm font-medium">Applying AI Fixes...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                    />
+                  </svg>
+                  <span className="text-sm font-medium">AI Direct Fix</span>
+                </>
+              )}
+            </button>
             <button
               onClick={() => refreshScanData()}
               className="px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
@@ -419,7 +489,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
                       />
                     </svg>
                   </div>

@@ -2049,6 +2049,111 @@ def ai_manual_guide():
         print(f"[AI] ERROR generating manual guide: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/ai-apply-fixes/<scan_id>', methods=['POST'])
+def ai_apply_fixes(scan_id):
+    """Use SambaNova AI to directly apply intelligent fixes to the PDF"""
+    if not AI_REMEDIATION_AVAILABLE:
+        return jsonify({
+            'error': 'AI remediation not available. Set SAMBANOVA_API_KEY environment variable.'
+        }), 503
+    
+    try:
+        pdf_path = os.path.join('uploads', scan_id)
+        
+        print(f"[AI Direct Fix] ========== AI DIRECT FIX: {scan_id} ==========")
+        print(f"[AI Direct Fix] Looking for file: {pdf_path}")
+        
+        if not os.path.exists(pdf_path):
+            print(f"[AI Direct Fix] Error: File not found at {pdf_path}")
+            return jsonify({'error': f'PDF file not found: {scan_id}'}), 404
+        
+        # Get current scan results to understand issues
+        param_placeholder = '%s' if USE_POSTGRESQL else '?'
+        query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
+        result = execute_query(query, (scan_id,), fetch=True)
+        
+        if not result:
+            return jsonify({'error': 'Scan not found'}), 404
+        
+        scan_data = result[0]['scan_results']
+        if isinstance(scan_data, str):
+            scan_data = json.loads(scan_data)
+        
+        if isinstance(scan_data, dict) and 'results' in scan_data:
+            issues = scan_data['results']
+        else:
+            issues = scan_data
+        
+        print(f"[AI Direct Fix] Applying AI-powered fixes to {sum(len(v) for v in issues.values())} issue categories...")
+        
+        # Use AI to apply fixes directly
+        fix_result = AI_REMEDIATION_ENGINE.apply_ai_powered_fixes(pdf_path, issues)
+        
+        if fix_result.get('success') and fix_result.get('fixedFile'):
+            try:
+                # Re-scan the fixed PDF to get updated results
+                fixed_file_path = fix_result['fixedPath']
+                print(f"[AI Direct Fix] Re-scanning AI-fixed file: {fix_result['fixedFile']}")
+                
+                analyzer = PDFAccessibilityAnalyzer()
+                new_results = analyzer.analyze(fixed_file_path)
+                new_summary = analyzer.calculate_summary(new_results)
+                
+                print(f"[AI Direct Fix] ✓ Re-scan complete:")
+                print(f"[AI Direct Fix]   Total issues: {new_summary.get('totalIssues', 0)}")
+                print(f"[AI Direct Fix]   Compliance: {new_summary.get('complianceScore', 0)}%")
+                
+                # Update the scan record with new results
+                scan_data = {
+                    'results': new_results,
+                    'summary': new_summary
+                }
+                
+                print(f"[AI Direct Fix] Updating database with new scan data...")
+                param_placeholder = '%s' if USE_POSTGRESQL else '?'
+                update_query = f'''
+                    UPDATE scans 
+                    SET scan_results = {param_placeholder}, status = {param_placeholder}
+                    WHERE id = {param_placeholder}
+                '''
+                execute_query(update_query, (json.dumps(scan_data), 'ai_fixed', scan_id))
+                print(f"[AI Direct Fix] ✓ Database updated successfully")
+                
+                # Add new results and summary to the response
+                fix_result['newResults'] = new_results
+                fix_result['newSummary'] = new_summary
+                
+                # Save fix history
+                param_placeholder = '%s' if USE_POSTGRESQL else '?'
+                insert_query = f'''
+                    INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
+                    VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                '''
+                execute_query(insert_query, (
+                    scan_id,
+                    scan_id,
+                    fix_result['fixedFile'],
+                    json.dumps(fix_result.get('fixesApplied', [])),
+                    fix_result.get('successCount', 0)
+                ))
+                print(f"[AI Direct Fix] ✓ Fix history saved for {scan_id}")
+                
+            except Exception as rescan_error:
+                print(f"[AI Direct Fix] ERROR: Failed to re-scan PDF: {rescan_error}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({
+                    'error': f'AI fixes applied but failed to re-scan: {str(rescan_error)}'
+                }), 500
+        
+        return jsonify(fix_result), 200
+        
+    except Exception as e:
+        print(f"[AI Direct Fix] ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     try:
         init_db()
