@@ -56,7 +56,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
         if (onRefresh) {
           console.log("[v0] FixSuggestions - Refreshing data after traditional fixes")
-          await onRefresh()
+          try {
+            await onRefresh()
+            console.log("[v0] FixSuggestions - Refresh completed successfully")
+          } catch (refreshError) {
+            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+          }
         }
       } else {
         alert(response.data.message || "Failed to apply fixes")
@@ -84,7 +89,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
         if (onRefresh) {
           console.log("[v0] FixSuggestions - Refreshing data after AI fixes")
-          await onRefresh()
+          try {
+            await onRefresh()
+            console.log("[v0] FixSuggestions - Refresh completed successfully")
+          } catch (refreshError) {
+            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+          }
         }
       } else {
         alert(response.data.message || "Failed to apply AI fixes")
@@ -108,7 +118,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
         if (onRefresh) {
           console.log("[v0] FixSuggestions - Refreshing data after traditional semi-automated fixes")
-          await onRefresh()
+          try {
+            await onRefresh()
+            console.log("[v0] FixSuggestions - Refresh completed successfully")
+          } catch (refreshError) {
+            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+          }
         }
       } else {
         alert(response.data.message || "Failed to apply semi-automated fixes")
@@ -132,7 +147,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
         if (onRefresh) {
           console.log("[v0] FixSuggestions - Refreshing data after AI semi-automated fixes")
-          await onRefresh()
+          try {
+            await onRefresh()
+            console.log("[v0] FixSuggestions - Refresh completed successfully")
+          } catch (refreshError) {
+            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+          }
         }
       } else {
         alert(response.data.message || "Failed to apply AI semi-automated fixes")
@@ -149,12 +169,10 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     console.log("[v0] FixSuggestions - Fix applied in editor:", appliedFix)
     console.log("[v0] FixSuggestions - New summary received:", newSummary)
     console.log("[v0] FixSuggestions - New results received:", newResults)
-    console.log("[v0] FixSuggestions - Current fixes before refresh:", fixes)
 
     if (onRefresh) {
       console.log("[v0] FixSuggestions - Calling onRefresh with new data...")
       try {
-        await new Promise((resolve) => setTimeout(resolve, 200))
         await onRefresh(newSummary, newResults)
         console.log("[v0] FixSuggestions - onRefresh completed successfully")
       } catch (error) {
@@ -171,7 +189,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
     if (onRefresh) {
       try {
-        await new Promise((resolve) => setTimeout(resolve, 500))
+        await new Promise((resolve) => setTimeout(resolve, 300))
         await onRefresh()
         console.log("[v0] FixSuggestions - Data refreshed after editor close")
       } catch (error) {

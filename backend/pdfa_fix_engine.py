@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Optional
 from pikepdf import Pdf, Name, Dictionary, Array, Stream
 import os
 from pathlib import Path
+import shutil
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +36,16 @@ class PDFAFixEngine:
         COMPLETELY REWRITTEN to ensure fixes actually modify the PDF
         """
         pdf = None
+        temp_path = None
         try:
             logger.info(f"========== STARTING PDF/A FIXES ==========")
             logger.info(f"Applying PDF/A fixes to: {pdf_path}")
             logger.info(f"File exists: {os.path.exists(pdf_path)}")
             logger.info(f"File size: {os.path.getsize(pdf_path)} bytes")
             
-            pdf = Pdf.open(pdf_path, allow_overwriting_input=True)
+            temp_path = f"{pdf_path}.temp"
+            
+            pdf = Pdf.open(pdf_path)
             logger.info("✓ PDF opened successfully")
             
             fixes_applied = []
@@ -49,14 +53,12 @@ class PDFAFixEngine:
             warnings = []
             
             for issue in issues:
-                # If issue is a string, convert to dict
                 if isinstance(issue, str):
                     issue = {'message': issue, 'severity': 'error'}
                 
                 severity = issue.get('severity', 'error')
                 message = issue.get('message', '')
                 
-                # Fix 1: Add OutputIntent for color spaces
                 if 'outputintent' in message.lower() or 'color space' in message.lower():
                     result = self._add_output_intent(pdf)
                     if result['success']:
@@ -65,14 +67,12 @@ class PDFAFixEngine:
                     else:
                         warnings.append(result['message'])
                 
-                # Fix 2: Add PDF/A identifier
                 if 'pdf/a identification' in message.lower() or 'pdfaid:part' in message.lower():
                     result = self._add_pdfa_identifier(pdf)
                     if result['success']:
                         fixes_applied.append(result)
                         success_count += 1
                 
-                # Fix 3: Fix annotation appearances
                 if 'annotation' in message.lower() and 'appearance' in message.lower():
                     result = self._fix_annotation_appearances(pdf)
                     if result['success']:
@@ -81,14 +81,12 @@ class PDFAFixEngine:
                     else:
                         warnings.append(result['message'])
                 
-                # Fix 4: Fix metadata consistency
                 if 'metadata' in message.lower() and ('docinfo' in message.lower() or 'xmp' in message.lower()):
                     result = self._fix_metadata_consistency(pdf)
                     if result['success']:
                         fixes_applied.append(result)
                         success_count += 1
                 
-                # Fix 5: Font embedding (warning only - requires source fonts)
                 if 'font' in message.lower() and 'embed' in message.lower():
                     warnings.append({
                         'type': 'fontEmbedding',
@@ -96,7 +94,6 @@ class PDFAFixEngine:
                         'severity': 'critical'
                     })
                 
-                # Fix 6: Transparency (warning only - requires flattening)
                 if 'transparency' in message.lower():
                     warnings.append({
                         'type': 'transparency',
@@ -104,7 +101,6 @@ class PDFAFixEngine:
                         'severity': 'error'
                     })
                 
-                # Fix 7: Encryption (can be removed)
                 if 'encrypt' in message.lower():
                     warnings.append({
                         'type': 'encryption',
@@ -114,33 +110,32 @@ class PDFAFixEngine:
             
             logger.info("========== SAVING PDF/A FIXES ==========")
             logger.info(f"Applied {success_count} fixes, now saving...")
+            logger.info(f"Saving to temp file: {temp_path}")
             
-            # Generate fixed filename
-            fixed_filename = f"{os.path.splitext(os.path.basename(pdf_path))[0]}_pdfa_fixed.pdf"
-            fixed_path = os.path.join(os.path.dirname(pdf_path), fixed_filename)
-            
-            logger.info(f"Saving to: {fixed_path}")
-            
-            # Save with proper settings
             pdf.save(
-                fixed_path,
+                temp_path,
                 linearize=False,
                 object_stream_mode=Pdf.ObjectStreamMode.preserve
             )
             
-            logger.info("✓ PDF saved successfully")
-            logger.info(f"Fixed file size: {os.path.getsize(fixed_path)} bytes")
+            logger.info("✓ PDF saved to temp file")
+            logger.info(f"Temp file size: {os.path.getsize(temp_path)} bytes")
             
             # Close PDF
             pdf.close()
             pdf = None
+            
+            logger.info("Replacing original file with fixed version...")
+            shutil.move(temp_path, pdf_path)
+            logger.info("✓ Original file replaced")
+            logger.info(f"Final file size: {os.path.getsize(pdf_path)} bytes")
             
             logger.info("========== PDF/A FIXES COMPLETE ==========")
             logger.info(f"Total fixes applied: {success_count}")
             
             return {
                 'success': True,
-                'fixedFile': fixed_filename,
+                'fixedFile': os.path.basename(pdf_path),
                 'fixesApplied': fixes_applied,
                 'warnings': warnings,
                 'successCount': success_count,
@@ -152,6 +147,13 @@ class PDFAFixEngine:
             logger.error(f"Error applying PDF/A fixes: {e}")
             import traceback
             traceback.print_exc()
+            
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                    logger.info("Cleaned up temp file")
+                except:
+                    pass
             
             if pdf:
                 try:
