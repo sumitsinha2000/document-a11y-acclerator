@@ -158,15 +158,19 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold text-gray-900 dark:text-white">Remediation Suggestions</h3>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 dark:text-gray-400">
+          <span
+            className="text-xs text-gray-500 dark:text-gray-400"
+            aria-label={`Estimated time: ${safeRender(fixes.estimatedTime, "N/A")} minutes`}
+          >
             Est. Time: {safeRender(fixes.estimatedTime, "N/A")} minutes
           </span>
           {(hasSemiAutomated || hasManual) && (
             <button
               onClick={() => setShowEditor(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+              aria-label="Open PDF editor to apply manual fixes"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -191,19 +195,22 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         />
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" role="region" aria-label="Fix suggestions by type">
         {/* Automated Fixes Card */}
         {hasAutomated && (
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700">
             <h4 className="text-sm font-semibold text-green-600 dark:text-green-400 mb-1">Automated Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Can be applied automatically</p>
-            <div className="space-y-2 mb-3">
+            <div className="space-y-2 mb-3" role="list">
               {validAutomated.map((fix, idx) => (
                 <div
                   key={idx}
                   className="flex gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800"
+                  role="listitem"
                 >
-                  <div className="text-lg">⚙️</div>
+                  <div className="text-lg" aria-hidden="true">
+                    ⚙️
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{fix.title}</div>
                     <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-2">
@@ -213,7 +220,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                       <span className="font-medium capitalize">{fix.severity}</span>
                       {fix.estimatedTime && (
                         <>
-                          <span>•</span>
+                          <span aria-hidden="true">•</span>
                           <span>{fix.estimatedTime} min</span>
                         </>
                       )}
@@ -223,9 +230,15 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
               ))}
             </div>
             <button
-              className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors"
+              className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
               onClick={handleApplyFixes}
               disabled={applying}
+              aria-busy={applying}
+              aria-label={
+                applying
+                  ? "Applying automated fixes"
+                  : `Apply ${validAutomated.length} automated ${validAutomated.length === 1 ? "fix" : "fixes"}`
+              }
             >
               {applying ? "Applying..." : "Apply Fixes"}
             </button>
@@ -237,13 +250,16 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700">
             <h4 className="text-sm font-semibold text-yellow-600 dark:text-yellow-400 mb-1">Semi-Automated Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Require review & confirmation</p>
-            <div className="space-y-2 mb-3">
+            <div className="space-y-2 mb-3" role="list">
               {validSemiAutomated.map((fix, idx) => (
                 <div
                   key={idx}
                   className="flex gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800"
+                  role="listitem"
                 >
-                  <div className="text-lg">🔍</div>
+                  <div className="text-lg" aria-hidden="true">
+                    🔍
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{fix.title}</div>
                     <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-2">
@@ -253,7 +269,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                       <span className="font-medium capitalize">{fix.severity}</span>
                       {fix.estimatedTime && (
                         <>
-                          <span>•</span>
+                          <span aria-hidden="true">•</span>
                           <span>{fix.estimatedTime} min</span>
                         </>
                       )}
@@ -263,9 +279,15 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
               ))}
             </div>
             <button
-              className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors"
+              className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
               onClick={handleApplySemiAutomatedFixes}
               disabled={applyingSemiAuto}
+              aria-busy={applyingSemiAuto}
+              aria-label={
+                applyingSemiAuto
+                  ? "Applying semi-automated fixes"
+                  : `Apply ${validSemiAutomated.length} semi-automated ${validSemiAutomated.length === 1 ? "fix" : "fixes"}`
+              }
             >
               {applyingSemiAuto ? "Applying..." : "Apply Semi-Automated Fixes"}
             </button>
@@ -277,13 +299,16 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700">
             <h4 className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-1">Manual Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Require manual intervention</p>
-            <div className="space-y-2">
+            <div className="space-y-2" role="list">
               {validManual.map((fix, idx) => (
                 <div
                   key={idx}
                   className="flex gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800"
+                  role="listitem"
                 >
-                  <div className="text-lg">👤</div>
+                  <div className="text-lg" aria-hidden="true">
+                    👤
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{fix.title}</div>
                     <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-2">
@@ -293,7 +318,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                       <span className="font-medium capitalize">{fix.severity}</span>
                       {fix.estimatedTime && (
                         <>
-                          <span>•</span>
+                          <span aria-hidden="true">•</span>
                           <span>{fix.estimatedTime} min</span>
                         </>
                       )}
@@ -307,7 +332,11 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       </div>
 
       {fixedFile && (
-        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+        <div
+          className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4"
+          role="status"
+          aria-live="polite"
+        >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-green-800 dark:text-green-200">Fixes Applied Successfully!</p>
@@ -315,9 +344,10 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             </div>
             <button
               onClick={handleDownloadFixed}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+              aria-label="Download fixed PDF file"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"

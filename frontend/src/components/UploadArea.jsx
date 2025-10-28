@@ -181,7 +181,7 @@ export default function UploadArea({ onScanComplete }) {
         <div className="flex-1 lg:max-w-2xl">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-colors">
             <div
-              className={`relative border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${
+              className={`relative border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-800 ${
                 isDragging
                   ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
                   : "border-gray-300 dark:border-gray-600 hover:border-primary-400 dark:hover:border-primary-500"
@@ -190,10 +190,24 @@ export default function UploadArea({ onScanComplete }) {
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onClick={handleClick}
+              role="button"
+              tabIndex={isScanning ? -1 : 0}
+              onKeyDown={(e) => {
+                if ((e.key === "Enter" || e.key === " ") && !isScanning) {
+                  e.preventDefault()
+                  handleClick()
+                }
+              }}
+              aria-label="Upload PDF documents. Drag and drop files here or press Enter to browse"
+              aria-busy={isScanning}
             >
               {isScanning ? (
                 <div className="space-y-4">
-                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent"></div>
+                  <div
+                    className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent"
+                    role="status"
+                    aria-label="Scanning in progress"
+                  ></div>
                   <p className="text-base font-medium text-gray-700 dark:text-gray-300">
                     Scanning {uploadProgress.length} PDF file(s)...
                   </p>
@@ -205,6 +219,7 @@ export default function UploadArea({ onScanComplete }) {
                     stroke="currentColor"
                     fill="none"
                     viewBox="0 0 48 48"
+                    aria-hidden="true"
                   >
                     <path
                       d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
@@ -226,25 +241,31 @@ export default function UploadArea({ onScanComplete }) {
                     onChange={handleFileInput}
                     className="hidden"
                     disabled={isScanning}
+                    aria-label="Choose PDF files to upload"
                   />
                 </>
               )}
             </div>
 
             {error && (
-              <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <div
+                className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg"
+                role="alert"
+                aria-live="assertive"
+              >
                 <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
               </div>
             )}
 
             <div className="mt-6 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-5">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">What we scan for:</h3>
-              <ul className="space-y-2 text-xs text-gray-600 dark:text-gray-400">
+              <ul className="space-y-2 text-xs text-gray-600 dark:text-gray-400" role="list">
                 <li className="flex items-start">
                   <svg
                     className="w-4 h-4 text-primary-500 mr-2 mt-0.5 flex-shrink-0"
                     fill="currentColor"
                     viewBox="0 0 20 20"
+                    aria-hidden="true"
                   >
                     <path
                       fillRule="evenodd"
@@ -259,6 +280,7 @@ export default function UploadArea({ onScanComplete }) {
                     className="w-4 h-4 text-primary-500 mr-2 mt-0.5 flex-shrink-0"
                     fill="currentColor"
                     viewBox="0 0 20 20"
+                    aria-hidden="true"
                   >
                     <path
                       fillRule="evenodd"
@@ -273,6 +295,7 @@ export default function UploadArea({ onScanComplete }) {
                     className="w-4 h-4 text-primary-500 mr-2 mt-0.5 flex-shrink-0"
                     fill="currentColor"
                     viewBox="0 0 20 20"
+                    aria-hidden="true"
                   >
                     <path
                       fillRule="evenodd"
@@ -287,6 +310,7 @@ export default function UploadArea({ onScanComplete }) {
                     className="w-4 h-4 text-primary-500 mr-2 mt-0.5 flex-shrink-0"
                     fill="currentColor"
                     viewBox="0 0 20 20"
+                    aria-hidden="true"
                   >
                     <path
                       fillRule="evenodd"
@@ -301,6 +325,7 @@ export default function UploadArea({ onScanComplete }) {
                     className="w-4 h-4 text-primary-500 mr-2 mt-0.5 flex-shrink-0"
                     fill="currentColor"
                     viewBox="0 0 20 20"
+                    aria-hidden="true"
                   >
                     <path
                       fillRule="evenodd"
@@ -315,6 +340,7 @@ export default function UploadArea({ onScanComplete }) {
                     className="w-4 h-4 text-primary-500 mr-2 mt-0.5 flex-shrink-0"
                     fill="currentColor"
                     viewBox="0 0 20 20"
+                    aria-hidden="true"
                   >
                     <path
                       fillRule="evenodd"
@@ -329,6 +355,7 @@ export default function UploadArea({ onScanComplete }) {
                     className="w-4 h-4 text-primary-500 mr-2 mt-0.5 flex-shrink-0"
                     fill="currentColor"
                     viewBox="0 0 20 20"
+                    aria-hidden="true"
                   >
                     <path
                       fillRule="evenodd"
@@ -346,9 +373,18 @@ export default function UploadArea({ onScanComplete }) {
         {/* Upload Progress - Right Side */}
         {uploadProgress.length > 0 && (
           <div className="flex-1 lg:max-w-md">
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 transition-colors sticky top-20">
+            <div
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 transition-colors sticky top-20"
+              role="region"
+              aria-label="Upload progress"
+            >
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Upload Status</h3>
-              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+              <div
+                className="space-y-2 max-h-[600px] overflow-y-auto"
+                role="list"
+                aria-live="polite"
+                aria-atomic="false"
+              >
                 {uploadProgress.map((item, idx) => (
                   <div
                     key={idx}
@@ -359,6 +395,7 @@ export default function UploadArea({ onScanComplete }) {
                           ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
                           : "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
                     }`}
+                    role="listitem"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
@@ -372,12 +409,16 @@ export default function UploadArea({ onScanComplete }) {
                               ? "bg-red-100 dark:bg-red-800 text-red-800 dark:text-red-100"
                               : "bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-100"
                         }`}
+                        role="status"
+                        aria-label={`Status: ${item.status}`}
                       >
                         {item.status}
                       </span>
                     </div>
                     {item.error && (
-                      <p className="mt-1 text-xs text-red-600 dark:text-red-400 break-words">{item.error}</p>
+                      <p className="mt-1 text-xs text-red-600 dark:text-red-400 break-words" role="alert">
+                        {item.error}
+                      </p>
                     )}
                   </div>
                 ))}

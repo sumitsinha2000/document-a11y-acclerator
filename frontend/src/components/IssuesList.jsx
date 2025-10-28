@@ -59,7 +59,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
           <path
             fillRule="evenodd"
-            d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+            d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
             clipRule="evenodd"
           />
         </svg>
@@ -80,7 +80,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Issue categories">
         {categories.map((category) => {
           const issues = results[category] || []
           const count = issues.length
@@ -90,7 +90,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
           return (
             <button
               key={category}
-              className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
+              className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 ${
                 selectedCategory === category
                   ? "bg-blue-600 text-white shadow-lg"
                   : isVeraPDFCategory
@@ -98,8 +98,14 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
                     : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700"
               }`}
               onClick={() => onSelectCategory(selectedCategory === category ? null : category)}
+              aria-pressed={selectedCategory === category}
+              aria-label={`${getCategoryLabel(category)}, ${count} ${count === 1 ? "issue" : "issues"}`}
             >
-              {icon && <span className={selectedCategory === category ? "text-white" : ""}>{icon}</span>}
+              {icon && (
+                <span className={selectedCategory === category ? "text-white" : ""} aria-hidden="true">
+                  {icon}
+                </span>
+              )}
               <span className="mr-2">{getCategoryLabel(category)}</span>
               <span
                 className={`px-2 py-0.5 rounded-full text-xs ${
@@ -107,6 +113,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
                     ? "bg-blue-500 text-white"
                     : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
                 }`}
+                aria-hidden="true"
               >
                 {count}
               </span>
@@ -116,22 +123,36 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
       </div>
 
       {selectedCategory && results[selectedCategory] && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+        <div
+          className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6"
+          role="region"
+          aria-label={`${getCategoryLabel(selectedCategory)} details`}
+        >
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-xl font-bold text-gray-900 dark:text-white">{getCategoryLabel(selectedCategory)}</h4>
             <button
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none"
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded p-1"
               onClick={() => onSelectCategory(null)}
+              aria-label="Close issue details"
             >
               ✕
             </button>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-4" role="list">
             {results[selectedCategory].map((issue, idx) => (
-              <div key={idx} className={`p-4 rounded-lg border-l-4 ${getSeverityStyles(issue.severity)}`}>
+              <div
+                key={idx}
+                className={`p-4 rounded-lg border-l-4 ${getSeverityStyles(issue.severity)}`}
+                role="listitem"
+              >
                 <div className="flex items-start gap-3 mb-2">
-                  <span className="px-2 py-1 rounded text-xs font-bold uppercase">{issue.severity}</span>
+                  <span
+                    className="px-2 py-1 rounded text-xs font-bold uppercase"
+                    aria-label={`Severity: ${issue.severity}`}
+                  >
+                    {issue.severity}
+                  </span>
                   <span className="font-semibold flex-1">{issue.description}</span>
                 </div>
                 {issue.specification && (
