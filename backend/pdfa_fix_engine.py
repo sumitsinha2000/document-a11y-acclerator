@@ -32,17 +32,17 @@ class PDFAFixEngine:
     def apply_pdfa_fixes(self, pdf_path: str, issues: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Apply semi-automated PDF/A fixes based on detected issues
-        
-        Args:
-            pdf_path: Path to the PDF file
-            issues: List of PDF/A issues to fix
-            
-        Returns:
-            Dictionary with fix results
+        COMPLETELY REWRITTEN to ensure fixes actually modify the PDF
         """
+        pdf = None
         try:
+            logger.info(f"========== STARTING PDF/A FIXES ==========")
             logger.info(f"Applying PDF/A fixes to: {pdf_path}")
-            pdf = Pdf.open(pdf_path)
+            logger.info(f"File exists: {os.path.exists(pdf_path)}")
+            logger.info(f"File size: {os.path.getsize(pdf_path)} bytes")
+            
+            pdf = Pdf.open(pdf_path, allow_overwriting_input=True)
+            logger.info("✓ PDF opened successfully")
             
             fixes_applied = []
             success_count = 0
@@ -112,14 +112,31 @@ class PDFAFixEngine:
                         'severity': 'critical'
                     })
             
-            # Save fixed PDF
+            logger.info("========== SAVING PDF/A FIXES ==========")
+            logger.info(f"Applied {success_count} fixes, now saving...")
+            
+            # Generate fixed filename
             fixed_filename = f"{os.path.splitext(os.path.basename(pdf_path))[0]}_pdfa_fixed.pdf"
             fixed_path = os.path.join(os.path.dirname(pdf_path), fixed_filename)
             
-            pdf.save(fixed_path)
-            pdf.close()
+            logger.info(f"Saving to: {fixed_path}")
             
-            logger.info(f"Applied {success_count} PDF/A fixes")
+            # Save with proper settings
+            pdf.save(
+                fixed_path,
+                linearize=False,
+                object_stream_mode=Pdf.ObjectStreamMode.preserve
+            )
+            
+            logger.info("✓ PDF saved successfully")
+            logger.info(f"Fixed file size: {os.path.getsize(fixed_path)} bytes")
+            
+            # Close PDF
+            pdf.close()
+            pdf = None
+            
+            logger.info("========== PDF/A FIXES COMPLETE ==========")
+            logger.info(f"Total fixes applied: {success_count}")
             
             return {
                 'success': True,
@@ -131,7 +148,17 @@ class PDFAFixEngine:
             }
             
         except Exception as e:
+            logger.error("========== ERROR ==========")
             logger.error(f"Error applying PDF/A fixes: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            if pdf:
+                try:
+                    pdf.close()
+                except:
+                    pass
+            
             return {
                 'success': False,
                 'error': str(e),

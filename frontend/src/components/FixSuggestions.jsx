@@ -7,8 +7,10 @@ import AIRemediationPanel from "./AIRemediationPanel"
 import { API_ENDPOINTS } from "../config/api"
 
 export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
-  const [applying, setApplying] = useState(false)
-  const [applyingSemiAuto, setApplyingSemiAuto] = useState(false)
+  const [applyingTraditional, setApplyingTraditional] = useState(false)
+  const [applyingAI, setApplyingAI] = useState(false)
+  const [applyingTraditionalSemi, setApplyingTraditionalSemi] = useState(false)
+  const [applyingAISemi, setApplyingAISemi] = useState(false)
   const [fixedFile, setFixedFile] = useState(null)
   const [showEditor, setShowEditor] = useState(false)
   const [showAIPanel, setShowAIPanel] = useState(false)
@@ -39,38 +41,107 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
-  const handleApplyFixes = async () => {
-    setApplying(true)
+  const handleApplyTraditionalFixes = async () => {
+    setApplyingTraditional(true)
     try {
-      const response = await axios.post(API_ENDPOINTS.applyFixes(scanId))
+      const response = await axios.post(API_ENDPOINTS.applyFixes(scanId), {
+        useAI: false,
+      })
       if (response.data.success) {
         setFixedFile({
           filename: response.data.fixedFile,
           message: response.data.message,
         })
-        const aiMessage = response.data.aiEnhanced
-          ? "✨ AI-enhanced fixes applied successfully!"
-          : response.data.message
-        alert(aiMessage)
+        alert("Traditional automated fixes applied successfully!")
 
         if (onRefresh) {
-          console.log("[v0] FixSuggestions - Refreshing data after automated fixes")
+          console.log("[v0] FixSuggestions - Refreshing data after traditional fixes")
           await onRefresh()
         }
       } else {
         alert(response.data.message || "Failed to apply fixes")
       }
     } catch (error) {
-      console.error("Error applying fixes:", error)
+      console.error("Error applying traditional fixes:", error)
       alert("Error applying fixes: " + (error.response?.data?.message || error.message))
     } finally {
-      setApplying(false)
+      setApplyingTraditional(false)
     }
   }
 
-  const handleDownloadFixed = () => {
-    if (fixedFile) {
-      window.open(API_ENDPOINTS.downloadFixed(fixedFile.filename), "_blank")
+  const handleApplyAIFixes = async () => {
+    setApplyingAI(true)
+    try {
+      const response = await axios.post(API_ENDPOINTS.applyFixes(scanId), {
+        useAI: true,
+      })
+      if (response.data.success) {
+        setFixedFile({
+          filename: response.data.fixedFile,
+          message: response.data.message,
+        })
+        alert("✨ AI-powered automated fixes applied successfully!")
+
+        if (onRefresh) {
+          console.log("[v0] FixSuggestions - Refreshing data after AI fixes")
+          await onRefresh()
+        }
+      } else {
+        alert(response.data.message || "Failed to apply AI fixes")
+      }
+    } catch (error) {
+      console.error("Error applying AI fixes:", error)
+      alert("Error applying AI fixes: " + (error.response?.data?.message || error.message))
+    } finally {
+      setApplyingAI(false)
+    }
+  }
+
+  const handleApplyTraditionalSemiFixes = async () => {
+    setApplyingTraditionalSemi(true)
+    try {
+      const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
+        useAI: false,
+      })
+      if (response.data.success) {
+        alert("Traditional semi-automated fixes applied successfully!")
+
+        if (onRefresh) {
+          console.log("[v0] FixSuggestions - Refreshing data after traditional semi-automated fixes")
+          await onRefresh()
+        }
+      } else {
+        alert(response.data.message || "Failed to apply semi-automated fixes")
+      }
+    } catch (error) {
+      console.error("Error applying traditional semi-automated fixes:", error)
+      alert("Error: " + (error.response?.data?.message || error.message))
+    } finally {
+      setApplyingTraditionalSemi(false)
+    }
+  }
+
+  const handleApplyAISemiFixes = async () => {
+    setApplyingAISemi(true)
+    try {
+      const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
+        useAI: true,
+      })
+      if (response.data.success) {
+        alert("✨ AI-powered semi-automated fixes applied successfully!")
+
+        if (onRefresh) {
+          console.log("[v0] FixSuggestions - Refreshing data after AI semi-automated fixes")
+          await onRefresh()
+        }
+      } else {
+        alert(response.data.message || "Failed to apply AI semi-automated fixes")
+      }
+    } catch (error) {
+      console.error("Error applying AI semi-automated fixes:", error)
+      alert("Error: " + (error.response?.data?.message || error.message))
+    } finally {
+      setApplyingAISemi(false)
     }
   }
 
@@ -109,28 +180,21 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
-  const handleApplySemiAutomatedFixes = async () => {
-    setApplyingSemiAuto(true)
+  const handleDownloadFixed = async () => {
     try {
-      const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`)
-      if (response.data.success) {
-        const aiMessage = response.data.aiEnhanced
-          ? "✨ AI-enhanced semi-automated fixes applied successfully!"
-          : response.data.message || "Semi-automated fixes applied successfully"
-        alert(aiMessage)
-
-        if (onRefresh) {
-          console.log("[v0] FixSuggestions - Refreshing data after semi-automated fixes")
-          await onRefresh()
-        }
-      } else {
-        alert(response.data.message || "Failed to apply semi-automated fixes")
-      }
+      const response = await axios.get(`/api/download-fixed-file/${scanId}`, {
+        responseType: "blob",
+      })
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement("a")
+      link.href = url
+      link.setAttribute("download", fixedFile.filename)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
     } catch (error) {
-      console.error("Error applying semi-automated fixes:", error)
-      alert("Error applying semi-automated fixes: " + (error.response?.data?.message || error.message))
-    } finally {
-      setApplyingSemiAuto(false)
+      console.error("Error downloading fixed file:", error)
+      alert("Error downloading fixed file: " + (error.response?.data?.message || error.message))
     }
   }
 
@@ -254,19 +318,40 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 </div>
               ))}
             </div>
-            <button
-              className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-              onClick={handleApplyFixes}
-              disabled={applying}
-              aria-busy={applying}
-              aria-label={
-                applying
-                  ? "Applying automated fixes"
-                  : `Apply ${validAutomated.length} automated ${validAutomated.length === 1 ? "fix" : "fixes"}`
-              }
-            >
-              {applying ? "Applying..." : "Apply Fixes"}
-            </button>
+            <div className="space-y-2">
+              <button
+                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                onClick={handleApplyTraditionalFixes}
+                disabled={applyingTraditional}
+                aria-busy={applyingTraditional}
+                aria-label={applyingTraditional ? "Applying traditional fixes" : "Apply traditional automated fixes"}
+              >
+                {applyingTraditional ? "Applying..." : "Apply Traditional Fixes"}
+              </button>
+              <button
+                className="w-full px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 flex items-center justify-center gap-2"
+                onClick={handleApplyAIFixes}
+                disabled={applyingAI}
+                aria-busy={applyingAI}
+                aria-label={applyingAI ? "Applying AI fixes" : "Apply AI-powered automated fixes"}
+              >
+                {applyingAI ? (
+                  "Applying..."
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                      />
+                    </svg>
+                    Apply AI Fixes
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
 
@@ -303,19 +388,46 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 </div>
               ))}
             </div>
-            <button
-              className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-              onClick={handleApplySemiAutomatedFixes}
-              disabled={applyingSemiAuto}
-              aria-busy={applyingSemiAuto}
-              aria-label={
-                applyingSemiAuto
-                  ? "Applying semi-automated fixes"
-                  : `Apply ${validSemiAutomated.length} semi-automated ${validSemiAutomated.length === 1 ? "fix" : "fixes"}`
-              }
-            >
-              {applyingSemiAuto ? "Applying..." : "Apply Semi-Automated Fixes"}
-            </button>
+            <div className="space-y-2">
+              <button
+                className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                onClick={handleApplyTraditionalSemiFixes}
+                disabled={applyingTraditionalSemi}
+                aria-busy={applyingTraditionalSemi}
+                aria-label={
+                  applyingTraditionalSemi
+                    ? "Applying traditional semi-automated fixes"
+                    : "Apply traditional semi-automated fixes"
+                }
+              >
+                {applyingTraditionalSemi ? "Applying..." : "Apply Traditional Fixes"}
+              </button>
+              <button
+                className="w-full px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 flex items-center justify-center gap-2"
+                onClick={handleApplyAISemiFixes}
+                disabled={applyingAISemi}
+                aria-busy={applyingAISemi}
+                aria-label={
+                  applyingAISemi ? "Applying AI semi-automated fixes" : "Apply AI-powered semi-automated fixes"
+                }
+              >
+                {applyingAISemi ? (
+                  "Applying..."
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                      />
+                    </svg>
+                    Apply AI Fixes
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
 
