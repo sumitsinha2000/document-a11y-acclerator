@@ -16,6 +16,11 @@ export const API_ENDPOINTS = {
   fixHistory: (scanId) => `${API_BASE_URL}/api/fix-history/${scanId}`,
   downloadFixed: (filename) => `${API_BASE_URL}/api/download-fixed/${filename}`,
   export: (scanId) => `${API_BASE_URL}/api/export/${scanId}`,
+  aiAnalyze: (scanId) => `${API_BASE_URL}/api/ai-analyze/${scanId}`,
+  aiFixStrategy: (scanId) => `${API_BASE_URL}/api/ai-fix-strategy/${scanId}`,
+  aiManualGuide: `${API_BASE_URL}/api/ai-manual-guide`,
+  aiGenerateAltText: `${API_BASE_URL}/api/ai-generate-alt-text`,
+  aiSuggestStructure: (scanId) => `${API_BASE_URL}/api/ai-suggest-structure/${scanId}`,
 }
 
 export default API_BASE_URL

@@ -1994,6 +1994,61 @@ def ai_suggest_structure(scan_id):
         print(f"[AI] ERROR suggesting structure: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/ai-fix-strategy/<scan_id>', methods=['POST'])
+def ai_fix_strategy(scan_id):
+    """Generate AI fix strategy for specific issue type and category"""
+    if not AI_REMEDIATION_AVAILABLE:
+        return jsonify({
+            'error': 'AI remediation not available. Set SAMBANOVA_API_KEY environment variable.'
+        }), 503
+    
+    try:
+        data = request.get_json()
+        issue_type = data.get('issueType', 'general')
+        fix_category = data.get('fixCategory', 'automated')
+        issues = data.get('issues', [])
+        
+        print(f"[AI] Generating {fix_category} fix strategy for {issue_type} issues (count: {len(issues)})")
+        
+        strategy = AI_REMEDIATION_ENGINE.generate_fix_strategy(issue_type, issues, fix_category)
+        
+        return jsonify({
+            'success': True,
+            'scanId': scan_id,
+            'strategy': strategy
+        }), 200
+        
+    except Exception as e:
+        print(f"[AI] ERROR generating fix strategy: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/ai-manual-guide', methods=['POST'])
+def ai_manual_guide():
+    """Generate detailed manual fix guide for a specific issue"""
+    if not AI_REMEDIATION_AVAILABLE:
+        return jsonify({
+            'error': 'AI remediation not available. Set SAMBANOVA_API_KEY environment variable.'
+        }), 503
+    
+    try:
+        data = request.get_json()
+        issue = data.get('issue', {})
+        
+        print(f"[AI] Generating manual fix guide for: {issue.get('description', 'Unknown issue')}")
+        
+        guide = AI_REMEDIATION_ENGINE.generate_manual_fix_guide(issue)
+        
+        return jsonify({
+            'success': True,
+            'guide': guide
+        }), 200
+        
+    except Exception as e:
+        print(f"[AI] ERROR generating manual guide: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     try:
         init_db()

@@ -264,6 +264,162 @@ Format as JSON array with keys: issue, priority, impact, effort, order, reasonin
             print(f"[SambaNova] ERROR: Prioritization failed: {e}")
             return []
     
+    def generate_fix_strategy(self, issue_type: str, issues: List[Any], fix_category: str = 'automated') -> Dict[str, Any]:
+        """
+        Generate specific fix strategies for different issue types and categories
+        
+        Args:
+            issue_type: Type of issues (wcag, pdfa, structure, etc.)
+            issues: List of specific issues
+            fix_category: Category of fix (automated, semi-automated, manual)
+            
+        Returns:
+            Detailed fix strategy with step-by-step instructions
+        """
+        try:
+            issue_descriptions = []
+            for issue in issues[:5]:  # Limit to first 5 for context
+                if isinstance(issue, dict):
+                    desc = issue.get('description', issue.get('message', str(issue)))
+                    severity = issue.get('severity', 'unknown')
+                    issue_descriptions.append(f"- [{severity.upper()}] {desc}")
+                else:
+                    issue_descriptions.append(f"- {str(issue)}")
+            
+            issue_text = "\n".join(issue_descriptions)
+            if len(issues) > 5:
+                issue_text += f"\n... and {len(issues) - 5} more similar issues"
+            
+            prompt = f"""Generate a detailed {fix_category} fix strategy for these {issue_type} accessibility issues.
+
+Issue Type: {issue_type.upper()}
+Fix Category: {fix_category.upper()}
+Total Issues: {len(issues)}
+
+Issues:
+{issue_text}
+
+Provide:
+1. **Overview**: Brief assessment of the issues
+2. **Fix Approach**: Specific approach for {fix_category} fixes
+3. **Step-by-Step Instructions**: Detailed steps to resolve each issue
+4. **Code Examples**: If applicable, provide code snippets or commands
+5. **Validation**: How to verify the fixes worked
+6. **Estimated Time**: Time required for implementation
+7. **Prerequisites**: Tools or knowledge needed
+8. **Risks**: Potential issues to watch for
+
+For {fix_category} fixes:
+- Automated: Provide exact commands/code that can be executed automatically
+- Semi-automated: Provide guided steps with some manual intervention
+- Manual: Provide detailed instructions for manual remediation
+
+Format as clear, actionable guidance."""
+            
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"You are an expert PDF accessibility remediation specialist. Provide detailed, actionable fix strategies for {fix_category} remediation of {issue_type} issues following WCAG 2.1, PDF/UA-1, and PDF/A standards."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=2500
+            )
+            
+            strategy = response.choices[0].message.content
+            print(f"[SambaNova] ✓ Generated {fix_category} fix strategy for {issue_type}")
+            
+            return {
+                'success': True,
+                'issue_type': issue_type,
+                'fix_category': fix_category,
+                'total_issues': len(issues),
+                'strategy': strategy,
+                'estimated_time': self._extract_time_estimate(strategy),
+                'complexity': self._assess_complexity(fix_category, len(issues))
+            }
+            
+        except Exception as e:
+            print(f"[SambaNova] ERROR: Fix strategy generation failed: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'issue_type': issue_type,
+                'fix_category': fix_category
+            }
+    
+    def generate_manual_fix_guide(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate detailed step-by-step guide for manual fixes
+        
+        Args:
+            issue: Single issue that requires manual fixing
+            
+        Returns:
+            Detailed manual fix guide with screenshots suggestions
+        """
+        try:
+            issue_desc = issue.get('description', str(issue))
+            severity = issue.get('severity', 'unknown')
+            context = issue.get('context', 'No context provided')
+            
+            prompt = f"""Create a detailed manual fix guide for this PDF accessibility issue.
+
+Issue: {issue_desc}
+Severity: {severity}
+Context: {context}
+
+Provide a comprehensive manual fix guide with:
+1. **Understanding the Issue**: Explain what's wrong and why it matters
+2. **Tools Needed**: List required software (Adobe Acrobat, etc.)
+3. **Step-by-Step Instructions**: Detailed steps with menu paths
+4. **Visual Guidance**: Describe what to look for at each step
+5. **Common Mistakes**: What to avoid
+6. **Verification**: How to confirm the fix worked
+7. **Alternative Approaches**: Other ways to fix if available
+
+Make it beginner-friendly but thorough. Use clear, numbered steps."""
+            
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a patient accessibility instructor who creates clear, detailed guides for manual PDF remediation. Your guides help non-experts successfully fix accessibility issues."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.4,
+                max_tokens=2000
+            )
+            
+            guide = response.choices[0].message.content
+            print(f"[SambaNova] ✓ Generated manual fix guide")
+            
+            return {
+                'success': True,
+                'issue': issue_desc,
+                'severity': severity,
+                'guide': guide,
+                'estimated_time': self._extract_time_estimate(guide)
+            }
+            
+        except Exception as e:
+            print(f"[SambaNova] ERROR: Manual fix guide generation failed: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
     def _prepare_issue_summary(self, issues: Dict[str, List[Any]]) -> str:
         """Prepare a concise summary of issues for AI analysis"""
         summary_parts = []
@@ -340,7 +496,27 @@ Focus on WCAG 2.1 Level AA, PDF/UA-1, and PDF/A compliance."""
                 return line.strip()
         
         return "Effort estimate not provided"
-
+    
+    def _extract_time_estimate(self, text: str) -> str:
+        """Extract time estimate from AI response"""
+        import re
+        # Look for time patterns like "5 minutes", "2 hours", "1-2 days"
+        time_pattern = r'(\d+[-–]?\d*)\s*(minute|hour|day|week)s?'
+        matches = re.findall(time_pattern, text.lower())
+        
+        if matches:
+            return f"{matches[0][0]} {matches[0][1]}{'s' if matches[0][0] != '1' else ''}"
+        
+        return "Time estimate not available"
+    
+    def _assess_complexity(self, fix_category: str, issue_count: int) -> str:
+        """Assess complexity based on fix category and issue count"""
+        if fix_category == 'automated':
+            return 'Low' if issue_count < 10 else 'Medium'
+        elif fix_category == 'semi-automated':
+            return 'Medium' if issue_count < 5 else 'High'
+        else:  # manual
+            return 'High' if issue_count > 3 else 'Medium'
 
 def get_ai_remediation_engine() -> Optional[SambaNovaRemediationEngine]:
     """
