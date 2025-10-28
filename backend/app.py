@@ -64,6 +64,24 @@ except ImportError:
     PDF_GENERATOR_AVAILABLE = False
     print("Info: PDF generator not available")
 
+# Import SambaNova AI remediation engine
+try:
+    from sambanova_remediation import get_ai_remediation_engine
+    AI_REMEDIATION_ENGINE = get_ai_remediation_engine()
+    AI_REMEDIATION_AVAILABLE = AI_REMEDIATION_ENGINE is not None
+    if AI_REMEDIATION_AVAILABLE:
+        print("[Backend] ✓ SambaNova AI remediation engine loaded successfully")
+    else:
+        print("[Backend] ℹ SambaNova AI remediation not configured (set SAMBANOVA_API_KEY)")
+except ImportError as e:
+    AI_REMEDIATION_AVAILABLE = False
+    AI_REMEDIATION_ENGINE = None
+    print(f"[Backend] ℹ SambaNova AI remediation not available: {e}")
+except Exception as e:
+    AI_REMEDIATION_AVAILABLE = False
+    AI_REMEDIATION_ENGINE = None
+    print(f"[Backend] ✗ Failed to load SambaNova AI remediation: {e}")
+
 app = Flask(__name__)
 CORS(app)
 
@@ -1869,6 +1887,111 @@ def get_history():
         print(f"[Backend] Error fetching history: {e}")
         import traceback
         traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+# --- SambaNova AI Endpoints ---
+
+@app.route('/api/ai-analyze/<scan_id>', methods=['POST'])
+def ai_analyze_scan(scan_id):
+    """Use SambaNova AI to analyze scan and provide intelligent remediation strategies"""
+    if not AI_REMEDIATION_AVAILABLE:
+        return jsonify({
+            'error': 'AI remediation not available. Set SAMBANOVA_API_KEY environment variable.'
+        }), 503
+    
+    try:
+        print(f"[AI] ========== AI ANALYSIS: {scan_id} ==========")
+        
+        # Get scan results
+        param_placeholder = '%s' if USE_POSTGRESQL else '?'
+        query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
+        result = execute_query(query, (scan_id,), fetch=True)
+        
+        if not result:
+            return jsonify({'error': 'Scan not found'}), 404
+        
+        scan_data = result[0]['scan_results']
+        if isinstance(scan_data, str):
+            scan_data = json.loads(scan_data)
+        
+        if isinstance(scan_data, dict) and 'results' in scan_data:
+            issues = scan_data['results']
+        else:
+            issues = scan_data
+        
+        print(f"[AI] Analyzing {sum(len(v) for v in issues.values())} issues with SambaNova AI...")
+        
+        # Use AI to analyze issues
+        ai_analysis = AI_REMEDIATION_ENGINE.analyze_issues(issues)
+        
+        # Get prioritized fixes
+        prioritized_fixes = AI_REMEDIATION_ENGINE.prioritize_fixes(issues)
+        
+        print(f"[AI] ✓ AI analysis complete")
+        
+        return jsonify({
+            'success': True,
+            'scanId': scan_id,
+            'aiAnalysis': ai_analysis,
+            'prioritizedFixes': prioritized_fixes,
+            'model': AI_REMEDIATION_ENGINE.model
+        }), 200
+        
+    except Exception as e:
+        print(f"[AI] ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/ai-generate-alt-text', methods=['POST'])
+def ai_generate_alt_text():
+    """Generate alt text for an image using SambaNova AI"""
+    if not AI_REMEDIATION_AVAILABLE:
+        return jsonify({
+            'error': 'AI remediation not available. Set SAMBANOVA_API_KEY environment variable.'
+        }), 503
+    
+    try:
+        data = request.get_json()
+        image_context = data.get('imageContext', {})
+        
+        print(f"[AI] Generating alt text for image on page {image_context.get('page', 'Unknown')}")
+        
+        alt_text = AI_REMEDIATION_ENGINE.generate_alt_text(image_context)
+        
+        return jsonify({
+            'success': True,
+            'altText': alt_text
+        }), 200
+        
+    except Exception as e:
+        print(f"[AI] ERROR generating alt text: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/ai-suggest-structure/<scan_id>', methods=['POST'])
+def ai_suggest_structure(scan_id):
+    """Get AI suggestions for document structure"""
+    if not AI_REMEDIATION_AVAILABLE:
+        return jsonify({
+            'error': 'AI remediation not available. Set SAMBANOVA_API_KEY environment variable.'
+        }), 503
+    
+    try:
+        data = request.get_json()
+        content_analysis = data.get('contentAnalysis', {})
+        
+        print(f"[AI] Generating structure suggestions for {scan_id}")
+        
+        structure_suggestion = AI_REMEDIATION_ENGINE.suggest_document_structure(content_analysis)
+        
+        return jsonify({
+            'success': True,
+            'scanId': scan_id,
+            'structureSuggestion': structure_suggestion
+        }), 200
+        
+    except Exception as e:
+        print(f"[AI] ERROR suggesting structure: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

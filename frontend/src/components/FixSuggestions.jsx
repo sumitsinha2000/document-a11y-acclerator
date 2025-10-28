@@ -3,6 +3,7 @@
 import { useState } from "react"
 import axios from "axios"
 import PDFEditor from "./PDFEditor"
+import AIRemediationPanel from "./AIRemediationPanel"
 import { API_ENDPOINTS } from "../config/api"
 
 export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
@@ -10,6 +11,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [applyingSemiAuto, setApplyingSemiAuto] = useState(false)
   const [fixedFile, setFixedFile] = useState(null)
   const [showEditor, setShowEditor] = useState(false)
+  const [showAIPanel, setShowAIPanel] = useState(false)
 
   const safeRender = (value, fallback = "N/A") => {
     if (value === null || value === undefined) return fallback
@@ -164,6 +166,21 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           >
             Est. Time: {safeRender(fixes.estimatedTime, "N/A")} minutes
           </span>
+          <button
+            onClick={() => setShowAIPanel(true)}
+            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+            aria-label="Get AI-powered remediation insights"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+              />
+            </svg>
+            AI Insights
+          </button>
           {(hasSemiAutomated || hasManual) && (
             <button
               onClick={() => setShowEditor(true)}
@@ -183,6 +200,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           )}
         </div>
       </div>
+
+      {showAIPanel && <AIRemediationPanel scanId={scanId} onClose={() => setShowAIPanel(false)} />}
 
       {showEditor && (
         <PDFEditor
