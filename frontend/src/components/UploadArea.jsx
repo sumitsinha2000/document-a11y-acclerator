@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react"
 import axios from "axios"
-import "./UploadArea.css"
+// import "./UploadArea.css"
 
 export default function UploadArea({ onScanComplete }) {
   const [isDragging, setIsDragging] = useState(false)
