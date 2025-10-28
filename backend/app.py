@@ -725,33 +725,33 @@ def apply_semi_automated_fixes(scan_id):
             print(f"[SemiAutoFix] Error: File not found at {pdf_path}")
             return jsonify({'error': f'PDF file not found: {scan_id}'}), 404
         
+        param_placeholder = '%s' if USE_POSTGRESQL else '?'
+        query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
+        result = execute_query(query, (scan_id,), fetch=True)
+        
+        if not result:
+            return jsonify({'error': 'Scan not found'}), 404
+        
+        scan_data = result[0]['scan_results']
+        if isinstance(scan_data, str):
+            scan_data = json.loads(scan_data)
+        
+        # Extract issues from scan results
+        if isinstance(scan_data, dict) and 'results' in scan_data:
+            issues = scan_data['results']
+        else:
+            issues = scan_data
+        
+        total_issues = sum(len(v) if isinstance(v, list) else 0 for v in issues.values())
+        print(f"[SemiAutoFix] Found {total_issues} issues to fix")
+        
         ai_success = False
         try:
-            # Check if AI_REMEDIATION_ENGINE is available and has the necessary methods
+            # Check if AI_REMEDIATION_ENGINE is available
             if AI_REMEDIATION_AVAILABLE and AI_REMEDIATION_ENGINE and hasattr(AI_REMEDIATION_ENGINE, 'is_available') and AI_REMEDIATION_ENGINE.is_available():
-                print("[SemiAutoFix] 🤖 Attempting AI-powered semi-automated fixes...")
+                print(f"[SemiAutoFix] 🤖 Attempting AI-powered semi-automated fixes for {total_issues} issues...")
                 
-                # Extract issues from PDF for AI analysis. This method should ideally be part of the AI engine.
-                # Assuming _extract_issues_from_pdf exists in the AI engine or can be called via it.
-                # If not, this part needs adjustment based on the actual AI engine's capabilities.
-                if hasattr(AI_REMEDIATION_ENGINE, '_extract_issues_from_pdf'):
-                    issues = AI_REMEDIATION_ENGINE._extract_issues_from_pdf(pdf_path)
-                else:
-                    # Fallback: Get issues from current scan results if extraction method is not found
-                    print("[SemiAutoFix] Warning: _extract_issues_from_pdf not found on AI engine, attempting to get issues from scan data.")
-                    param_placeholder = '%s' if USE_POSTGRESQL else '?'
-                    query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
-                    result = execute_query(query, (scan_id,), fetch=True)
-                    if not result:
-                        raise ValueError("Scan not found to extract issues")
-                    scan_data = result[0]['scan_results']
-                    if isinstance(scan_data, str):
-                        scan_data = json.loads(scan_data)
-                    issues = scan_data.get('results', scan_data)
-
-                # Call the comprehensive AI fix method, expecting it to handle the entire fix process
-                # If AI_REMEDIATION_ENGINE.apply_ai_powered_fixes is the correct method, use it.
-                # If not, the method call needs to be adjusted.
+                # Call the comprehensive AI fix method with actual issues
                 ai_result = AI_REMEDIATION_ENGINE.apply_ai_powered_fixes(pdf_path, issues)
                 
                 if ai_result.get('success') and ai_result.get('successCount', 0) > 0:
@@ -799,9 +799,9 @@ def apply_semi_automated_fixes(scan_id):
                         execute_query(insert_query, (
                             scan_id,
                             scan_id,
-                            ai_result.get('fixedFile', scan_id), # Use fixedFile name if available, else original scan_id
+                            ai_result.get('fixedFile', scan_id),
                             json.dumps(ai_result.get('fixesApplied', [])),
-                            fixes_count
+                            ai_result.get('successCount', 0)
                         ))
                         
                         return jsonify(ai_result), 200
@@ -811,18 +811,19 @@ def apply_semi_automated_fixes(scan_id):
                         import traceback
                         traceback.print_exc()
                         return jsonify({
-                            'error': f'Fixes applied but failed to re-scan: {str(rescan_error)}'
+                            'error': f'AI fixes applied but failed to re-scan: {str(rescan_error)}'
                         }), 500
                 else:
-                    print(f"[SemiAutoFix] ⚠ AI fixes returned no changes: {ai_result.get('error', 'No fixes applied')}, falling back to traditional fixes")
+                    print(f"[SemiAutoFix] ⚠️ AI fixes returned no changes: {ai_result.get('message', 'No fixes applied')}, falling back to traditional fixes")
             else: # AI engine is available but not working or has no fixes
-                print("[SemiAutoFix] AI engine indicated no fixes or failed, falling back to traditional fixes")
+                print("[SemiAutoFix] AI remediation not available, using traditional fixes")
+                
         except Exception as ai_error:
-            print(f"[SemiAutoFix] ⚠ AI error: {ai_error}")
+            print(f"[SemiAutoFix] AI fix attempt failed: {ai_error}")
             import traceback
             traceback.print_exc()
-            print("[SemiAutoFix] Falling back to traditional fixes...")
         
+        # Fallback to traditional semi-automated fixes if AI didn't work
         if not ai_success:
             print("[SemiAutoFix] Using traditional semi-automated fixes...")
             
@@ -867,7 +868,6 @@ def apply_semi_automated_fixes(scan_id):
                         'summary': new_summary
                     }
                     
-                    print(f"[SemiAutoFix] Updating database with new scan data...")
                     param_placeholder = '%s' if USE_POSTGRESQL else '?'
                     update_query = f'''
                         UPDATE scans 
@@ -904,9 +904,9 @@ def apply_semi_automated_fixes(scan_id):
                     }), 500
             
             return jsonify(fix_result), 200
-        
+    
     except Exception as e:
-        print(f"[SemiAutoFix] ERROR: {e}")
+        print(f"[SemiAutoFix] Error: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
