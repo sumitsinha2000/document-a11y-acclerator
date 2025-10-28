@@ -8,6 +8,14 @@ import pdfplumber
 from datetime import datetime
 import re
 from pdfa_fix_engine import apply_pdfa_fixes
+from pdf_structure_standards import (
+    STANDARD_STRUCTURE_TYPES,
+    COMMON_ROLEMAP_MAPPINGS,
+    WCAG_PDF_REQUIREMENTS,
+    get_standard_mapping,
+    is_standard_type,
+    get_required_attributes
+)
 
 try:
     from sambanova_remediation import SambaNovaRemediationEngine
@@ -460,7 +468,7 @@ class AutoFixEngine:
     def apply_automated_fixes(self, pdf_path):
         """
         Apply automated fixes to a PDF
-        COMPLETELY REWRITTEN with veraPDF-inspired approach
+        ENHANCED with comprehensive structure type handling
         """
         pdf = None
         temp_path = None
@@ -590,10 +598,13 @@ class AutoFixEngine:
             try:
                 struct_fixed = False
                 if not hasattr(pdf.Root, 'StructTreeRoot'):
-                    # Create RoleMap
                     role_map = pdf.make_indirect(Dictionary())
-                    role_map[Name('/Heading')] = Name('/H')
-                    role_map[Name('/Subheading')] = Name('/H')
+                    
+                    # Add all common mappings from standards
+                    for custom_type, standard_type in COMMON_ROLEMAP_MAPPINGS.items():
+                        role_map[Name(custom_type)] = Name(standard_type)
+                    
+                    print(f"[AutoFixEngine] Created RoleMap with {len(COMMON_ROLEMAP_MAPPINGS)} mappings")
                     
                     # Create ParentTree
                     parent_tree = pdf.make_indirect(Dictionary(Nums=Array([])))
@@ -618,9 +629,30 @@ class AutoFixEngine:
                     
                     pdf.Root.StructTreeRoot.K.append(doc_element)
                     struct_fixed = True
-                    print("[AutoFixEngine] ✓ Created structure tree with Document element")
+                    print("[AutoFixEngine] ✓ Created comprehensive structure tree with full RoleMap")
                 else:
-                    # Structure tree exists, check if it has children
+                    # Structure tree exists, enhance RoleMap
+                    if not hasattr(pdf.Root.StructTreeRoot, 'RoleMap'):
+                        role_map = pdf.make_indirect(Dictionary())
+                        for custom_type, standard_type in COMMON_ROLEMAP_MAPPINGS.items():
+                            role_map[Name(custom_type)] = Name(standard_type)
+                        pdf.Root.StructTreeRoot.RoleMap = role_map
+                        struct_fixed = True
+                        print(f"[AutoFixEngine] ✓ Added comprehensive RoleMap with {len(COMMON_ROLEMAP_MAPPINGS)} mappings")
+                    else:
+                        # Add missing mappings to existing RoleMap
+                        role_map = pdf.Root.StructTreeRoot.RoleMap
+                        added_count = 0
+                        for custom_type, standard_type in COMMON_ROLEMAP_MAPPINGS.items():
+                            if Name(custom_type) not in role_map:
+                                role_map[Name(custom_type)] = Name(standard_type)
+                                added_count += 1
+                        
+                        if added_count > 0:
+                            struct_fixed = True
+                            print(f"[AutoFixEngine] ✓ Added {added_count} missing RoleMap mappings")
+                    
+                    # Check if structure tree has children
                     if not hasattr(pdf.Root.StructTreeRoot, 'K') or len(pdf.Root.StructTreeRoot.K) == 0:
                         doc_element = pdf.make_indirect(Dictionary(
                             Type=Name('/StructElem'),
@@ -636,19 +668,11 @@ class AutoFixEngine:
                         pdf.Root.StructTreeRoot.K.append(doc_element)
                         struct_fixed = True
                         print("[AutoFixEngine] ✓ Added Document element to structure tree")
-                    
-                    # Check RoleMap
-                    if not hasattr(pdf.Root.StructTreeRoot, 'RoleMap'):
-                        role_map = pdf.make_indirect(Dictionary())
-                        role_map[Name('/Heading')] = Name('/H')
-                        pdf.Root.StructTreeRoot.RoleMap = role_map
-                        struct_fixed = True
-                        print("[AutoFixEngine] ✓ Added RoleMap to structure tree")
                 
                 if struct_fixed:
                     fixes_applied.append({
                         'type': 'createStructureTree',
-                        'description': 'Created or fixed structure tree',
+                        'description': 'Created or enhanced structure tree with comprehensive RoleMap',
                         'success': True
                     })
             except Exception as e:
