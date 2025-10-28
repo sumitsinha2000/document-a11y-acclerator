@@ -342,7 +342,7 @@ def scan_pdf():
                 'totalVeraPDFIssues': 0
             }
             
-            if analyzer.verapdf_validator and analyzer.verapdf_validator.is_available():
+            if hasattr(analyzer, 'wcag_validator_available') and analyzer.wcag_validator_available:
                 verapdf_status['isActive'] = True
                 # Calculate compliance from veraPDF issues
                 wcag_issues = len(scan_results.get('wcagIssues', []))
@@ -448,7 +448,7 @@ def get_scan_details(scan_id):
                         'totalVeraPDFIssues': 0
                     }
                     
-                    if analyzer.verapdf_validator and analyzer.verapdf_validator.is_available():
+                    if hasattr(analyzer, 'wcag_validator_available') and analyzer.wcag_validator_available:
                         verapdf_status['isActive'] = True
                         wcag_issues = len(results.get('wcagIssues', []))
                         pdfua_issues = len(results.get('pdfuaIssues', []))
