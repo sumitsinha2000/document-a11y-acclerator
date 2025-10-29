@@ -175,19 +175,33 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
-  const handleProgressComplete = async (success) => {
+  const handleProgressComplete = async (success, newScanData) => {
     setShowProgressStepper(false)
 
     if (success) {
       alert(`${currentFixType} applied successfully!`)
 
-      if (onRefresh) {
-        console.log("[v0] FixSuggestions - Refreshing data after fixes")
-        try {
-          await onRefresh()
-          console.log("[v0] FixSuggestions - Refresh completed successfully")
-        } catch (refreshError) {
-          console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+      if (newScanData && newScanData.newScanResults && newScanData.newFixes) {
+        console.log("[v0] FixSuggestions - Using new scan data from progress tracker:", newScanData)
+
+        if (onRefresh) {
+          try {
+            // Pass the new results and fixes to the parent
+            await onRefresh(newScanData.newScanResults, newScanData.newFixes)
+            console.log("[v0] FixSuggestions - Refresh completed with new scan data")
+          } catch (refreshError) {
+            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+          }
+        }
+      } else {
+        console.log("[v0] FixSuggestions - No new scan data, fetching fresh data")
+        if (onRefresh) {
+          try {
+            await onRefresh()
+            console.log("[v0] FixSuggestions - Refresh completed successfully")
+          } catch (refreshError) {
+            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+          }
         }
       }
     } else {

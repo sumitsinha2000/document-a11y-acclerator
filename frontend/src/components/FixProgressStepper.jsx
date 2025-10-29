@@ -6,6 +6,7 @@ import axios from "axios"
 export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete }) {
   const [progress, setProgress] = useState(null)
   const [polling, setPolling] = useState(true)
+  const [finalResultData, setFinalResultData] = useState(null)
 
   useEffect(() => {
     if (!isOpen || !scanId) return
@@ -25,10 +26,22 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
           setPolling(false)
           clearInterval(pollInterval)
 
+          if (progressData.status === "completed") {
+            // Look for the re-scan step to get new results
+            const rescanStep = progressData.steps.find(
+              (step) => step.name === "Re-scan Fixed PDF" && step.status === "completed",
+            )
+
+            if (rescanStep && rescanStep.resultData) {
+              console.log("[v0] Found new scan results from re-scan:", rescanStep.resultData)
+              setFinalResultData(rescanStep.resultData)
+            }
+          }
+
           // Wait a bit before calling onComplete to show final state
           setTimeout(() => {
             if (onComplete) {
-              onComplete(progressData.status === "completed")
+              onComplete(progressData.status === "completed", finalResultData)
             }
           }, 2000)
         }
@@ -51,7 +64,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
         clearInterval(pollInterval)
       }
     }
-  }, [scanId, isOpen, polling, onComplete])
+  }, [scanId, isOpen, polling, onComplete, finalResultData])
 
   if (!isOpen || !progress) {
     return null

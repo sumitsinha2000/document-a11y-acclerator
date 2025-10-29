@@ -702,6 +702,44 @@ def apply_fixes(scan_id):
             result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
         
         if result.get('success'):
+            step_id = tracker.add_step(
+                "Re-scan Fixed PDF",
+                "Analyzing fixed PDF to verify improvements",
+                "pending"
+            )
+            tracker.start_step(step_id)
+            
+            try:
+                # Re-analyze the fixed PDF
+                file_path = os.path.join('uploads', scan_id)
+                analyzer = PDFAccessibilityAnalyzer()
+                new_scan_results = analyzer.analyze(file_path)
+                
+                # Update scan results in database
+                scan_data_updated = {
+                    'results': new_scan_results,
+                    'summary': None
+                }
+                
+                update_query = f'UPDATE scans SET scan_results = {param_placeholder}, status = {param_placeholder} WHERE id = {param_placeholder}'
+                execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
+                
+                # Generate new fix suggestions
+                if AUTO_FIX_AVAILABLE:
+                    auto_fix_engine = AutoFixEngine()
+                    new_fixes = auto_fix_engine.generate_fixes(new_scan_results)
+                else:
+                    new_fixes = generate_fix_suggestions(new_scan_results)
+                
+                result['newScanResults'] = new_scan_results
+                result['newFixes'] = new_fixes
+                
+                tracker.complete_step(step_id, f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
+                print(f"[Backend] Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
+            except Exception as rescan_error:
+                print(f"[Backend] Warning: Re-scan failed: {rescan_error}")
+                tracker.skip_step(step_id, f"Re-scan failed: {str(rescan_error)}")
+            
             tracker.complete_all()
             return jsonify(result)
         else:
@@ -815,6 +853,44 @@ def apply_semi_automated_fixes(scan_id):
             result = fix_engine.apply_semi_automated_fixes(scan_id, scan_data, tracker)
         
         if result.get('success'):
+            step_id = tracker.add_step(
+                "Re-scan Fixed PDF",
+                "Analyzing fixed PDF to verify improvements",
+                "pending"
+            )
+            tracker.start_step(step_id)
+            
+            try:
+                # Re-analyze the fixed PDF
+                file_path = os.path.join('uploads', scan_id)
+                analyzer = PDFAccessibilityAnalyzer()
+                new_scan_results = analyzer.analyze(file_path)
+                
+                # Update scan results in database
+                scan_data_updated = {
+                    'results': new_scan_results,
+                    'summary': None
+                }
+                
+                update_query = f'UPDATE scans SET scan_results = {param_placeholder}, status = {param_placeholder} WHERE id = {param_placeholder}'
+                execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
+                
+                # Generate new fix suggestions
+                if AUTO_FIX_AVAILABLE:
+                    auto_fix_engine = AutoFixEngine()
+                    new_fixes = auto_fix_engine.generate_fixes(new_scan_results)
+                else:
+                    new_fixes = generate_fix_suggestions(new_scan_results)
+                
+                result['newScanResults'] = new_scan_results
+                result['newFixes'] = new_fixes
+                
+                tracker.complete_step(step_id, f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
+                print(f"[Backend] Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
+            except Exception as rescan_error:
+                print(f"[Backend] Warning: Re-scan failed: {rescan_error}")
+                tracker.skip_step(step_id, f"Re-scan failed: {str(rescan_error)}")
+            
             tracker.complete_all()
             return jsonify(result)
         else:
