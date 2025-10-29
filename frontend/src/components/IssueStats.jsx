@@ -60,7 +60,7 @@ export default function IssueStats({ results }) {
               labelStyle={{ color: "#f3f4f6" }}
               itemStyle={{ color: "#f3f4f6" }}
             />
-            <Bar dataKey="count" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+            <Bar dataKey="count" fill="#3b82f6" radius={[8, 8, 0, 0]} onMouseEnter={() => { }} tabIndex={0} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -83,7 +83,7 @@ export default function IssueStats({ results }) {
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
             </Pie>
-           {/* <Tooltip
+            {/* <Tooltip
               contentStyle={{
                 backgroundColor: "#1f2937",
                 border: "1px solid #374151",
