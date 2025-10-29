@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import IssuesList from "./IssuesList"
-import IssueStats from "./IssueStats"
 import FixSuggestions from "./FixSuggestions"
 import SidebarNav from "./SidebarNav"
 import Breadcrumb from "./Breadcrumb"
@@ -29,6 +28,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const tabContainerRef = useRef(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   useEffect(() => {
     const currentScan = scans[selectedFileIndex]
@@ -98,7 +98,20 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
   }
 
-  const refreshScanData = async (newScanResults = null, newFixes = null) => {
+  const refreshScanData = async (newScanResults, newFixes) => {
+    if (isRefreshing) {
+      console.log("[v0] ReportViewer - Already refreshing, skipping duplicate call")
+      return
+    }
+
+    setIsRefreshing(true)
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    } catch (error) {
+      console.error("[v0] ReportViewer - Error during refresh delay:", error)
+    }
+
     const currentScan = scans[selectedFileIndex]
     let scanId = currentScan.scanId || currentScan.id
 
@@ -117,23 +130,38 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     if (newScanResults && newFixes) {
       console.log("[v0] ReportViewer - Using provided data directly (no fetch needed)")
 
-      const newData = {
-        ...reportData,
-        summary: newScanResults.summary || reportData.summary,
-        results: newScanResults.results || newScanResults, // Handle both formats
-        fixes: newFixes, // Use the new fixes from the backend
+      const actualResults = newScanResults.results || newScanResults
+      const actualSummary = newScanResults.summary || {
+        totalIssues: (actualResults.wcagIssues?.length || 0) + (actualResults.pdfuaIssues?.length || 0),
+        wcagIssues: actualResults.wcagIssues?.length || 0,
+        pdfuaIssues: actualResults.pdfuaIssues?.length || 0,
+        criticalIssues: actualResults.wcagIssues?.filter((i) => i.severity === "critical").length || 0,
       }
 
-      console.log("[v0] ReportViewer - New data structure:", newData)
+      const newData = {
+        ...reportData,
+        summary: actualSummary,
+        results: actualResults,
+        fixes: newFixes,
+      }
+
+      console.log("[v0] ReportViewer - New data structure created:", newData)
+      console.log("[v0] ReportViewer - New summary:", actualSummary)
+      console.log("[v0] ReportViewer - New results:", actualResults)
+      console.log("[v0] ReportViewer - New fixes:", newFixes)
 
       setReportData(newData)
+      console.log("[v0] ReportViewer - setReportData called with new data")
+
       setRefreshKey((prev) => {
         const newKey = prev + 1
         console.log("[v0] ReportViewer - Refresh key updated:", prev, "->", newKey)
         return newKey
       })
 
+      setIsRefreshing(false)
       console.log("[v0] ReportViewer - State updated successfully with provided data")
+      console.log("[v0] ReportViewer - reportData should now be:", newData)
       return
     }
 
@@ -187,6 +215,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     } else {
       console.error("[v0] ReportViewer - No valid scan ID found for refresh")
     }
+    setIsRefreshing(false)
   }
 
   const handleAiRemediation = async (issueType, fixCategory) => {
@@ -236,7 +265,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
         // Refresh the scan data with new results
         if (response.data.newResults && response.data.newSummary) {
-          await refreshScanData(response.data.newSummary, response.data.newResults)
+          await refreshScanData(response.data.newResults, response.data.newSummary)
         } else {
           await refreshScanData()
         }
@@ -504,80 +533,6 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
           <FixHistory scanId={reportData.scanId} onRefresh={refreshScanData} />
         </div>
 
-        <div id="stats" className="mb-6" key={`stats-${refreshKey}`}>
-          <IssueStats results={reportData.results} />
-        </div>
-
-        <div id="issues" className="mb-6" key={`issues-${refreshKey}`}>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-white">Accessibility Issues</h3>
-            {reportData.results && Object.keys(reportData.results).length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400">AI Remediation:</span>
-                {["wcagIssues", "pdfuaIssues"].map((issueType) => {
-                  const issues = reportData.results[issueType]
-                  if (!issues || issues.length === 0) return null
-
-                  return (
-                    <div key={issueType} className="relative group">
-                      <button
-                        onClick={() => handleAiRemediation(issueType, "automated")}
-                        disabled={aiLoading}
-                        className="px-3 py-1.5 bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 text-white rounded-lg text-sm font-medium transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        title={`Get AI remediation for ${issueType}`}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                          />
-                        </svg>
-                        {issueType === "wcagIssues" ? "WCAG" : "PDF/A"}
-                      </button>
-                      {/* Dropdown for fix categories */}
-                      <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-                        <div className="p-2 space-y-1">
-                          <button
-                            onClick={() => handleAiRemediation(issueType, "automated")}
-                            disabled={aiLoading}
-                            className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center gap-2"
-                          >
-                            <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                            Automated Fixes
-                          </button>
-                          <button
-                            onClick={() => handleAiRemediation(issueType, "semi-automated")}
-                            disabled={aiLoading}
-                            className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center gap-2"
-                          >
-                            <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                            Semi-Automated
-                          </button>
-                          <button
-                            onClick={() => handleAiRemediation(issueType, "manual")}
-                            disabled={aiLoading}
-                            className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center gap-2"
-                          >
-                            <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-                            Manual Fixes
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-          <IssuesList
-            results={reportData.results}
-            selectedCategory={selectedCategory}
-            onSelectCategory={setSelectedCategory}
-          />
-        </div>
-
         <div id="fixes" className="mb-6" key={`fixes-${refreshKey}`}>
           <FixSuggestions
             scanId={reportData.scanId}
@@ -586,17 +541,24 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
             onRefresh={refreshScanData}
           />
         </div>
-      </div>
 
-      {showAiModal && aiStrategy && (
-        <AIFixStrategyModal
-          isOpen={showAiModal}
-          onClose={() => setShowAiModal(false)}
-          strategy={aiStrategy}
-          issueType={aiIssueType}
-          fixCategory={aiFixCategory}
-        />
-      )}
+        <div id="issues" className="mb-6" key={`issues-${refreshKey}`}>
+          <IssuesList
+            results={reportData.results}
+            selectedCategory={selectedCategory}
+            onCategorySelect={setSelectedCategory}
+          />
+        </div>
+
+        {showAiModal && (
+          <AIFixStrategyModal
+            strategy={aiStrategy}
+            issueType={aiIssueType}
+            fixCategory={aiFixCategory}
+            onClose={() => setShowAiModal(false)}
+          />
+        )}
+      </div>
     </div>
   )
 }

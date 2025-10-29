@@ -34,14 +34,20 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
             )
 
             if (rescanStep && rescanStep.resultData) {
-              console.log("[v0] Found new scan results from re-scan:", rescanStep.resultData)
+              console.log("[v0] FixProgressStepper: Found new scan results from re-scan:", rescanStep.resultData)
               latestResultData = rescanStep.resultData
               setFinalResultData(rescanStep.resultData)
+            } else {
+              console.log("[v0] FixProgressStepper: No resultData found in re-scan step:", rescanStep)
             }
           }
 
           // Wait a bit before calling onComplete to show final state
           setTimeout(() => {
+            console.log("[v0] FixProgressStepper: Calling onComplete with:", {
+              success: progressData.status === "completed",
+              resultData: latestResultData,
+            })
             if (onComplete) {
               onComplete(progressData.status === "completed", latestResultData)
             }

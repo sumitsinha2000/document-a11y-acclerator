@@ -736,12 +736,19 @@ def apply_fixes(scan_id):
                 result['newScanResults'] = new_scan_results
                 result['newFixes'] = new_fixes
                 
+                print(f"[Backend] Storing new scan results in tracker step")
+                print(f"[Backend] newScanResults keys: {list(new_scan_results.keys())}")
+                print(f"[Backend] newScanResults.wcagIssues count: {len(new_scan_results.get('wcagIssues', []))}")
+                print(f"[Backend] newScanResults.pdfuaIssues count: {len(new_scan_results.get('pdfuaIssues', []))}")
+                print(f"[Backend] newFixes keys: {list(new_fixes.keys()) if isinstance(new_fixes, dict) else 'not a dict'}")
+                
                 tracker.complete_step(
                     step_id, 
                     f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues",
                     result_data={'newScanResults': new_scan_results, 'newFixes': new_fixes}
                 )
                 print(f"[Backend] Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
+                print(f"[Backend] Step completed with resultData stored")
             except Exception as rescan_error:
                 print(f"[Backend] Warning: Re-scan failed: {rescan_error}")
                 tracker.skip_step(step_id, f"Re-scan failed: {str(rescan_error)}")
@@ -1160,7 +1167,7 @@ def apply_manual_fix(scan_id):
                     print(f"[ManualFix]   Verified compliance: {verified_summary.get('complianceScore', 0)}%")
                 else:
                     print(f"[ManualFix] WARNING: Could not verify database update")
-                    
+            
             except Exception as db_error:
                 print(f"[ManualFix] ERROR: Database update failed: {db_error}")
                 import traceback
