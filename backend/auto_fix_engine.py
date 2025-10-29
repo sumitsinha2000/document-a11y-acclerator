@@ -465,21 +465,31 @@ class AutoFixEngine:
         return fixes
     
     # COMPLETELY REWRITTEN with veraPDF-inspired approach
-    def apply_automated_fixes(self, pdf_path, tracker=None):
+    def apply_automated_fixes(self, scan_id, scan_data, tracker=None):
         """
         Apply automated fixes to a PDF with progress tracking
         ENHANCED with comprehensive structure type handling and progress updates
         """
         pdf = None
         temp_path = None
+        
+        # Extract PDF path from scan_id
+        pdf_path = os.path.join('uploads', scan_id)
+        
         try:
             print(f"[AutoFixEngine] ========== STARTING AUTOMATED FIXES ==========")
             print(f"[AutoFixEngine] Opening PDF: {pdf_path}")
             print(f"[AutoFixEngine] File exists: {os.path.exists(pdf_path)}")
             print(f"[AutoFixEngine] File size: {os.path.getsize(pdf_path)} bytes")
             
+            step_id = tracker.add_step(
+                "Open PDF File",
+                f"Opening {scan_data.get('filename', 'PDF file')}",
+                "pending"
+            ) if tracker else None
+            
             if tracker:
-                tracker.start_step(2)  # open_pdf step
+                tracker.start_step(step_id)
             
             temp_path = f"{pdf_path}.temp"
             
@@ -487,12 +497,18 @@ class AutoFixEngine:
             print(f"[AutoFixEngine] ✓ PDF opened successfully")
             
             if tracker:
-                tracker.complete_step(2, "PDF opened successfully")
+                tracker.complete_step(step_id, "PDF opened successfully")
             
             fixes_applied = []
             
+            step_id = tracker.add_step(
+                "Add Document Language",
+                "Setting document language to en-US",
+                "pending"
+            ) if tracker else None
+            
             if tracker:
-                tracker.start_step(3)  # add_language step
+                tracker.start_step(step_id)
             
             try:
                 lang_fixed = False
@@ -510,21 +526,27 @@ class AutoFixEngine:
                         'success': True
                     })
                     if tracker:
-                        tracker.complete_step(3, "Added language: en-US")
+                        tracker.complete_step(step_id, "Added language: en-US")
                 else:
                     if tracker:
-                        tracker.skip_step(3, "Language already set")
+                        tracker.skip_step(step_id, "Language already set")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error adding language: {e}")
                 if tracker:
-                    tracker.fail_step(3, str(e))
+                    tracker.fail_step(step_id, str(e))
+            
+            step_id = tracker.add_step(
+                "Add Document Metadata",
+                "Adding title and PDF/UA identifier",
+                "pending"
+            ) if tracker else None
             
             if tracker:
-                tracker.start_step(4)  # add_metadata step
+                tracker.start_step(step_id)
             
             try:
                 title_fixed = False
-                filename = os.path.basename(pdf_path)
+                filename = scan_data.get('filename', os.path.basename(pdf_path))
                 title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
                 
                 # Ensure docinfo exists
@@ -558,19 +580,25 @@ class AutoFixEngine:
                         'success': True
                     })
                     if tracker:
-                        tracker.complete_step(4, f"Added title: {title}")
+                        tracker.complete_step(step_id, f"Added title: {title}")
                 else:
                     if tracker:
-                        tracker.skip_step(4, "Metadata already exists")
+                        tracker.skip_step(step_id, "Metadata already exists")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error adding title/metadata: {e}")
                 if tracker:
-                    tracker.fail_step(4, str(e))
+                    tracker.fail_step(step_id, str(e))
                 import traceback
                 traceback.print_exc()
             
+            step_id = tracker.add_step(
+                "Mark as Tagged",
+                "Setting document as tagged for accessibility",
+                "pending"
+            ) if tracker else None
+            
             if tracker:
-                tracker.start_step(5)  # mark_tagged step
+                tracker.start_step(step_id)
             
             try:
                 markinfo_fixed = False
@@ -599,17 +627,23 @@ class AutoFixEngine:
                         'success': True
                     })
                     if tracker:
-                        tracker.complete_step(5, "Document marked as tagged")
+                        tracker.complete_step(step_id, "Document marked as tagged")
                 else:
                     if tracker:
-                        tracker.skip_step(5, "Already marked as tagged")
+                        tracker.skip_step(step_id, "Already marked as tagged")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error setting MarkInfo: {e}")
                 if tracker:
-                    tracker.fail_step(5, str(e))
+                    tracker.fail_step(step_id, str(e))
+            
+            step_id = tracker.add_step(
+                "Configure Viewer Preferences",
+                "Setting DisplayDocTitle preference",
+                "pending"
+            ) if tracker else None
             
             if tracker:
-                tracker.start_step(6)  # fix_viewer_prefs step
+                tracker.start_step(step_id)
             
             try:
                 viewer_fixed = False
@@ -632,17 +666,23 @@ class AutoFixEngine:
                         'success': True
                     })
                     if tracker:
-                        tracker.complete_step(6, "ViewerPreferences configured")
+                        tracker.complete_step(step_id, "ViewerPreferences configured")
                 else:
                     if tracker:
-                        tracker.skip_step(6, "ViewerPreferences already set")
+                        tracker.skip_step(step_id, "ViewerPreferences already set")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error setting ViewerPreferences: {e}")
                 if tracker:
-                    tracker.fail_step(6, str(e))
+                    tracker.fail_step(step_id, str(e))
+            
+            step_id = tracker.add_step(
+                "Create Structure Tree",
+                "Building document structure with RoleMap",
+                "pending"
+            ) if tracker else None
             
             if tracker:
-                tracker.start_step(7)  # create_structure step
+                tracker.start_step(step_id)
             
             try:
                 struct_fixed = False
@@ -725,19 +765,25 @@ class AutoFixEngine:
                         'success': True
                     })
                     if tracker:
-                        tracker.complete_step(7, f"Structure tree created with {len(COMMON_ROLEMAP_MAPPINGS)} RoleMap mappings")
+                        tracker.complete_step(step_id, f"Structure tree created with {len(COMMON_ROLEMAP_MAPPINGS)} RoleMap mappings")
                 else:
                     if tracker:
-                        tracker.skip_step(7, "Structure tree already exists")
+                        tracker.skip_step(step_id, "Structure tree already exists")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error creating structure tree: {e}")
                 if tracker:
-                    tracker.fail_step(7, str(e))
+                    tracker.fail_step(step_id, str(e))
                 import traceback
                 traceback.print_exc()
             
+            step_id = tracker.add_step(
+                "Save Fixed PDF",
+                "Writing changes to file",
+                "pending"
+            ) if tracker else None
+            
             if tracker:
-                tracker.start_step(8)  # save_pdf step
+                tracker.start_step(step_id)
             
             print(f"[AutoFixEngine] ========== SAVING PDF ==========")
             print(f"[AutoFixEngine] Applied {len(fixes_applied)} fixes, now saving...")
@@ -763,7 +809,7 @@ class AutoFixEngine:
             print(f"[AutoFixEngine] Final file size: {os.path.getsize(pdf_path)} bytes")
             
             if tracker:
-                tracker.complete_step(8, f"PDF saved ({os.path.getsize(pdf_path)} bytes)")
+                tracker.complete_step(step_id, f"PDF saved ({os.path.getsize(pdf_path)} bytes)")
             
             print(f"[AutoFixEngine] ========== FIXES COMPLETE ==========")
             print(f"[AutoFixEngine] Total fixes applied: {len(fixes_applied)}")
@@ -801,6 +847,14 @@ class AutoFixEngine:
                 'fixesApplied': [],
                 'successCount': 0
             }
+    
+    def apply_semi_automated_fixes(self, scan_id, scan_data, tracker=None):
+        """Apply semi-automated fixes with progress tracking"""
+        pdf_path = os.path.join('uploads', scan_id)
+        
+        # For now, semi-automated fixes are similar to automated
+        # In the future, this could include OCR, user confirmations, etc.
+        return self.apply_automated_fixes(scan_id, scan_data, tracker)
     
     def apply_single_fix(self, pdf_path, fix_config):
         """Apply a single manual fix to a PDF"""
@@ -969,13 +1023,6 @@ class AutoFixEngine:
                     pdf.close()
                 except:
                     pass
-            
-            return {
-                'success': False,
-                'error': str(e),
-                'description': f"Failed to apply {fix_type}: {str(e)}"
-            }
-pass
             
             return {
                 'success': False,
