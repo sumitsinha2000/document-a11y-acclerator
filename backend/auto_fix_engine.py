@@ -759,7 +759,7 @@ class AutoFixEngine:
                 tracker.start_step(step_id)
             
             try:
-                pdfa_result = self.pdfa_engine.apply_pdfa_fixes(pdf_path, scan_data, tracker=tracker)
+                pdfa_result = self.pdfa_engine.apply_pdfa_fixes(pdf_path, scan_data)
                 
                 if pdfa_result.get('success'):
                     fixes_applied.append({
