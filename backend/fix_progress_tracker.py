@@ -31,7 +31,8 @@ class FixProgressTracker:
             'endTime': None,
             'duration': None,
             'details': None,
-            'error': None
+            'error': None,
+            'resultData': None
         }
         self.steps.append(step)
         return step['id']
@@ -46,7 +47,7 @@ class FixProgressTracker:
             self.status = 'in_progress'
             print(f"[ProgressTracker] Step {step_id}/{self.total_steps}: {step['name']} - STARTED")
     
-    def complete_step(self, step_id: int, details: Optional[str] = None):
+    def complete_step(self, step_id: int, details: Optional[str] = None, result_data: Optional[Dict[str, Any]] = None):
         """Mark a step as completed"""
         if 0 < step_id <= len(self.steps):
             step = self.steps[step_id - 1]
@@ -58,6 +59,8 @@ class FixProgressTracker:
                 step['duration'] = (end - start).total_seconds()
             if details:
                 step['details'] = details
+            if result_data:
+                step['resultData'] = result_data
             print(f"[ProgressTracker] Step {step_id}/{self.total_steps}: {step['name']} - COMPLETED ({step.get('duration', 0):.2f}s)")
     
     def fail_step(self, step_id: int, error: str):

@@ -12,6 +12,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
     if (!isOpen || !scanId) return
 
     let pollInterval
+    let latestResultData = null
 
     const pollProgress = async () => {
       try {
@@ -34,6 +35,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
 
             if (rescanStep && rescanStep.resultData) {
               console.log("[v0] Found new scan results from re-scan:", rescanStep.resultData)
+              latestResultData = rescanStep.resultData
               setFinalResultData(rescanStep.resultData)
             }
           }
@@ -41,7 +43,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
           // Wait a bit before calling onComplete to show final state
           setTimeout(() => {
             if (onComplete) {
-              onComplete(progressData.status === "completed", finalResultData)
+              onComplete(progressData.status === "completed", latestResultData)
             }
           }, 2000)
         }
@@ -64,7 +66,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
         clearInterval(pollInterval)
       }
     }
-  }, [scanId, isOpen, polling, onComplete, finalResultData])
+  }, [scanId, isOpen, polling, onComplete])
 
   if (!isOpen || !progress) {
     return null
@@ -207,7 +209,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
 
                       {/* Step Details */}
                       {step.details && (
-                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2 bg-gray-50 dark:bg-gray-900 rounded px-2 py-1">
+                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2 bg-gray-50 dark:bg-gray-900/20 rounded px-2 py-1">
                           {step.details}
                         </p>
                       )}

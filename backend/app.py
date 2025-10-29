@@ -736,7 +736,11 @@ def apply_fixes(scan_id):
                 result['newScanResults'] = new_scan_results
                 result['newFixes'] = new_fixes
                 
-                tracker.complete_step(step_id, f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
+                tracker.complete_step(
+                    step_id, 
+                    f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues",
+                    result_data={'newScanResults': new_scan_results, 'newFixes': new_fixes}
+                )
                 print(f"[Backend] Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
             except Exception as rescan_error:
                 print(f"[Backend] Warning: Re-scan failed: {rescan_error}")
