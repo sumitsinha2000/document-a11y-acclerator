@@ -34,6 +34,8 @@ else:
 from pdf_analyzer import PDFAccessibilityAnalyzer
 from fix_suggestions import generate_fix_suggestions
 
+from fix_progress_tracker import create_progress_tracker, get_progress_tracker, remove_progress_tracker
+
 try:
     from ocr_processor import OCRProcessor
     OCR_AVAILABLE = True
@@ -625,7 +627,7 @@ def get_fix_suggestions(scan_id):
 
 @app.route('/api/apply-fixes/<scan_id>', methods=['POST'])
 def apply_fixes(scan_id):
-    """Apply automated fixes to a PDF with AI enhancement"""
+    """Apply automated fixes to a PDF with AI enhancement and progress tracking"""
     if not AUTO_FIX_AVAILABLE:
         return jsonify({'error': 'Auto-fix engine not available'}), 503
     
@@ -638,6 +640,16 @@ def apply_fixes(scan_id):
             print(f"[AutoFix] Error: File not found at {pdf_path}")
             return jsonify({'error': f'PDF file not found: {scan_id}'}), 404
         
+        tracker = create_progress_tracker(scan_id, total_steps=8)
+        tracker.add_step('initialize', 'Initializing fix engine', 'completed')
+        tracker.add_step('open_pdf', 'Opening PDF file')
+        tracker.add_step('add_language', 'Adding document language')
+        tracker.add_step('add_metadata', 'Adding title and metadata')
+        tracker.add_step('mark_tagged', 'Marking document as tagged')
+        tracker.add_step('fix_viewer_prefs', 'Fixing viewer preferences')
+        tracker.add_step('create_structure', 'Creating structure tree')
+        tracker.add_step('save_pdf', 'Saving fixed PDF')
+        
         # Use unified query execution to check fix_history
         param_placeholder = '%s' if USE_POSTGRESQL else '?'
         query = f'SELECT COUNT(*) as count FROM fix_history WHERE scan_id = {param_placeholder}'
@@ -648,16 +660,22 @@ def apply_fixes(scan_id):
             print(f"[AutoFix] Warning: File has already been fixed {fix_count} time(s)")
         
         print(f"[AutoFix] Applying automated fixes to: {pdf_path}")
+        
         auto_fix_engine = AutoFixEngine()
-        result = auto_fix_engine.apply_automated_fixes(pdf_path)
+        result = auto_fix_engine.apply_automated_fixes(pdf_path, tracker)
         
         if result.get('success'):
+            rescan_step = tracker.add_step('rescan', 'Re-scanning fixed PDF')
+            tracker.start_step(rescan_step)
+            
             try:
                 print(f"[AutoFix] Re-scanning fixed file: {pdf_path}")
                 
                 analyzer = PDFAccessibilityAnalyzer()
                 new_results = analyzer.analyze(pdf_path)
                 new_summary = analyzer.calculate_summary(new_results)
+                
+                tracker.complete_step(rescan_step, f"Found {new_summary.get('totalIssues', 0)} remaining issues")
                 
                 print(f"[AutoFix] ✓ Re-scan complete:")
                 print(f"[AutoFix]   Total issues: {new_summary.get('totalIssues', 0)}")
@@ -695,24 +713,45 @@ def apply_fixes(scan_id):
                 ))
                 print(f"[AutoFix] ✓ Fix history saved for {scan_id}")
                 
+                tracker.complete_all()
+                
             except Exception as rescan_error:
                 print(f"[AutoFix] ERROR: Failed to re-scan PDF: {rescan_error}")
+                tracker.fail_step(rescan_step, str(rescan_error))
+                tracker.fail_all(str(rescan_error))
                 import traceback
                 traceback.print_exc()
                 return jsonify({
                     'error': f'Fixes applied but failed to re-scan: {str(rescan_error)}'
                 }), 500
+        else:
+            tracker.fail_all(result.get('error', 'Unknown error'))
+        
+        result['progress'] = tracker.get_progress()
         
         return jsonify(result), 200
     except Exception as e:
         print(f"[AutoFix] Error: {str(e)}")
         import traceback
         traceback.print_exc()
+        
+        if 'tracker' in locals():
+            tracker.fail_all(str(e))
+        
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/fix-progress/<scan_id>', methods=['GET'])
+def get_fix_progress(scan_id):
+    """Get the current progress of fixes being applied"""
+    tracker = get_progress_tracker(scan_id)
+    if not tracker:
+        return jsonify({'error': 'No fix progress found for this scan'}), 404
+    
+    return jsonify(tracker.get_progress()), 200
 
 @app.route('/api/apply-semi-automated-fixes/<scan_id>', methods=['POST'])
 def apply_semi_automated_fixes(scan_id):
-    """Apply semi-automated fixes to a PDF with AI enhancement"""
+    """Apply semi-automated fixes to a PDF with AI enhancement and progress tracking"""
     if not AUTO_FIX_AVAILABLE:
         return jsonify({'error': 'Auto-fix engine not available'}), 503
     
@@ -725,11 +764,28 @@ def apply_semi_automated_fixes(scan_id):
             print(f"[SemiAutoFix] Error: File not found at {pdf_path}")
             return jsonify({'error': f'PDF file not found: {scan_id}'}), 404
         
+        tracker = create_progress_tracker(scan_id, total_steps=10)
+        tracker.add_step('initialize', 'Initializing fix engine', 'completed')
+        tracker.add_step('analyze_issues', 'Analyzing PDF issues')
+        tracker.add_step('open_pdf', 'Opening PDF file')
+        tracker.add_step('add_output_intent', 'Adding OutputIntent with ICC profile')
+        tracker.add_step('add_pdfa_id', 'Adding PDF/A identifier')
+        tracker.add_step('fix_metadata', 'Fixing metadata consistency')
+        tracker.add_step('fix_structure', 'Fixing structure types')
+        tracker.add_step('downgrade_version', 'Downgrading PDF version')
+        tracker.add_step('save_pdf', 'Saving fixed PDF')
+        tracker.add_step('rescan', 'Re-scanning fixed PDF')
+        
+        analyze_step = 2
+        tracker.start_step(analyze_step)
+        
         param_placeholder = '%s' if USE_POSTGRESQL else '?'
         query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
         result = execute_query(query, (scan_id,), fetch=True)
         
         if not result:
+            tracker.fail_step(analyze_step, 'Scan not found')
+            tracker.fail_all('Scan not found')
             return jsonify({'error': 'Scan not found'}), 404
         
         scan_data = result[0]['scan_results']
@@ -743,6 +799,7 @@ def apply_semi_automated_fixes(scan_id):
             issues = scan_data
         
         total_issues = sum(len(v) if isinstance(v, list) else 0 for v in issues.values())
+        tracker.complete_step(analyze_step, f"Found {total_issues} issues to fix")
         print(f"[SemiAutoFix] Found {total_issues} issues to fix")
         
         ai_success = False
@@ -760,6 +817,7 @@ def apply_semi_automated_fixes(scan_id):
                     
                     # Re-scan and update database
                     try:
+                        tracker.start_step(10)  # rescan step
                         print(f"[SemiAutoFix] Re-scanning fixed file...")
                         
                         analyzer = PDFAccessibilityAnalyzer()
@@ -767,6 +825,8 @@ def apply_semi_automated_fixes(scan_id):
                         fixed_file_path = ai_result.get('fixedPath', pdf_path)
                         new_results = analyzer.analyze(fixed_file_path)
                         new_summary = analyzer.calculate_summary(new_results)
+                        
+                        tracker.complete_step(10, f"Found {new_summary.get('totalIssues', 0)} remaining issues")
                         
                         print(f"[SemiAutoFix] ✓ Re-scan complete:")
                         print(f"[SemiAutoFix]   Total issues: {new_summary.get('totalIssues', 0)}")
@@ -804,10 +864,15 @@ def apply_semi_automated_fixes(scan_id):
                             ai_result.get('successCount', 0)
                         ))
                         
+                        tracker.complete_all()
+                        ai_result['progress'] = tracker.get_progress()
+                        
                         return jsonify(ai_result), 200
                         
                     except Exception as rescan_error:
                         print(f"[SemiAutoFix] ERROR: Failed to re-scan: {rescan_error}")
+                        tracker.fail_step(10, str(rescan_error))
+                        tracker.fail_all(str(rescan_error))
                         import traceback
                         traceback.print_exc()
                         return jsonify({
@@ -815,7 +880,7 @@ def apply_semi_automated_fixes(scan_id):
                         }), 500
                 else:
                     print(f"[SemiAutoFix] ⚠️ AI fixes returned no changes: {ai_result.get('message', 'No fixes applied')}, falling back to traditional fixes")
-            else: # AI engine is available but not working or has no fixes
+            else:
                 print("[SemiAutoFix] AI remediation not available, using traditional fixes")
                 
         except Exception as ai_error:
@@ -833,6 +898,7 @@ def apply_semi_automated_fixes(scan_id):
             result = execute_query(query, (scan_id,), fetch=True)
             
             if not result:
+                tracker.fail_all('Scan not found')
                 return jsonify({'error': 'Scan not found'}), 404
             
             scan_data = result[0]['scan_results']
@@ -844,19 +910,22 @@ def apply_semi_automated_fixes(scan_id):
             else:
                 scan_results = scan_data
             
-            # Apply PDF/A fixes using the pdfa_fix_engine
+            # Apply PDF/A fixes using the pdfa_fix_engine with progress tracking
             from pdfa_fix_engine import apply_pdfa_fixes
             
-            fix_result = apply_pdfa_fixes(pdf_path, scan_results)
+            fix_result = apply_pdfa_fixes(pdf_path, scan_results, tracker)
             
             if fix_result.get('success'):
                 try:
                     # Re-scan the fixed PDF to get updated results
+                    tracker.start_step(10)  # rescan step
                     print(f"[SemiAutoFix] Re-scanning fixed file...")
                     
                     analyzer = PDFAccessibilityAnalyzer()
                     new_results = analyzer.analyze(pdf_path)
                     new_summary = analyzer.calculate_summary(new_results)
+                    
+                    tracker.complete_step(10, f"Found {new_summary.get('totalIssues', 0)} remaining issues")
                     
                     print(f"[SemiAutoFix] ✓ Re-scan complete:")
                     print(f"[SemiAutoFix]   Total issues: {new_summary.get('totalIssues', 0)}")
@@ -895,13 +964,20 @@ def apply_semi_automated_fixes(scan_id):
                     ))
                     print(f"[SemiAutoFix] ✓ Fix history saved for {scan_id}")
                     
+                    tracker.complete_all()
+                    fix_result['progress'] = tracker.get_progress()
+                    
                 except Exception as rescan_error:
                     print(f"[SemiAutoFix] ERROR: Failed to re-scan PDF: {rescan_error}")
+                    tracker.fail_step(10, str(rescan_error))
+                    tracker.fail_all(str(rescan_error))
                     import traceback
                     traceback.print_exc()
                     return jsonify({
                         'error': f'Fixes applied but failed to re-scan: {str(rescan_error)}'
                     }), 500
+            else:
+                tracker.fail_all(fix_result.get('error', 'Unknown error'))
             
             return jsonify(fix_result), 200
     
@@ -909,6 +985,11 @@ def apply_semi_automated_fixes(scan_id):
         print(f"[SemiAutoFix] Error: {str(e)}")
         import traceback
         traceback.print_exc()
+        
+        tracker = get_progress_tracker(scan_id)
+        if tracker:
+            tracker.fail_all(str(e))
+        
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/fix-history/<scan_id>', methods=['GET'])
@@ -1774,14 +1855,10 @@ def batch_operations(batch_id):
                 if isinstance(scan_data, str):
                     scan_data = json.loads(scan_data)
                 
-                if isinstance(scan_data, dict) and 'results' in scan_data:
-                    results = scan_data['results']
-                    summary = scan_data.get('summary')
+                if isinstance(scan_data, dict) and 'summary' in scan_data:
+                    summary = scan_data['summary']
                 else:
-                    results = scan_data
-                    summary = None
-                
-                if not summary:
+                    results = scan_data.get('results', scan_data)
                     analyzer = PDFAccessibilityAnalyzer()
                     summary = analyzer.calculate_summary(results)
                 
@@ -1881,7 +1958,6 @@ def batch_operations(batch_id):
             import traceback
             traceback.print_exc()
             return jsonify({'error': str(e)}), 500
-
 
 @app.route('/api/history', methods=['GET'])
 def get_history():
