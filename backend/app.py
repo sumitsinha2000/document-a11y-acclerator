@@ -628,97 +628,97 @@ def get_fix_suggestions(scan_id):
 @app.route('/api/apply-fixes/<scan_id>', methods=['POST'])
 def apply_fixes(scan_id):
     """Apply automated fixes to a PDF with AI enhancement and progress tracking"""
-    from fix_progress_tracker import create_progress_tracker
-    
-    tracker = create_progress_tracker(scan_id, total_steps=10)
-    
-    data = request.get_json()
-    use_ai = data.get('useAI', False)
-    
-    print(f"[Backend] Applying {'AI-powered' if use_ai else 'traditional'} fixes to scan: {scan_id}")
-    
-    step_id = tracker.add_step(
-        "Initialize Fix Process",
-        "Preparing to apply automated fixes to the PDF",
-        "pending"
-    )
-    tracker.start_step(step_id)
-    
-    # Check if auto-fix is available
-    if not AUTO_FIX_AVAILABLE:
-        tracker.fail_step(step_id, "Auto-fix engine is not available")
-        tracker.fail_all("Auto-fix engine is not available")
-        return jsonify({
-            'success': False,
-            'message': 'Auto-fix functionality is not available. Please check server configuration.'
-        }), 503
-    
-    tracker.complete_step(step_id, "Fix process initialized successfully")
-    
-    # Get scan data
-    step_id = tracker.add_step(
-        "Load Scan Data",
-        "Loading scan results and PDF file",
-        "pending"
-    )
-    tracker.start_step(step_id)
-    
-    # Use unified query execution to get scan data
-    param_placeholder = '%s' if USE_POSTGRESQL else '?'
-    query = f'SELECT filename, scan_results FROM scans WHERE id = {param_placeholder}'
-    scan_data_result = execute_query(query, (scan_id,), fetch=True)
-    
-    if not scan_data_result:
-        tracker.fail_step(step_id, f"Scan not found: {scan_id}")
-        tracker.fail_all(f"Scan not found: {scan_id}")
-        return jsonify({'success': False, 'message': 'Scan not found'}), 404
-    
-    scan_filename = scan_data_result[0]['filename']
-    scan_results_json = scan_data_result[0]['scan_results']
-    
-    scan_data = {
-        'filename': scan_filename,
-        'results': json.loads(scan_results_json) if isinstance(scan_results_json, str) else scan_results_json
-    }
-    tracker.complete_step(step_id, f"Loaded scan data for {scan_data.get('filename', 'unknown')}")
-    
-    # Apply fixes with progress tracking
-    if use_ai:
-        # Check if AI remediation is available
-        if not AI_REMEDIATION_AVAILABLE:
-            tracker.fail_step(step_id, "AI remediation engine is not available.")
-            tracker.fail_all("AI remediation engine is not available.")
+    try:
+        from fix_progress_tracker import create_progress_tracker
+        
+        tracker = create_progress_tracker(scan_id, total_steps=10)
+        
+        data = request.get_json()
+        use_ai = data.get('useAI', False)
+        
+        print(f"[Backend] Applying {'AI-powered' if use_ai else 'traditional'} fixes to scan: {scan_id}")
+        
+        step_id = tracker.add_step(
+            "Initialize Fix Process",
+            "Preparing to apply automated fixes to the PDF",
+            "pending"
+        )
+        tracker.start_step(step_id)
+        
+        # Check if auto-fix is available
+        if not AUTO_FIX_AVAILABLE:
+            tracker.fail_step(step_id, "Auto-fix engine is not available")
+            tracker.fail_all("Auto-fix engine is not available")
             return jsonify({
                 'success': False,
-                'message': 'AI remediation functionality is not available. Set SAMBANOVA_API_KEY.'
+                'message': 'Auto-fix functionality is not available. Please check server configuration.'
             }), 503
         
-        from samba_nova_ai_fix import apply_ai_fixes
-        result = apply_ai_fixes(scan_id, scan_data, tracker)
-    else:
-        from auto_fix_engine import AutoFixEngine
-        fix_engine = AutoFixEngine()
-        result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
-    
-    if result.get('success'):
-        tracker.complete_all()
-        return jsonify(result)
-    else:
-        tracker.fail_all(result.get('error', 'Unknown error'))
-        return jsonify(result), 500
+        tracker.complete_step(step_id, "Fix process initialized successfully")
+        
+        # Get scan data
+        step_id = tracker.add_step(
+            "Load Scan Data",
+            "Loading scan results and PDF file",
+            "pending"
+        )
+        tracker.start_step(step_id)
+        
+        # Use unified query execution to get scan data
+        param_placeholder = '%s' if USE_POSTGRESQL else '?'
+        query = f'SELECT filename, scan_results FROM scans WHERE id = {param_placeholder}'
+        scan_data_result = execute_query(query, (scan_id,), fetch=True)
+        
+        if not scan_data_result:
+            tracker.fail_step(step_id, f"Scan not found: {scan_id}")
+            tracker.fail_all(f"Scan not found: {scan_id}")
+            return jsonify({'success': False, 'message': 'Scan not found'}), 404
+        
+        scan_filename = scan_data_result[0]['filename']
+        scan_results_json = scan_data_result[0]['scan_results']
+        
+        scan_data = {
+            'filename': scan_filename,
+            'results': json.loads(scan_results_json) if isinstance(scan_results_json, str) else scan_results_json
+        }
+        tracker.complete_step(step_id, f"Loaded scan data for {scan_data.get('filename', 'unknown')}")
+        
+        # Apply fixes with progress tracking
+        if use_ai:
+            # Check if AI remediation is available
+            if not AI_REMEDIATION_AVAILABLE:
+                tracker.fail_step(step_id, "AI remediation engine is not available.")
+                tracker.fail_all("AI remediation engine is not available.")
+                return jsonify({
+                    'success': False,
+                    'message': 'AI remediation functionality is not available. Set SAMBANOVA_API_KEY.'
+                }), 503
             
-except Exception as e:
-    print(f"[Backend] Error applying fixes: {str(e)}")
-    import traceback
-    traceback.print_exc()
-    
-    if 'tracker' in locals():
-        tracker.fail_all(str(e))
-    
-    return jsonify({
-        'success': False,
-        'message': f'Error applying fixes: {str(e)}'
-    }), 500
+            from samba_nova_ai_fix import apply_ai_fixes
+            result = apply_ai_fixes(scan_id, scan_data, tracker)
+        else:
+            from auto_fix_engine import AutoFixEngine
+            fix_engine = AutoFixEngine()
+            result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
+        
+        if result.get('success'):
+            tracker.complete_all()
+            return jsonify(result)
+        else:
+            tracker.fail_all(result.get('error', 'Unknown error'))
+            return jsonify(result), 500
+    except Exception as e:
+        print(f"[Backend] Error applying fixes: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        if 'tracker' in locals():
+            tracker.fail_all(str(e))
+        
+        return jsonify({
+            'success': False,
+            'message': f'Error applying fixes: {str(e)}'
+        }), 500
 
 @app.route('/api/fix-progress/<scan_id>', methods=['GET'])
 def get_fix_progress(scan_id):
