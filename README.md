@@ -18,22 +18,26 @@ An automated PDF accessibility scanning and remediation tool with WCAG 2.1, PDF/
 ### Backend Setup
 
 1. Navigate to the backend directory:
-\`\`\`bash
-cd backend
-\`\`\`
+
+   ```bash
+   cd backend
+   ```
 
 2. Install Python dependencies:
-\`\`\`bash
-pip install -r requirements.txt
-\`\`\`
+
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 3. (Optional) Configure PostgreSQL:
    - Create a `.env` file in the backend directory
    - Add your database credentials:
-   \`\`\`
+
+   ```markdown
    DATABASE_TYPE=postgresql
    DATABASE_URL=postgresql://username:password@localhost:5432/database_name
-   \`\`\`
+   ```
+
    - If not configured, the app will use SQLite by default
 
 4. **(Optional) Install veraPDF for Enhanced Validation**:
@@ -46,28 +50,32 @@ pip install -r requirements.txt
    - Provides enhanced table detection, form analysis, and document structure analysis
 
 6. Start the backend server:
-\`\`\`bash
-python app.py
-\`\`\`
+
+   ```bash
+   python app.py
+   ```
 
 The backend will run on `http://localhost:5000`
 
 ### Frontend Setup
 
 1. Navigate to the frontend directory:
-\`\`\`bash
-cd frontend
-\`\`\`
+
+   ```bash
+   cd frontend
+   ```
 
 2. Install dependencies:
-\`\`\`bash
-npm install
-\`\`\`
+
+   ```bash
+   npm install
+   ```
 
 3. Start the development server:
-\`\`\`bash
-npm run dev
-\`\`\`
+
+   ```bash
+   npm run dev
+   ```
 
 The frontend will run on `http://localhost:3000`
 
@@ -139,10 +147,11 @@ The tool validates PDFs against:
 If you see "ERR_CONNECTION_REFUSED" errors:
 
 1. Make sure the backend server is running:
-   \`\`\`bash
+
+   ```bash
    cd backend
    python app.py
-   \`\`\`
+   ```
 
 2. Check that the backend is running on port 5000
 
