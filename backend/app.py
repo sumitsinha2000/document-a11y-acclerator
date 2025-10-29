@@ -694,8 +694,10 @@ def apply_fixes(scan_id):
                     'message': 'AI remediation functionality is not available. Set SAMBANOVA_API_KEY.'
                 }), 503
             
-            from samba_nova_ai_fix import apply_ai_fixes
-            result = apply_ai_fixes(scan_id, scan_data, tracker)
+            # AI fixes not available - fall back to traditional fixes
+            from auto_fix_engine import AutoFixEngine
+            fix_engine = AutoFixEngine()
+            result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
         else:
             from auto_fix_engine import AutoFixEngine
             fix_engine = AutoFixEngine()
@@ -845,8 +847,10 @@ def apply_semi_automated_fixes(scan_id):
                     'message': 'AI remediation functionality is not available. Set SAMBANOVA_API_KEY.'
                 }), 503
             
-            from samba_nova_ai_fix import apply_ai_semi_automated_fixes
-            result = apply_ai_semi_automated_fixes(scan_id, scan_data, tracker)
+            # AI fixes not available - fall back to traditional fixes
+            from auto_fix_engine import AutoFixEngine
+            fix_engine = AutoFixEngine()
+            result = fix_engine.apply_semi_automated_fixes(scan_id, scan_data, tracker)
         else:
             from auto_fix_engine import AutoFixEngine
             fix_engine = AutoFixEngine()

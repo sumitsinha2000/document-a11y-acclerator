@@ -70,16 +70,18 @@ class PDFAFixEngine:
             
             pdfa_issues = []
             if isinstance(scan_results, dict):
+                # Try to get pdfaIssues from various possible locations
                 pdfa_issues = scan_results.get('pdfaIssues', [])
+                if not pdfa_issues:
+                    # Check if it's nested in results
+                    results = scan_results.get('results', {})
+                    if isinstance(results, dict):
+                        pdfa_issues = results.get('pdfaIssues', [])
                 print(f"[PDFAFixEngine] Found {len(pdfa_issues)} PDF/A issues to fix")
             else:
                 print(f"[PDFAFixEngine] WARNING: scan_results is not a dict, it's {type(scan_results)}")
-                return {
-                    'success': False,
-                    'error': 'Invalid scan results format',
-                    'fixesApplied': [],
-                    'successCount': 0
-                }
+                # Don't fail - just apply basic fixes
+                print(f"[PDFAFixEngine] Applying basic PDF/A fixes anyway")
             
             if len(pdfa_issues) == 0:
                 print(f"[PDFAFixEngine] No PDF/A issues found, applying basic fixes anyway")

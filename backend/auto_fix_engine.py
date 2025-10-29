@@ -749,8 +749,7 @@ class AutoFixEngine:
                 tracker.start_step(step_id)
             
             try:
-                # Apply PDF/A fixes
-                pdfa_result = apply_pdfa_fixes(pdf_path, pdf)
+                pdfa_result = apply_pdfa_fixes(pdf_path, scan_data, tracker)
                 
                 if pdfa_result.get('success'):
                     fixes_applied.append({
@@ -767,6 +766,8 @@ class AutoFixEngine:
                 print(f"[AutoFixEngine] ✗ Error adding PDF/A compliance: {e}")
                 if tracker:
                     tracker.fail_step(step_id, str(e))
+                import traceback
+                traceback.print_exc()
 
             step_id = tracker.add_step(
                 "Save Fixed PDF",
