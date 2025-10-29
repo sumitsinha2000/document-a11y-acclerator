@@ -33,12 +33,19 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
               (step) => step.name === "Re-scan Fixed PDF" && step.status === "completed",
             )
 
+            console.log("[v0] FixProgressStepper: Re-scan step found:", rescanStep ? "YES" : "NO")
+            if (rescanStep) {
+              console.log("[v0] FixProgressStepper: Re-scan step object:", JSON.stringify(rescanStep, null, 2))
+              console.log("[v0] FixProgressStepper: Re-scan step keys:", Object.keys(rescanStep))
+              console.log("[v0] FixProgressStepper: Re-scan step.resultData:", rescanStep.resultData)
+            }
+
             if (rescanStep && rescanStep.resultData) {
               console.log("[v0] FixProgressStepper: Found new scan results from re-scan:", rescanStep.resultData)
               latestResultData = rescanStep.resultData
               setFinalResultData(rescanStep.resultData)
             } else {
-              console.log("[v0] FixProgressStepper: No resultData found in re-scan step:", rescanStep)
+              console.log("[v0] FixProgressStepper: No resultData found in re-scan step")
             }
           }
 

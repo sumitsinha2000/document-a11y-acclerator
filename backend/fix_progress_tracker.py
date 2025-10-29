@@ -61,6 +61,7 @@ class FixProgressTracker:
                 step['details'] = details
             if result_data:
                 step['resultData'] = result_data
+                print(f"[ProgressTracker] Step {step_id} resultData stored with keys: {list(result_data.keys())}")
             print(f"[ProgressTracker] Step {step_id}/{self.total_steps}: {step['name']} - COMPLETED ({step.get('duration', 0):.2f}s)")
     
     def fail_step(self, step_id: int, error: str):
