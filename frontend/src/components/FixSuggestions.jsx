@@ -183,10 +183,11 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
       if (newScanData && newScanData.newScanResults && newScanData.newFixes) {
         console.log("[v0] FixSuggestions - Using new scan data from progress tracker:", newScanData)
+        console.log("[v0] FixSuggestions - New scan results:", newScanData.newScanResults)
+        console.log("[v0] FixSuggestions - New fixes:", newScanData.newFixes)
 
         if (onRefresh) {
           try {
-            // Pass the new results and fixes to the parent
             await onRefresh(newScanData.newScanResults, newScanData.newFixes)
             console.log("[v0] FixSuggestions - Refresh completed with new scan data")
           } catch (refreshError) {

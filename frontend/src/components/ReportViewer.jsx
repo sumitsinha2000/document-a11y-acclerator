@@ -98,7 +98,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
   }
 
-  const refreshScanData = async (newSummary = null, newResults = null) => {
+  const refreshScanData = async (newScanResults = null, newFixes = null) => {
     const currentScan = scans[selectedFileIndex]
     let scanId = currentScan.scanId || currentScan.id
 
@@ -110,20 +110,21 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
 
     console.log("[v0] ReportViewer - Starting refresh for scanId:", scanId)
-    console.log("[v0] ReportViewer - New summary provided:", newSummary)
-    console.log("[v0] ReportViewer - New results provided:", newResults)
+    console.log("[v0] ReportViewer - New scan results provided:", newScanResults)
+    console.log("[v0] ReportViewer - New fixes provided:", newFixes)
     console.log("[v0] ReportViewer - Current reportData before refresh:", reportData)
 
-    if (newSummary && newResults) {
+    if (newScanResults && newFixes) {
       console.log("[v0] ReportViewer - Using provided data directly (no fetch needed)")
 
       const newData = {
         ...reportData,
-        summary: newSummary,
-        results: newResults,
-        // Regenerate fixes based on new results
-        fixes: reportData.fixes || { automated: [], semiAutomated: [], manual: [], estimatedTime: 0 },
+        summary: newScanResults.summary || reportData.summary,
+        results: newScanResults.results || newScanResults, // Handle both formats
+        fixes: newFixes, // Use the new fixes from the backend
       }
+
+      console.log("[v0] ReportViewer - New data structure:", newData)
 
       setReportData(newData)
       setRefreshKey((prev) => {
