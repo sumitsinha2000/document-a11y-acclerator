@@ -7,7 +7,7 @@ import tempfile
 import pdfplumber
 from datetime import datetime
 import re
-from pdfa_fix_engine import apply_pdfa_fixes
+from pdfa_fix_engine import PDFAFixEngine  # Import the class instead of the function
 from pdf_structure_standards import (
     STANDARD_STRUCTURE_TYPES,
     COMMON_ROLEMAP_MAPPINGS,
@@ -43,6 +43,7 @@ class AutoFixEngine:
                 'removeEncryption', 'addOutputIntent', 'fixAnnotationAppearances'
             ]
         }
+        self.pdfa_engine = PDFAFixEngine()
         self.ai_engine = None
         if SAMBANOVA_AVAILABLE:
             try:
@@ -749,7 +750,7 @@ class AutoFixEngine:
                 tracker.start_step(step_id)
             
             try:
-                pdfa_result = apply_pdfa_fixes(pdf_path, scan_data, tracker)
+                pdfa_result = self.pdfa_engine.apply_pdfa_fixes(pdf_path, scan_data, tracker)
                 
                 if pdfa_result.get('success'):
                     fixes_applied.append({
@@ -1021,4 +1022,6 @@ class AutoFixEngine:
                 'success': False,
                 'error': str(e),
                 'description': f"Failed to apply {fix_type}: {str(e)}"
+            }
+)}"
             }
