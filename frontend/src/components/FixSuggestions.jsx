@@ -3,6 +3,7 @@
 import { useState } from "react"
 import axios from "axios"
 import PDFEditor from "./PDFEditor"
+import { formatTimeEstimate } from "../utils/timeFormat"
 import AIRemediationPanel from "./AIRemediationPanel"
 import { API_ENDPOINTS } from "../config/api"
 
@@ -39,7 +40,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       title: safeRender(fix.title || fix.action, "Fix Required"),
       description: safeRender(fix.description || fix.instructions, "No description available"),
       severity: safeRender(fix.severity, "medium"),
-      estimatedTime: safeRender(fix.estimatedTime || fix.timeEstimate, ""),
+      estimatedTime: formatTimeEstimate(fix.estimatedTime || fix.timeEstimate),
     }
   }
 
@@ -255,9 +256,9 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         <div className="flex items-center gap-3">
           <span
             className="text-xs text-gray-500 dark:text-gray-400"
-            aria-label={`Estimated time: ${safeRender(fixes.estimatedTime, "N/A")} minutes`}
+            aria-label={`Estimated time: ${formatTimeEstimate(fixes.estimatedTime)}`}
           >
-            Est. Time: {safeRender(fixes.estimatedTime, "N/A")} minutes
+            Est. Time: {formatTimeEstimate(fixes.estimatedTime)}
           </span>
           <button
             onClick={() => setShowAIPanel(true)}
