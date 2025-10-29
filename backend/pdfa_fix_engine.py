@@ -670,18 +670,3 @@ class PDFAFixEngine:
         except Exception as e:
             print(f"[PDFAFixEngine] Error fixing circular RoleMaps: {e}")
             return False
-
-def apply_pdfa_fixes(pdf_path: str, scan_results: Dict[str, Any], tracker=None) -> Dict[str, Any]:
-    """
-    Apply PDF/A fixes to a PDF file with progress tracking
-    
-    Args:
-        pdf_path: Path to the PDF file
-        scan_results: Scan results dictionary containing pdfaIssues
-        tracker: Optional progress tracker for step-by-step updates
-        
-    Returns:
-        Dictionary with fix results
-    """
-    engine = PDFAFixEngine()
-    return engine.apply_pdfa_fixes(pdf_path, scan_results, tracker)
