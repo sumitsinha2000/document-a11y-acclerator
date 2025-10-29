@@ -1023,5 +1023,3 @@ class AutoFixEngine:
                 'error': str(e),
                 'description': f"Failed to apply {fix_type}: {str(e)}"
             }
-)}"
-            }
