@@ -7,6 +7,9 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
+from pdf_analyzer import PDFAccessibilityAnalyzer
+from fix_suggestions import generate_fix_suggestions
+
 from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
@@ -30,9 +33,6 @@ else:
     USE_POSTGRESQL = False
     import sqlite3
     print("[Backend] Using SQLite database")
-
-from pdf_analyzer import PDFAccessibilityAnalyzer
-from fix_suggestions import generate_fix_suggestions
 
 try:
     from ocr_processor import OCRProcessor

@@ -3,6 +3,7 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
 
 export default function IssueStats({ results }) {
+
   // Prepare data for bar chart - issues by category
   const categoryData = Object.entries(results || {}).map(([category, issues]) => {
     const labels = {
@@ -56,6 +57,8 @@ export default function IssueStats({ results }) {
                 borderRadius: "0.5rem",
                 color: "#f3f4f6",
               }}
+              labelStyle={{ color: "#f3f4f6" }}
+              itemStyle={{ color: "#f3f4f6" }}
             />
             <Bar dataKey="count" fill="#3b82f6" radius={[8, 8, 0, 0]} />
           </BarChart>
@@ -80,12 +83,35 @@ export default function IssueStats({ results }) {
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
             </Pie>
-            <Tooltip
+           {/* <Tooltip
               contentStyle={{
                 backgroundColor: "#1f2937",
                 border: "1px solid #374151",
                 borderRadius: "0.5rem",
                 color: "#f3f4f6",
+              }}
+              labelStyle={{ color: "#f3f4f6" }}
+              itemStyle={{ color: "#f3f4f6" }}
+            /> */}
+            <Tooltip
+              content={({ active, payload }) => {
+                if (active && payload && payload.length) {
+                  const { name, value } = payload[0];
+                  return (
+                    <div
+                      style={{
+                        backgroundColor: "#1f2937",
+                        border: "1px solid #374151",
+                        borderRadius: "0.5rem",
+                        color: "#f3f4f6",
+                        padding: "0.5rem 0.75rem",
+                      }}
+                    >
+                      <p>{`${name}: ${value}`}</p>
+                    </div>
+                  );
+                }
+                return null;
               }}
             />
           </PieChart>
