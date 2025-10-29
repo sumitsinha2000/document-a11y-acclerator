@@ -83,7 +83,8 @@ class PDFFeatureExtractor:
                 if any(key in descriptor for key in ['/FontFile', '/FontFile2', '/FontFile3']):
                     return True
             return False
-        except:
+        except Exception as e:
+            logger.debug(f"Error checking if font is embedded: {e}")
             return False
     
     def _extract_image_features(self) -> List[Dict[str, Any]]:
