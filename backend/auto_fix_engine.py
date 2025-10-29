@@ -43,7 +43,16 @@ class AutoFixEngine:
                 'removeEncryption', 'addOutputIntent', 'fixAnnotationAppearances'
             ]
         }
+        print("[AutoFixEngine] Initializing PDFAFixEngine...")
         self.pdfa_engine = PDFAFixEngine()
+        print(f"[AutoFixEngine] PDFAFixEngine instantiated: {type(self.pdfa_engine)}")
+        print(f"[AutoFixEngine] apply_pdfa_fixes method: {type(self.pdfa_engine.apply_pdfa_fixes)}")
+        
+        # Check the method signature
+        import inspect
+        sig = inspect.signature(self.pdfa_engine.apply_pdfa_fixes)
+        print(f"[AutoFixEngine] apply_pdfa_fixes signature: {sig}")
+        
         self.ai_engine = None
         if SAMBANOVA_AVAILABLE:
             try:
@@ -750,7 +759,7 @@ class AutoFixEngine:
                 tracker.start_step(step_id)
             
             try:
-                pdfa_result = self.pdfa_engine.apply_pdfa_fixes(pdf_path, scan_data, tracker)
+                pdfa_result = self.pdfa_engine.apply_pdfa_fixes(pdf_path, scan_data, tracker=tracker)
                 
                 if pdfa_result.get('success'):
                     fixes_applied.append({

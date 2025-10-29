@@ -55,11 +55,13 @@ class PDFAFixEngine:
             'addMissingRoleMappings'  # New fix to add all common mappings
         ]
     
-    def apply_pdfa_fixes(self, pdf_path: str, scan_results: Dict[str, Any], tracker=None) -> Dict[str, Any]:
+    def apply_pdfa_fixes(self, pdf_path: str, scan_results: Dict[str, Any], *, tracker=None) -> Dict[str, Any]:
         """
         Apply semi-automated PDF/A fixes based on detected issues with progress tracking
         COMPLETELY REWRITTEN to handle actual scan results and fix structural issues
         """
+        print(f"[PDFAFixEngine.apply_pdfa_fixes] Called with pdf_path={pdf_path}, tracker={tracker}")
+        
         pdf = None
         temp_path = None
         try:
