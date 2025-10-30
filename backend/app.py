@@ -16,7 +16,12 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-NEON_DATABASE_URL = os.getenv('DATABASE_URL')
+NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
+# Ensure that if DATABASE_URL is not set, it tries NEON_DATABASE_URL or NEON_POSTGRES_URL
+if not DATABASE_URL:
+    DATABASE_URL = os.getenv('NEON_DATABASE_URL')
+if not DATABASE_URL:
+    DATABASE_URL = os.getenv('NEON_POSTGRES_URL')
 
 if not DATABASE_URL:
     print("[Backend] ✗ CRITICAL ERROR: No DATABASE_URL found in environment variables!")
@@ -786,14 +791,23 @@ def apply_fixes(scan_id):
                 analyzer = PDFAccessibilityAnalyzer()
                 new_scan_results = analyzer.analyze(file_path)
 
-                # Update scan results in database
+                new_summary = analyzer.calculate_summary(new_scan_results)
+                
+                print(f"[Backend] ✓ Calculated new summary:")
+                print(f"[Backend]   Total issues: {new_summary.get('totalIssues', 0)}")
+                print(f"[Backend]   Compliance score: {new_summary.get('complianceScore', 0)}%")
+                print(f"[Backend]   High severity: {new_summary.get('highSeverity', 0)}")
+
+                # Update scan results in database with proper summary
                 scan_data_updated = {
                     'results': new_scan_results,
-                    'summary': None
+                    'summary': new_summary  # Store calculated summary instead of None
                 }
 
                 update_query = f'UPDATE scans SET scan_results = %s, status = %s WHERE id = %s'
                 execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
+                
+                print(f"[Backend] ✓ Database updated with new scan results and summary")
 
                 # Generate new fix suggestions
                 if AUTO_FIX_AVAILABLE:
@@ -804,11 +818,12 @@ def apply_fixes(scan_id):
 
                 result['newScanResults'] = new_scan_results
                 result['newFixes'] = new_fixes
+                result['newSummary'] = new_summary  # Include summary in response
 
                 tracker.complete_step(
                     step_id,
                     f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues",
-                    result_data={'newScanResults': new_scan_results, 'newFixes': new_fixes}
+                    result_data={'newScanResults': new_scan_results, 'newFixes': new_fixes, 'newSummary': new_summary}
                 )
                 print(f"[Backend] Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
                 print(f"[Backend] Step completed with resultData stored")
@@ -961,14 +976,23 @@ def apply_semi_automated_fixes(scan_id):
                 analyzer = PDFAccessibilityAnalyzer()
                 new_scan_results = analyzer.analyze(file_path)
 
-                # Update scan results in database
+                new_summary = analyzer.calculate_summary(new_scan_results)
+                
+                print(f"[Backend] ✓ Calculated new summary:")
+                print(f"[Backend]   Total issues: {new_summary.get('totalIssues', 0)}")
+                print(f"[Backend]   Compliance score: {new_summary.get('complianceScore', 0)}%")
+                print(f"[Backend]   High severity: {new_summary.get('highSeverity', 0)}")
+
+                # Update scan results in database with proper summary
                 scan_data_updated = {
                     'results': new_scan_results,
-                    'summary': None
+                    'summary': new_summary  # Store calculated summary instead of None
                 }
 
                 update_query = f'UPDATE scans SET scan_results = %s, status = %s WHERE id = %s'
                 execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
+                
+                print(f"[Backend] ✓ Database updated with new scan results and summary")
 
                 # Generate new fix suggestions
                 if AUTO_FIX_AVAILABLE:
@@ -979,6 +1003,7 @@ def apply_semi_automated_fixes(scan_id):
 
                 result['newScanResults'] = new_scan_results
                 result['newFixes'] = new_fixes
+                result['newSummary'] = new_summary  # Include summary in response
 
                 tracker.complete_step(step_id, f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
                 print(f"[Backend] Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
