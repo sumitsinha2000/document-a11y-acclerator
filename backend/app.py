@@ -20,7 +20,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -146,6 +146,7 @@ def scan_pdf():
     scan_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     upload_dir = Path("uploads")
     upload_dir.mkdir(exist_ok=True)
+    
     file_path = upload_dir / f"{scan_id}.pdf"
     file.save(str(file_path))
     print(f"[Backend] ✓ File saved: {file_path}")
@@ -181,19 +182,52 @@ def get_scans():
 # === Apply Fixes ===
 @app.route("/api/apply-fixes/<scan_id>", methods=["POST"])
 def apply_fixes(scan_id):
-    data = request.get_json()
-    fixes = data.get("fixes", [])
-    filename = data.get("filename", "fixed_document.pdf")
+    try:
+        data = request.get_json()
+        fixes = data.get("fixes", [])
+        filename = data.get("filename", "fixed_document.pdf")
+        
+        # Ensure filename has .pdf extension
+        if not filename.lower().endswith('.pdf'):
+            filename = f"{filename}.pdf"
 
-    print(f"[Backend] Applying fixes for scan: {scan_id}")
+        print(f"[Backend] Applying fixes for scan: {scan_id}")
+        
+        # Get scan data from database
+        scan_data = get_scan_by_id(scan_id)
+        if not scan_data:
+            return jsonify({"error": "Scan not found"}), 404
 
-    progress_id = create_progress_tracker(scan_id)
-    engine = AutoFixEngine()
-    fixed_path, summary = engine.apply_fixes(scan_id, fixes)
-
-    # ✅ update existing scan with new results
-    save_scan_to_db(scan_id, filename, summary, is_update=True)
-    return jsonify({"status": "success", "fixedFile": fixed_path, "summary": summary})
+        progress_id = create_progress_tracker(scan_id)
+        tracker = get_progress_tracker(progress_id)
+        
+        engine = AutoFixEngine()
+        
+        result = engine.apply_automated_fixes(scan_id, scan_data, tracker)
+        
+        if result.get('success'):
+            # Update existing scan with new results
+            save_scan_to_db(scan_id, filename, result, is_update=True)
+            
+            # Save fix history
+            save_fix_history(scan_id, filename, result.get('fixesApplied', []), result.get('fixedFile'))
+            
+            return jsonify({
+                "status": "success",
+                "fixedFile": result.get('fixedFile'),
+                "summary": result
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "error": result.get('error', 'Unknown error')
+            }), 500
+            
+    except Exception as e:
+        print(f"[Backend] ERROR in apply_fixes: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 # === Apply Semi-Automated Fixes ===
@@ -502,7 +536,7 @@ def save_fix_history(scan_id, original_file, fixes_applied, fixed_file):
 
 # === Get Scan by ID ===
 def get_scan_by_id(scan_id):
-    """Get scan by ID with multiple fallback strategies"""
+    """Get scan by ID with multiple fallback strategies and ensure .pdf extension"""
     try:
         print(f"[Backend] Looking up scan: {scan_id}")
         
@@ -511,24 +545,33 @@ def get_scan_by_id(scan_id):
         result = execute_query(query, (scan_id,), fetch=True)
         
         if result and len(result) > 0:
+            scan = dict(result[0])
+            if 'file_path' in scan and not scan['file_path'].endswith('.pdf'):
+                scan['file_path'] = f"{scan['file_path']}.pdf"
             print(f"[Backend] ✓ Found scan by id")
-            return result[0]
+            return scan
         
         # Strategy 2: Try without .pdf extension
         scan_id_no_ext = scan_id.replace('.pdf', '')
         result = execute_query(query, (scan_id_no_ext,), fetch=True)
         
         if result and len(result) > 0:
+            scan = dict(result[0])
+            if 'file_path' in scan and not scan['file_path'].endswith('.pdf'):
+                scan['file_path'] = f"{scan['file_path']}.pdf"
             print(f"[Backend] ✓ Found scan by id (without extension)")
-            return result[0]
+            return scan
         
         # Strategy 3: Query by filename
         query = "SELECT * FROM scans WHERE filename = %s ORDER BY created_at DESC LIMIT 1"
         result = execute_query(query, (scan_id,), fetch=True)
         
         if result and len(result) > 0:
+            scan = dict(result[0])
+            if 'file_path' in scan and not scan['file_path'].endswith('.pdf'):
+                scan['file_path'] = f"{scan['file_path']}.pdf"
             print(f"[Backend] ✓ Found scan by filename")
-            return result[0]
+            return scan
         
         print(f"[Backend] ✗ Scan not found: {scan_id}")
         return None
