@@ -185,29 +185,14 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     if (success) {
       alert(`${currentFixType} applied successfully!`)
 
-      if (newScanData && newScanData.newScanResults && newScanData.newFixes) {
-        console.log("[v0] FixSuggestions - Received new scan data from progress:", newScanData)
-        console.log("[v0] FixSuggestions - New results:", newScanData.newScanResults)
-        console.log("[v0] FixSuggestions - New fixes:", newScanData.newFixes)
-
-        if (onRefresh) {
-          try {
-            // Call with no parameters - let ReportViewer fetch fresh data
-            await onRefresh()
-            console.log("[v0] FixSuggestions - Refresh completed")
-          } catch (refreshError) {
-            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
-          }
-        }
-      } else {
-        console.log("[v0] FixSuggestions - No new scan data, triggering refresh")
-        if (onRefresh) {
-          try {
-            await onRefresh()
-            console.log("[v0] FixSuggestions - Refresh completed")
-          } catch (refreshError) {
-            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
-          }
+      console.log("[v0] FixSuggestions - Fixes applied successfully, triggering refresh")
+      if (onRefresh) {
+        try {
+          // Call with no parameters - let ReportViewer fetch completely fresh data
+          await onRefresh()
+          console.log("[v0] FixSuggestions - Refresh completed successfully")
+        } catch (refreshError) {
+          console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
         }
       }
     } else {

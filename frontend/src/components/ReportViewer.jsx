@@ -100,7 +100,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
   }
 
-  const refreshScanData = async (newScanResults, newFixes) => {
+  const refreshScanData = async () => {
     if (isRefreshing) {
       console.log("[v0] ReportViewer - Already refreshing, skipping duplicate call")
       return
@@ -112,6 +112,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       const currentScan = scans[selectedFileIndex]
       let scanId = currentScan.scanId || currentScan.id
 
+      // Handle fixed file naming
       if (scanId && scanId.includes("_fixed_")) {
         const match = scanId.match(/^(scan_\d+_\d+_[^_]+)/)
         if (match) {
@@ -119,10 +120,12 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         }
       }
 
-      console.log("[v0] ReportViewer - Fetching fresh data for scanId:", scanId)
+      console.log("[v0] ReportViewer - Fetching completely fresh data for scanId:", scanId)
 
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      // Wait a moment for backend to finish processing
+      await new Promise((resolve) => setTimeout(resolve, 1500))
 
+      // Fetch with aggressive cache-busting
       const timestamp = Date.now()
       const response = await axios.get(`/api/scan/${scanId}`, {
         headers: {
@@ -133,17 +136,43 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         params: {
           t: timestamp,
           _: Math.random(),
+          refresh: "true",
         },
       })
 
-      console.log("[v0] ReportViewer - Received fresh data:", response.data)
-      console.log("[v0] ReportViewer - New summary:", response.data.summary)
-      console.log("[v0] ReportViewer - New fixes count:", response.data.fixes)
+      console.log("[v0] ReportViewer - Received fresh data from backend")
+      console.log("[v0] ReportViewer - New total issues:", response.data.summary?.totalIssues)
+      console.log("[v0] ReportViewer - New compliance score:", response.data.summary?.complianceScore)
+      console.log("[v0] ReportViewer - New fixes:", {
+        automated: response.data.fixes?.automated?.length || 0,
+        semiAutomated: response.data.fixes?.semiAutomated?.length || 0,
+        manual: response.data.fixes?.manual?.length || 0,
+      })
+
+      const results = response.data.results || {}
+      const totalIssues =
+        (results.wcagIssues?.length || 0) +
+        (results.pdfuaIssues?.length || 0) +
+        (results.pdfaIssues?.length || 0) +
+        (results.structureIssues?.length || 0)
+
+      const highSeverity = Object.values(results)
+        .flat()
+        .filter((issue) => issue?.severity === "high" || issue?.severity === "critical").length
+
+      const complianceScore = totalIssues === 0 ? 100 : Math.max(0, Math.round(100 - totalIssues * 2))
+
+      console.log("[v0] ReportViewer - Recalculated stats:", { totalIssues, highSeverity, complianceScore })
 
       const newData = {
         ...response.data,
-        summary: response.data.summary || { totalIssues: 0, highSeverity: 0, complianceScore: 0 },
-        results: response.data.results || {},
+        summary: {
+          totalIssues,
+          highSeverity,
+          complianceScore,
+          ...response.data.summary,
+        },
+        results: results,
         fixes: response.data.fixes || { automated: [], semiAutomated: [], manual: [], estimatedTime: 0 },
         appliedFixes: response.data.appliedFixes || null,
       }
@@ -151,9 +180,10 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       setReportData(newData)
       setRefreshKey((prev) => prev + 1)
 
-      console.log("[v0] ReportViewer - State updated successfully")
+      console.log("[v0] ReportViewer - State updated successfully with fresh data")
     } catch (error) {
       console.error("[v0] ReportViewer - Error refreshing scan data:", error)
+      alert("Failed to refresh data. Please try again.")
     } finally {
       setIsRefreshing(false)
     }
