@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-NEON_DATABASE_URL = os.getenv('DATABASE_URL') or os.getenv('NEON_DATABASE_URL') or os.getenv('NEON_POSTGRES_URL')
+DATABASE_URL = os.getenv('DATABASE_URL')
 
 if not DATABASE_URL:
     print("[Backend] ✗ CRITICAL ERROR: No DATABASE_URL found in environment variables!")
