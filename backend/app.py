@@ -18,9 +18,9 @@ from auto_fix_engine import AutoFixEngine
 from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Enable CORS for all routes
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -238,6 +238,87 @@ def get_progress(scan_id):
     progress = get_progress_tracker(scan_id)
     return jsonify(progress)
 
+
+# === History Component ===
+@app.route("/api/history", methods=["GET", "OPTIONS"])
+def get_history():
+    """Get all scans and batches for history view"""
+    if request.method == "OPTIONS":
+        return "", 200
+    
+    try:
+        # Get all individual scans
+        scans = execute_query(
+            """
+            SELECT id, filename, upload_date as "uploadDate", status, 
+                   total_issues, critical_issues, error_issues, warning_issues
+            FROM scans 
+            ORDER BY upload_date DESC
+            """,
+            fetch=True
+        )
+        
+        # Add summary to each scan
+        for scan in scans:
+            scan['summary'] = {
+                'totalIssues': scan.get('total_issues', 0),
+                'critical': scan.get('critical_issues', 0),
+                'error': scan.get('error_issues', 0),
+                'warning': scan.get('warning_issues', 0)
+            }
+        
+        # Get all batches (if batch table exists)
+        batches = []
+        try:
+            batches = execute_query(
+                """
+                SELECT batch_id as "batchId", name, upload_date as "uploadDate", 
+                       status, file_count as "fileCount", total_issues as "totalIssues"
+                FROM batches 
+                ORDER BY upload_date DESC
+                """,
+                fetch=True
+            )
+        except Exception as e:
+            print(f"[Backend] No batches table or error: {e}")
+        
+        return jsonify({
+            "scans": scans,
+            "batches": batches
+        })
+    except Exception as e:
+        print(f"[Backend] Error fetching history: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# === Fix History ===
+@app.route("/api/fix-history/<scan_id>", methods=["GET", "OPTIONS"])
+def get_fix_history(scan_id):
+    """Get fix history for a specific scan"""
+    if request.method == "OPTIONS":
+        return "", 200
+    
+    try:
+        print(f"[Backend] Fetching fix history for scan: {scan_id}")
+        
+        fixes = execute_query(
+            """
+            SELECT id, scan_id as "scanId", fix_type as "fixType", 
+                   description, status, applied_at as "appliedAt",
+                   page_number as "pageNumber", element_type as "elementType"
+            FROM fix_history 
+            WHERE scan_id = %s 
+            ORDER BY applied_at DESC
+            """,
+            (scan_id,),
+            fetch=True
+        )
+        
+        print(f"[Backend] Found {len(fixes)} fixes for scan {scan_id}")
+        return jsonify({"fixes": fixes})
+    except Exception as e:
+        print(f"[Backend] Error fetching fix history: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     print("[Backend] 🚀 Starting Flask server...")
