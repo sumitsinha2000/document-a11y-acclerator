@@ -20,7 +20,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-NEON_DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -199,7 +199,7 @@ def apply_fixes(scan_id):
             return jsonify({"error": "Scan not found"}), 404
 
         progress_id = create_progress_tracker(scan_id)
-        tracker = get_progress_tracker(progress_id)
+        tracker = get_progress_tracker(scan_id)  # Use scan_id instead of progress_id
         
         engine = AutoFixEngine()
         
@@ -255,7 +255,7 @@ def apply_semi_automated_fixes(scan_id):
         
         # Create progress tracker
         progress_id = create_progress_tracker(scan_id)
-        tracker = get_progress_tracker(progress_id)
+        tracker = get_progress_tracker(scan_id)  # Use scan_id instead of progress_id
         
         # Initialize engine and apply fixes
         engine = AutoFixEngine()
@@ -581,6 +581,29 @@ def get_scan_by_id(scan_id):
         import traceback
         traceback.print_exc()
         return None
+
+
+@app.route("/api/fix-progress/<scan_id>", methods=["GET"])
+def get_fix_progress(scan_id):
+    """Get real-time progress of fix application"""
+    try:
+        from fix_progress_tracker import get_progress_tracker
+        
+        tracker = get_progress_tracker(scan_id)
+        if not tracker:
+            return jsonify({
+                "error": "No progress tracking found for this scan",
+                "scanId": scan_id
+            }), 404
+        
+        progress = tracker.get_progress()
+        return jsonify(progress), 200
+        
+    except Exception as e:
+        print(f"[Backend] Error getting fix progress: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     print("[Backend] 🚀 Starting Flask server...")
