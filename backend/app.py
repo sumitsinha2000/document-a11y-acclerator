@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-NEON_NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
+NEON_NEON_NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
 # Ensure that if DATABASE_URL is not set, it tries NEON_DATABASE_URL or NEON_POSTGRES_URL
 if not NEON_NEON_NEON_NEON_DATABASE_URL:
     NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL')
@@ -710,9 +710,15 @@ def get_fix_suggestions(scan_id):
 def apply_fixes(scan_id):
     """Apply automated fixes to a PDF with AI enhancement and progress tracking"""
     try:
-        from fix_progress_tracker import create_progress_tracker # This was already imported
+        print(f"[Backend] ========================================")
+        print(f"[Backend] apply_fixes called with scan_id: '{scan_id}'")
+        print(f"[Backend] Request method: {request.method}")
+        print(f"[Backend] Request data: {request.get_json()}")
+        print(f"[Backend] ========================================")
+        
+        from fix_progress_tracker import create_progress_tracker
 
-        tracker = create_progress_tracker(scan_id, total_steps=10) # Existing import and usage
+        tracker = create_progress_tracker(scan_id, total_steps=10)
 
         data = request.get_json()
         use_ai = data.get('useAI', False)
@@ -743,14 +749,30 @@ def apply_fixes(scan_id):
         )
         tracker.start_step(step_id)
 
-        query = f'SELECT filename, scan_results FROM scans WHERE id = %s'
+        print(f"[Backend] Querying database for scan_id: '{scan_id}'")
+        
+        # First try by id
+        query = f'SELECT id, filename, scan_results FROM scans WHERE id = %s'
         scan_data_result = execute_query(query, (scan_id,), fetch=True)
+        print(f"[Backend] Query by id result: {len(scan_data_result) if scan_data_result else 0} rows")
         
         # If not found by id, try by filename
         if not scan_data_result:
             print(f"[Backend] Scan not found by id, trying by filename: {scan_id}")
-            query = f'SELECT filename, scan_results FROM scans WHERE filename = %s OR filename = %s'
+            query = f'SELECT id, filename, scan_results FROM scans WHERE filename = %s OR filename = %s'
             scan_data_result = execute_query(query, (scan_id, f"{scan_id}.pdf"), fetch=True)
+            print(f"[Backend] Query by filename result: {len(scan_data_result) if scan_data_result else 0} rows")
+        
+        # If still not found, try to list all scans to help debug
+        if not scan_data_result:
+            print(f"[Backend] Scan still not found. Listing all scans in database:")
+            all_scans_query = 'SELECT id, filename FROM scans ORDER BY upload_date DESC LIMIT 10'
+            all_scans = execute_query(all_scans_query, fetch=True)
+            if all_scans:
+                for scan in all_scans:
+                    print(f"[Backend]   - id: '{scan['id']}', filename: '{scan['filename']}'")
+            else:
+                print(f"[Backend]   No scans found in database")
 
         if not scan_data_result:
             error_msg = f"Scan not found: {scan_id}. Please ensure the file has been scanned first."
@@ -759,8 +781,11 @@ def apply_fixes(scan_id):
             tracker.fail_all(error_msg)
             return jsonify({'success': False, 'message': error_msg}), 404
 
+        actual_scan_id = scan_data_result[0]['id']
         scan_filename = scan_data_result[0]['filename']
         scan_results_json = scan_data_result[0]['scan_results']
+        
+        print(f"[Backend] Found scan - id: '{actual_scan_id}', filename: '{scan_filename}'")
 
         scan_data = {
             'filename': scan_filename,
@@ -775,7 +800,7 @@ def apply_fixes(scan_id):
             try:
                 # Fetch issues for AI analysis
                 query_issues = f'SELECT scan_results FROM scans WHERE id = %s'
-                issues_result = execute_query(query_issues, (scan_id,), fetch=True)
+                issues_result = execute_query(query_issues, (actual_scan_id,), fetch=True) # Use actual_scan_id
                 if issues_result:
                     issues_data = issues_result[0]['scan_results']
                     issues = json.loads(issues_data) if isinstance(issues_data, str) else issues_data
@@ -784,7 +809,7 @@ def apply_fixes(scan_id):
                     if not (isinstance(issues, dict) and 'results' in issues):
                         issues = {'results': issues} # Wrap if not already nested
 
-                    ai_fixes_result = AI_REMEDIATION_ENGINE.apply_ai_powered_fixes_from_issues(scan_id, scan_data, issues, tracker)
+                    ai_fixes_result = AI_REMEDIATION_ENGINE.apply_ai_powered_fixes_from_issues(actual_scan_id, scan_data, issues, tracker) # Use actual_scan_id
                     if ai_fixes_result.get('success'):
                         fixes_to_apply = ai_fixes_result.get('fixesApplied', [])
                         result = ai_fixes_result # Use AI result directly
@@ -793,12 +818,12 @@ def apply_fixes(scan_id):
                         # Fallback to traditional if AI fails
                         from auto_fix_engine import AutoFixEngine # Ensure AutoFixEngine is imported here
                         fix_engine = AutoFixEngine()
-                        result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
+                        result = fix_engine.apply_automated_fixes(actual_scan_id, scan_data, tracker) # Use actual_scan_id
                 else:
                     print("[Backend] Could not retrieve scan issues for AI analysis. Falling back to traditional.")
                     from auto_fix_engine import AutoFixEngine # Ensure AutoFixEngine is imported here
                     fix_engine = AutoFixEngine()
-                    result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
+                    result = fix_engine.apply_automated_fixes(actual_scan_id, scan_data, tracker) # Use actual_scan_id
 
             except Exception as ai_error:
                 print(f"[Backend] ERROR applying AI fixes: {ai_error}. Falling back to traditional methods.")
@@ -806,12 +831,12 @@ def apply_fixes(scan_id):
                 traceback.print_exc()
                 from auto_fix_engine import AutoFixEngine # Ensure AutoFixEngine is imported here
                 fix_engine = AutoFixEngine()
-                result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
+                result = fix_engine.apply_automated_fixes(actual_scan_id, scan_data, tracker) # Use actual_scan_id
         else:
             # Traditional fix application
             from auto_fix_engine import AutoFixEngine # Ensure AutoFixEngine is imported here
             fix_engine = AutoFixEngine()
-            result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
+            result = fix_engine.apply_automated_fixes(actual_scan_id, scan_data, tracker) # Use actual_scan_id
 
         if result.get('success'):
             try:
@@ -820,7 +845,7 @@ def apply_fixes(scan_id):
                     scan_filename = f"{scan_filename}.pdf"
 
                 # Construct the fixed file path
-                fixed_filename = f"{scan_id}_fixed.pdf" # Use a distinct name for the fixed file
+                fixed_filename = f"{actual_scan_id}_fixed.pdf" # Use a distinct name for the fixed file
                 fixed_path = os.path.join('uploads', fixed_filename)
 
                 # Ensure the fixed file is copied or moved to the correct path if it's not already there
@@ -838,8 +863,8 @@ def apply_fixes(scan_id):
                 else:
                     print(f"[Backend] Warning: Could not determine or locate the fixed file. Expected path: {fixed_path}")
                     # Attempt to handle if the fix_engine modifies the original file in place and `result['fixed_file']` is incorrect or missing
-                    if os.path.exists(os.path.join('uploads', scan_id)):
-                        fixed_path = os.path.join('uploads', scan_id) # Fallback to original if modified in place
+                    if os.path.exists(os.path.join('uploads', actual_scan_id)):
+                        fixed_path = os.path.join('uploads', actual_scan_id) # Fallback to original if modified in place
                         print(f"[Backend] Using original file path as fixed path: {fixed_path}")
 
 
@@ -874,7 +899,7 @@ def apply_fixes(scan_id):
                         status = EXCLUDED.status,
                         upload_date = NOW()
                 '''
-                execute_query(update_query, (scan_id, scan_filename, json.dumps(scan_data_updated), 'fixed'))
+                execute_query(update_query, (actual_scan_id, scan_filename, json.dumps(scan_data_updated), 'fixed'))
                 print(f"[Backend] ✓ Updated scan record with new results using UPSERT")
 
                 
@@ -907,7 +932,7 @@ def apply_fixes(scan_id):
                 original_filename_with_ext = scan_filename if scan_filename.endswith('.pdf') else f"{scan_filename}.pdf"
 
                 execute_query(insert_query, (
-                    scan_id,
+                    actual_scan_id, # Use actual_scan_id
                     original_filename_with_ext,  # Original file with .pdf extension
                     fixed_filename,              # Fixed file with .pdf extension
                     json.dumps(result.get('fixesApplied', [])),
@@ -942,7 +967,7 @@ def apply_fixes(scan_id):
                     '''
                     original_filename_with_ext = scan_filename if scan_filename.endswith('.pdf') else f"{scan_filename}.pdf"
                     execute_query(insert_query, (
-                        scan_id,
+                        actual_scan_id, # Use actual_scan_id
                         original_filename_with_ext,
                         fixed_filename,
                         json.dumps(result.get('fixesApplied', [])),
@@ -1653,7 +1678,7 @@ def scan_batch():
         print(f"[Backend] File {i+1}: filename='{f.filename}', content_type='{f.content_type}', size={f.content_length if hasattr(f, 'content_length') else 'unknown'}")
 
     if len(files) == 0:
-        print("[Backend] ERROR: files list is empty after getlist")
+        print("[Backend] ERROR: Files list is empty after getlist")
         return jsonify({'error': 'No files selected'}), 400
 
     pdf_files = []
