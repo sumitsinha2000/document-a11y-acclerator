@@ -20,7 +20,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -28,7 +28,7 @@ db_lock = threading.Lock()
 # === Database Connection ===
 def get_db_connection():
     try:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(NEON_NEON_DATABASE_URL, cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
@@ -184,7 +184,7 @@ def apply_fixes(scan_id):
     print(f"[Backend] Applying fixes for scan: {scan_id}")
 
     progress_id = create_progress_tracker(scan_id)
-    engine = AutoFixEngine(progress_id)
+    engine = AutoFixEngine()
     fixed_path, summary = engine.apply_fixes(scan_id, fixes)
 
     # ✅ update existing scan with new results
@@ -200,7 +200,7 @@ def apply_semi_automated_fixes(scan_id):
     filename = data.get("filename", "semi_fixed.pdf")
 
     progress_id = create_progress_tracker(scan_id)
-    engine = AutoFixEngine(progress_id)
+    engine = AutoFixEngine()
     fixed_path, summary = engine.apply_fixes(scan_id, fixes, semi_automated=True)
 
     # ✅ update existing scan with new results
