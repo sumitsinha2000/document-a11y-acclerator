@@ -20,7 +20,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -28,7 +28,7 @@ db_lock = threading.Lock()
 # === Database Connection ===
 def get_db_connection():
     try:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(NEON_NEON_NEON_DATABASE_URL, cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
@@ -65,12 +65,32 @@ def save_scan_to_db(scan_id, filename, scan_results, batch_id=None, is_update=Fa
     Unified save logic:
     - Inserts a new record if is_update=False (always creates a new scan even if same file name).
     - Updates the existing record if is_update=True.
+    - Properly stores scan_results as JSONB with all issue data
     """
     conn = None
     c = None
     try:
         conn = get_db_connection()
         c = conn.cursor()
+
+        # Ensure scan_results is properly formatted
+        if isinstance(scan_results, dict):
+            # If scan_results has 'results' and 'summary' keys, use them
+            if 'results' in scan_results and 'summary' in scan_results:
+                formatted_results = scan_results
+            else:
+                # Otherwise, wrap it properly
+                formatted_results = {
+                    'results': scan_results,
+                    'summary': {
+                        'totalIssues': sum(len(v) if isinstance(v, list) else 0 for v in scan_results.values()),
+                        'critical': 0,
+                        'error': 0,
+                        'warning': 0
+                    }
+                }
+        else:
+            formatted_results = scan_results
 
         if is_update:
             # === UPDATE EXISTING SCAN ===
@@ -83,7 +103,7 @@ def save_scan_to_db(scan_id, filename, scan_results, batch_id=None, is_update=Fa
                     status = 'updated'
                 WHERE id = %s
             '''
-            c.execute(query, (json.dumps(scan_results), filename, scan_id))
+            c.execute(query, (json.dumps(formatted_results), filename, scan_id))
             conn.commit()
             print(f"[Backend] ✅ Updated existing scan successfully: {scan_id}")
             return scan_id
@@ -101,7 +121,7 @@ def save_scan_to_db(scan_id, filename, scan_results, batch_id=None, is_update=Fa
                         created_at = NOW()
                 '''
                 status = 'completed'
-                c.execute(query, (unique_id, filename, json.dumps(scan_results), batch_id, status))
+                c.execute(query, (unique_id, filename, json.dumps(formatted_results), batch_id, status))
                 conn.commit()
                 print(f"[Backend] ✅ Inserted new scan record: {unique_id} ({filename})")
                 return unique_id
@@ -143,10 +163,11 @@ def scan_pdf():
     if not file.filename.lower().endswith(".pdf"):
         return jsonify({"error": "Only PDF files supported"}), 400
 
-    scan_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    scan_id = f"scan_{uuid.uuid4().hex}"
     upload_dir = Path("uploads")
     upload_dir.mkdir(exist_ok=True)
     
+    # Ensure .pdf extension
     file_path = upload_dir / f"{scan_id}.pdf"
     file.save(str(file_path))
     print(f"[Backend] ✓ File saved: {file_path}")
@@ -154,18 +175,50 @@ def scan_pdf():
     analyzer = PDFAccessibilityAnalyzer()
     scan_results = analyzer.analyze(str(file_path))
     summary = analyzer.calculate_summary(scan_results)
+    
     fix_suggestions = generate_fix_suggestions(scan_results)
+    
+    wcag_issues = scan_results.get('wcagIssues', [])
+    pdfa_issues = scan_results.get('pdfaIssues', [])
+    pdfua_issues = scan_results.get('pdfuaIssues', [])
+    total_issues = sum(len(v) if isinstance(v, list) else 0 for v in scan_results.values())
+    
+    wcag_compliance = max(0, 100 - len(wcag_issues) * 5) if wcag_issues else 100
+    pdfa_compliance = max(0, 100 - len(pdfa_issues) * 5) if pdfa_issues else 100
+    pdfua_compliance = max(0, 100 - len(pdfua_issues) * 5) if pdfua_issues else 100
+    
+    formatted_results = {
+        'results': scan_results,
+        'summary': {
+            'totalIssues': total_issues,
+            'highSeverity': len([i for issues in scan_results.values() if isinstance(issues, list) for i in issues if isinstance(i, dict) and i.get('severity') in ['high', 'critical']]),
+            'complianceScore': max(0, 100 - total_issues * 2),
+            'wcagCompliance': wcag_compliance,
+            'pdfaCompliance': pdfa_compliance,
+            'pdfuaCompliance': pdfua_compliance,
+            'critical': summary.get('critical', 0),
+            'error': summary.get('error', 0),
+            'warning': summary.get('warning', 0)
+        },
+        'fixes': fix_suggestions
+    }
 
-    saved_id = save_scan_to_db(scan_id, file.filename, {"results": scan_results, "summary": summary})
-    print(f"[Backend] ✓ Scan record saved as {saved_id}")
+    saved_id = save_scan_to_db(scan_id, file.filename, formatted_results)
+    print(f"[Backend] ✓ Scan record saved as {saved_id} with {total_issues} issues")
 
     return jsonify({
         "scanId": saved_id,
         "filename": file.filename,
-        "summary": summary,
+        "summary": formatted_results['summary'],
         "results": scan_results,
         "fixes": fix_suggestions,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "verapdfStatus": {
+            "isActive": True,
+            "wcagCompliance": wcag_compliance,
+            "pdfuaCompliance": pdfua_compliance,
+            "totalVeraPDFIssues": len(wcag_issues) + len(pdfa_issues) + len(pdfua_issues)
+        }
     })
 
 
@@ -412,49 +465,81 @@ def get_fix_history(scan_id):
 # === Individual Scan Details ===
 @app.route("/api/scan/<scan_id>", methods=["GET"])
 def get_scan(scan_id):
-    """Fetch individual scan details by scan_id"""
+    """Fetch individual scan details by scan_id with WCAG and PDF/A stats"""
     try:
         print(f"[Backend] Fetching scan details for: {scan_id}")
         
         # Try multiple query strategies to find the scan
-        # Strategy 1: Query by id
         query = "SELECT * FROM scans WHERE id = %s"
         result = execute_query(query, (scan_id,), fetch=True)
         
-        if result and len(result) > 0:
-            scan = dict(result[0])
-            print(f"[Backend] ✓ Found scan by id: {scan_id}")
-            return jsonify(scan)
+        if not result or len(result) == 0:
+            # Try without .pdf extension
+            scan_id_no_ext = scan_id.replace('.pdf', '')
+            result = execute_query(query, (scan_id_no_ext,), fetch=True)
         
-        # Strategy 2: Try without .pdf extension
-        scan_id_no_ext = scan_id.replace('.pdf', '')
-        result = execute_query(query, (scan_id_no_ext,), fetch=True)
-        
-        if result and len(result) > 0:
-            scan = dict(result[0])
-            print(f"[Backend] ✓ Found scan by id (no extension): {scan_id_no_ext}")
-            return jsonify(scan)
-        
-        # Strategy 3: Query by filename
-        query = "SELECT * FROM scans WHERE filename = %s ORDER BY created_at DESC LIMIT 1"
-        result = execute_query(query, (scan_id,), fetch=True)
+        if not result or len(result) == 0:
+            # Try by filename
+            query = "SELECT * FROM scans WHERE filename = %s ORDER BY created_at DESC LIMIT 1"
+            result = execute_query(query, (scan_id,), fetch=True)
         
         if result and len(result) > 0:
             scan = dict(result[0])
-            print(f"[Backend] ✓ Found scan by filename: {scan_id}")
-            return jsonify(scan)
+            
+            # Parse scan_results if it's a string
+            scan_results = scan.get('scan_results', {})
+            if isinstance(scan_results, str):
+                scan_results = json.loads(scan_results)
+            
+            results = scan_results.get('results', scan_results)
+            summary = scan_results.get('summary', {})
+            
+            if not summary or 'totalIssues' not in summary or summary.get('totalIssues', 0) == 0:
+                total_issues = sum(len(v) if isinstance(v, list) else 0 for v in results.values())
+                wcag_issues = results.get('wcagIssues', [])
+                pdfa_issues = results.get('pdfaIssues', [])
+                pdfua_issues = results.get('pdfuaIssues', [])
+                
+                summary = {
+                    'totalIssues': total_issues,
+                    'highSeverity': len([i for issues in results.values() if isinstance(issues, list) for i in issues if isinstance(i, dict) and i.get('severity') in ['high', 'critical']]),
+                    'complianceScore': max(0, 100 - total_issues * 2),
+                    'wcagCompliance': max(0, 100 - len(wcag_issues) * 5),
+                    'pdfaCompliance': max(0, 100 - len(pdfa_issues) * 5),
+                    'pdfuaCompliance': max(0, 100 - len(pdfua_issues) * 5)
+                }
+            
+            fix_suggestions = generate_fix_suggestions(results)
+            
+            response_data = {
+                'scanId': scan['id'],
+                'id': scan['id'],
+                'filename': scan['filename'],
+                'fileName': scan['filename'],
+                'uploadDate': scan.get('upload_date', scan.get('created_at')),
+                'timestamp': scan.get('upload_date', scan.get('created_at')),
+                'status': scan.get('status', 'completed'),
+                'results': results,
+                'summary': summary,
+                'fixes': fix_suggestions,
+                'verapdfStatus': {
+                    'isActive': True,
+                    'wcagCompliance': summary.get('wcagCompliance', 0),
+                    'pdfuaCompliance': summary.get('pdfaCompliance', 0),
+                    'totalVeraPDFIssues': len(results.get('wcagIssues', [])) + len(results.get('pdfaIssues', [])) + len(results.get('pdfuaIssues', []))
+                }
+            }
+            
+            print(f"[Backend] ✓ Found scan: {scan_id}, Total issues: {summary.get('totalIssues', 0)}, WCAG: {summary.get('wcagCompliance', 0)}%, PDF/A: {summary.get('pdfaCompliance', 0)}%")
+            return jsonify(response_data)
         
-        # If still not found, list all available scans for debugging
         print(f"[Backend] Scan not found: {scan_id}")
-        all_scans = execute_query("SELECT id, filename FROM scans ORDER BY created_at DESC LIMIT 10", fetch=True)
-        print(f"[Backend] Available scans in database:")
-        for s in all_scans:
-            print(f"[Backend]   - id: '{s['id']}', filename: '{s['filename']}'")
-        
         return jsonify({"error": f"Scan not found: {scan_id}"}), 404
         
     except Exception as e:
         print(f"[Backend] Error fetching scan: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
