@@ -16,18 +16,18 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
+NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
 # Ensure that if DATABASE_URL is not set, it tries NEON_DATABASE_URL or NEON_POSTGRES_URL
-if not DATABASE_URL:
-    DATABASE_URL = os.getenv('DATABASE_URL')
+if not NEON_DATABASE_URL:
+    NEON_DATABASE_URL = os.getenv('DATABASE_URL')
 
 
-if not DATABASE_URL:
+if not NEON_DATABASE_URL:
     print("[Backend] ✗ CRITICAL ERROR: No DATABASE_URL found in environment variables!")
     print("[Backend] Please set one of: DATABASE_URL, NEON_DATABASE_URL, or NEON_POSTGRES_URL")
     raise Exception("DATABASE_URL not configured")
 else:
-    print(f"[Backend] ✓ Database URL configured: {DATABASE_URL[:30]}...")
+    print(f"[Backend] ✓ Database URL configured: {NEON_DATABASE_URL[:30]}...")
 
 # Determine database type from environment
 # NEON_DATABASE_URL = os.environ.get('NEON_DATABASE_URL', '') # This line is now redundant due to the above change
@@ -106,7 +106,7 @@ def get_db_connection():
     """Get a PostgreSQL database connection"""
     try:
         conn = psycopg2.connect(
-            DATABASE_URL,
+            NEON_DATABASE_URL,
             cursor_factory=RealDictCursor,
             connect_timeout=10
         )
@@ -114,7 +114,7 @@ def get_db_connection():
         return conn
     except psycopg2.OperationalError as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
-        print(f"[Backend] DATABASE_URL: {DATABASE_URL[:50]}...")
+        print(f"[Backend] DATABASE_URL: {NEON_DATABASE_URL[:50]}...")
         raise Exception(f"Failed to connect to database: {e}")
     except Exception as e:
         print(f"[Backend] ✗ Unexpected database error: {e}")
@@ -745,7 +745,10 @@ def apply_fixes(scan_id):
         if result.get('success'):
             try:
                 fixed_file_path = os.path.join('uploads', scan_id)
-                print(f"[Backend] Re-scanning fixed file: {scan_id}")
+                if not fixed_file_path.endswith('.pdf'):
+                    fixed_file_path += '.pdf'
+                
+                print(f"[Backend] Re-scanning fixed file: {fixed_file_path}")
                 
                 step_id = tracker.add_step(
                     "Re-scan Fixed PDF",
@@ -804,13 +807,14 @@ def apply_fixes(scan_id):
                 execute_query(insert_query, (
                     scan_id,
                     scan_id,
-                    scan_id,  # Fixed file is the same as scan_id
+                    scan_id,  # Fixed file uses same scan_id
                     json.dumps(result.get('fixesApplied', [])),
                     result.get('successCount', 0)
                 ))
                 print(f"[Backend] ✓ Saved {result.get('successCount', 0)} fixes to fix_history table")
                 
-                tracker.complete_all(f"Successfully applied {result.get('successCount', 0)} fixes")
+                tracker.complete_all()
+                print(f"[Backend] ✓ Successfully applied {result.get('successCount', 0)} fixes")
                 
                 return jsonify({
                     'success': True,
@@ -1077,64 +1081,58 @@ def get_fix_history(scan_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/download-fixed/<scan_id>', methods=['GET'])
-def download_fixed_pdf(scan_id):
-    """Download a fixed PDF"""
+def download_fixed(scan_id):
+    """Download the fixed PDF file"""
     try:
-        from flask import send_file
+        print(f"[Backend] Download request for scan: {scan_id}")
         
-        print(f"[Backend] Downloading fixed file for scan: {scan_id}")
-        
-        # Query fix_history for the fixed file
         query = '''
-            SELECT fixed_file, original_file
-            FROM fix_history
-            WHERE scan_id = %s
-            ORDER BY timestamp DESC
+            SELECT fixed_file FROM fix_history 
+            WHERE scan_id = %s 
+            ORDER BY timestamp DESC 
             LIMIT 1
         '''
         result = execute_query(query, (scan_id,), fetch=True)
         
-        if not result or not result[0]['fixed_file']:
-            print(f"[Backend] No fix history found, using scan_id directly: {scan_id}")
-            # Ensure .pdf extension
-            if not scan_id.endswith('.pdf'):
-                file_path = os.path.join('uploads', f"{scan_id}.pdf")
-            else:
-                file_path = os.path.join('uploads', scan_id)
-        else:
-            fixed_filename = result[0]['fixed_file']
-            # Ensure .pdf extension
-            if not fixed_filename.endswith('.pdf'):
-                fixed_filename = f"{fixed_filename}.pdf"
-            file_path = os.path.join('uploads', fixed_filename)
+        if not result:
+            print(f"[Backend] No fix history found for scan: {scan_id}")
+            return jsonify({'error': 'No fixed file found'}), 404
         
-        print(f"[Backend] Looking for file at: {file_path}")
+        fixed_file = result[0]['fixed_file']
+        
+        file_path = os.path.join('uploads', fixed_file)
+        if not file_path.endswith('.pdf'):
+            file_path += '.pdf'
+        
+        print(f"[Backend] Looking for fixed file at: {file_path}")
+        print(f"[Backend] File exists: {os.path.exists(file_path)}")
         
         if not os.path.exists(file_path):
-            print(f"[Backend] ERROR: Fixed file does not exist at path: {file_path}")
-            return jsonify({'error': 'File not found on disk'}), 404
+            print(f"[Backend] File not found: {file_path}")
+            return jsonify({'error': 'Fixed file not found on disk'}), 404
         
         file_size = os.path.getsize(file_path)
+        print(f"[Backend] File size: {file_size} bytes")
+        
         if file_size == 0:
-            print(f"[Backend] ERROR: File is empty: {file_path}")
-            return jsonify({'error': 'File is empty'}), 500
+            print(f"[Backend] File is empty: {file_path}")
+            return jsonify({'error': 'Fixed file is empty'}), 500
         
-        # Extract clean filename for download
-        download_name = os.path.basename(file_path)
+        download_name = os.path.basename(fixed_file)
         if not download_name.endswith('.pdf'):
-            download_name = f"{download_name}.pdf"
+            download_name += '.pdf'
         
-        print(f"[Backend] ✓ Sending fixed PDF: {download_name} ({file_size} bytes)")
+        print(f"[Backend] Sending file: {download_name} ({file_size} bytes)")
         
         return send_file(
-            file_path, 
-            as_attachment=True, 
-            download_name=download_name,
-            mimetype='application/pdf'
+            file_path,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=download_name
         )
         
     except Exception as e:
-        print(f"[Backend] ERROR downloading fixed file: {e}")
+        print(f"[Backend] Error downloading fixed file: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -2418,6 +2416,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"[Backend] ✗ Failed to start server: {e}")
         print("[Backend] Check your database configuration:")
-        print(f"[Backend]   DATABASE_URL={DATABASE_URL}")
+        print(f"[Backend]   DATABASE_URL={NEON_DATABASE_URL}")
         import traceback
         traceback.print_exc()

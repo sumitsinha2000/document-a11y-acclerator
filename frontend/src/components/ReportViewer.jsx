@@ -111,21 +111,12 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
     try {
       const currentScan = scans[selectedFileIndex]
-      let scanId = currentScan.scanId || currentScan.id
-
-      // Handle fixed file naming
-      if (scanId && scanId.includes("_fixed_")) {
-        const match = scanId.match(/^(scan_\d+_\d+_[^_]+)/)
-        if (match) {
-          scanId = match[1] + ".pdf"
-        }
-      }
+      const scanId = currentScan.scanId || currentScan.id
 
       console.log("[v0] ReportViewer - Fetching completely fresh data for scanId:", scanId)
 
-      await new Promise((resolve) => setTimeout(resolve, 2500))
+      await new Promise((resolve) => setTimeout(resolve, 3000))
 
-      // Fetch with aggressive cache-busting
       const timestamp = Date.now()
       const response = await axios.get(`/api/scan/${scanId}`, {
         headers: {
