@@ -20,7 +20,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -28,7 +28,7 @@ db_lock = threading.Lock()
 # === Database Connection ===
 def get_db_connection():
     try:
-        conn = psycopg2.connect(NEON_DATABASE_URL, cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
@@ -221,7 +221,7 @@ def apply_semi_automated_fixes(scan_id):
         
         # Create progress tracker
         progress_id = create_progress_tracker(scan_id)
-        tracker = FixProgressTracker(progress_id)
+        tracker = get_progress_tracker(progress_id)
         
         # Initialize engine and apply fixes
         engine = AutoFixEngine()
