@@ -140,12 +140,19 @@ def execute_query(query, params=None, fetch=False):
                 conn.close()
                 return None
         except Exception as e:
-            print(f"[Backend] Database query error: {e}")
-            print(f"[Backend] Query: {query}")
-            print(f"[Backend] Params: {params}")
-            import traceback
-            traceback.print_exc()
-            raise
+            error_msg = str(e).lower()
+            if 'no such column' in error_msg or 'column' in error_msg and 'does not exist' in error_msg:
+                print(f"[Backend] DATABASE SCHEMA MISMATCH ERROR: {e}")
+                print(f"[Backend] The database table structure doesn't match the expected schema.")
+                print(f"[Backend] Please drop the existing tables or update the schema to match.")
+                print(f"[Backend] Query: {query}")
+                print(f"[Backend] Params: {params}")
+                raise Exception(f"Database schema mismatch: {e}. Please reset the database or update the schema.")
+            else:
+                print(f"[Backend] Database query error: {e}")
+                print(f"[Backend] Query: {query}")
+                print(f"[Backend] Params: {params}")
+                raise
 
 def init_db():
     """Initialize database for storing scan history"""
@@ -392,15 +399,31 @@ def scan_pdf():
         total_fixes = automated_count + semi_count + manual_count
         print(f"[Backend] Generated {total_fixes} fix suggestions: {automated_count} automated, {semi_count} semi-automated, {manual_count} manual")
         
+        try:
+            summary = analyzer.calculate_summary(scan_results)
+            print(f"[Backend] Summary calculated: {summary.get('totalIssues', 0)} total issues, {summary.get('complianceScore', 0)}% compliance")
+        except Exception as summary_error:
+            print(f"[Backend] Warning: Summary calculation failed: {summary_error}")
+            summary = None
+        
+        try:
+            save_scan_to_db(scan_id, file.filename, scan_results, summary, batch_id=None)
+            print(f"[Backend] ✓ Single file scan saved to database with scan_id: {scan_id}")
+        except Exception as db_error:
+            print(f"[Backend] ERROR: Failed to save scan to database: {db_error}")
+            import traceback
+            traceback.print_exc()
+            # Continue execution even if database save fails
+        
         response_data = {
             'scanId': scan_id,
             'filename': file.filename,
             'timestamp': datetime.now().isoformat(),
             'results': scan_results,
-            'summary': None,
+            'summary': summary,  # Include summary in response
             'ocr': ocr_results,
             'fixes': fix_suggestions,
-            'verapdfStatus': verapdf_status  # Add veraPDF status to response
+            'verapdfStatus': verapdf_status
         }
         
         print(f"[Backend] Sending response with {total_fixes} fix suggestions")
@@ -961,6 +984,9 @@ def download_fixed_pdf(filename):
     try:
         from flask import send_file
         
+        if not filename.endswith('.pdf'):
+            filename = filename + '.pdf'
+        
         file_path = os.path.join('uploads', filename)
         
         if not os.path.exists(file_path):
@@ -1030,6 +1056,9 @@ def download_generated_pdf(filename):
     """Download a generated PDF"""
     try:
         from flask import send_file
+        
+        if not filename.endswith('.pdf'):
+            filename = filename + '.pdf'
         
         file_path = os.path.join('generated_pdfs', filename)
         
@@ -1737,11 +1766,15 @@ def export_batch(batch_id):
                 fixed_file = scan['fixed_file']
                 scan_id = scan['id']
                 filename = scan['filename']
+                
+                if not filename.endswith('.pdf'):
+                    filename = filename + '.pdf'
+                
                 file_to_add = fixed_file if fixed_file else scan_id
                 file_path = os.path.join('uploads', file_to_add)
                 
                 if os.path.exists(file_path):
-                    # Add file to ZIP with original filename
+                    # Add file to ZIP with original filename (now with .pdf extension)
                     zip_file.write(file_path, filename)
                     print(f"[Backend] Added to ZIP: {filename}")
         
