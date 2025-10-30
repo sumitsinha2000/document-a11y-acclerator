@@ -20,7 +20,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-NEON_NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -28,7 +28,7 @@ db_lock = threading.Lock()
 # === Database Connection ===
 def get_db_connection():
     try:
-        conn = psycopg2.connect(NEON_NEON_DATABASE_URL, cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
@@ -326,6 +326,55 @@ def get_fix_history(scan_id):
         print(f"[Backend] Error fetching fix history: {e}")
         import traceback
         traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# === Individual Scan Details ===
+@app.route("/api/scan/<scan_id>", methods=["GET"])
+def get_scan(scan_id):
+    """Fetch individual scan details by scan_id"""
+    try:
+        print(f"[Backend] Fetching scan details for: {scan_id}")
+        
+        # Try multiple query strategies to find the scan
+        # Strategy 1: Query by id
+        query = "SELECT * FROM scans WHERE id = %s"
+        result = execute_query(query, (scan_id,), fetch=True)
+        
+        if result and len(result) > 0:
+            scan = dict(result[0])
+            print(f"[Backend] ✓ Found scan by id: {scan_id}")
+            return jsonify(scan)
+        
+        # Strategy 2: Try without .pdf extension
+        scan_id_no_ext = scan_id.replace('.pdf', '')
+        result = execute_query(query, (scan_id_no_ext,), fetch=True)
+        
+        if result and len(result) > 0:
+            scan = dict(result[0])
+            print(f"[Backend] ✓ Found scan by id (no extension): {scan_id_no_ext}")
+            return jsonify(scan)
+        
+        # Strategy 3: Query by filename
+        query = "SELECT * FROM scans WHERE filename = %s ORDER BY created_at DESC LIMIT 1"
+        result = execute_query(query, (scan_id,), fetch=True)
+        
+        if result and len(result) > 0:
+            scan = dict(result[0])
+            print(f"[Backend] ✓ Found scan by filename: {scan_id}")
+            return jsonify(scan)
+        
+        # If still not found, list all available scans for debugging
+        print(f"[Backend] Scan not found: {scan_id}")
+        all_scans = execute_query("SELECT id, filename FROM scans ORDER BY created_at DESC LIMIT 10", fetch=True)
+        print(f"[Backend] Available scans in database:")
+        for s in all_scans:
+            print(f"[Backend]   - id: '{s['id']}', filename: '{s['filename']}'")
+        
+        return jsonify({"error": f"Scan not found: {scan_id}"}), 404
+        
+    except Exception as e:
+        print(f"[Backend] Error fetching scan: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
