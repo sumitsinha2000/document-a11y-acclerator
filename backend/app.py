@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import time  # Import time for sleep
+import shutil # Import shutil for file copy
 
 from pdf_analyzer import PDFAccessibilityAnalyzer
 from fix_suggestions import generate_fix_suggestions
@@ -16,18 +18,18 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
+NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
 # Ensure that if DATABASE_URL is not set, it tries NEON_DATABASE_URL or NEON_POSTGRES_URL
-if not NEON_NEON_DATABASE_URL:
-    NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL')
+if not NEON_NEON_NEON_DATABASE_URL:
+    NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL')
 
 
-if not NEON_NEON_DATABASE_URL:
+if not NEON_NEON_NEON_DATABASE_URL:
     print("[Backend] ✗ CRITICAL ERROR: No DATABASE_URL found in environment variables!")
     print("[Backend] Please set one of: DATABASE_URL, NEON_DATABASE_URL, or NEON_POSTGRES_URL")
     raise Exception("DATABASE_URL not configured")
 else:
-    print(f"[Backend] ✓ Database URL configured: {NEON_NEON_DATABASE_URL[:30]}...")
+    print(f"[Backend] ✓ Database URL configured: {NEON_NEON_NEON_DATABASE_URL[:30]}...")
 
 # Determine database type from environment
 # NEON_DATABASE_URL = os.environ.get('NEON_DATABASE_URL', '') # This line is now redundant due to the above change
@@ -47,7 +49,7 @@ except ImportError:
 # from pdf_analyzer import PDFAccessibilityAnalyzer
 # from fix_suggestions import generate_fix_suggestions
 
-from fix_progress_tracker import create_progress_tracker, get_progress_tracker, remove_progress_tracker
+from fix_progress_tracker import create_progress_tracker, get_progress_tracker, remove_progress_tracker, FixProgressTracker # Import FixProgressTracker
 
 try:
     from ocr_processor import OCRProcessor
@@ -106,7 +108,7 @@ def get_db_connection():
     """Get a PostgreSQL database connection"""
     try:
         conn = psycopg2.connect(
-            NEON_NEON_DATABASE_URL,
+            NEON_NEON_NEON_DATABASE_URL,
             cursor_factory=RealDictCursor,
             connect_timeout=10
         )
@@ -114,7 +116,7 @@ def get_db_connection():
         return conn
     except psycopg2.OperationalError as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
-        print(f"[Backend] DATABASE_URL: {NEON_NEON_DATABASE_URL[:50]}...")
+        print(f"[Backend] DATABASE_URL: {NEON_NEON_NEON_DATABASE_URL[:50]}...")
         raise Exception(f"Failed to connect to database: {e}")
     except Exception as e:
         print(f"[Backend] ✗ Unexpected database error: {e}")
@@ -183,7 +185,8 @@ def init_db():
                 upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 scan_results JSONB NOT NULL,
                 status TEXT DEFAULT 'completed',
-                batch_id TEXT
+                batch_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -234,30 +237,47 @@ def init_db():
         traceback.print_exc()
         raise
 
-def save_scan_to_db(scan_id, filename, results, summary=None, batch_id=None):
-    """Save or update scan results to database using UPSERT logic"""
-    print(f"[Backend] Saving/updating scan to database: {scan_id}")
-    
-    scan_data = {
-        'results': results,
-        'summary': summary
-    }
-
+def save_scan_to_db(filename, scan_results, summary, scan_id=None):
+    """Save or update scan results in the database using UPSERT"""
     try:
-        query = '''
-            INSERT INTO scans (id, filename, scan_results, batch_id, status)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (id) 
-            DO UPDATE SET 
-                scan_results = EXCLUDED.scan_results,
-                status = EXCLUDED.status,
-                upload_date = CURRENT_TIMESTAMP
-        '''
-        execute_query(query, (scan_id, filename, json.dumps(scan_data), batch_id, 'completed'))
-        print(f"[Backend] ✓ Scan saved/updated successfully: {scan_id}")
+        # Ensure filename has .pdf extension
+        if not filename.endswith('.pdf'):
+            filename = f"{filename}.pdf"
+        
+        # Use unified query execution to save scan (thread-safe with db_lock)
+        if scan_id:
+            # UPSERT: Update existing scan
+            query = """
+                INSERT INTO scans (id, filename, scan_results, status, created_at)
+                VALUES (%s, %s, %s, 'completed', NOW())
+                ON CONFLICT (id) 
+                DO UPDATE SET 
+                    scan_results = EXCLUDED.scan_results,
+                    status = 'completed',
+                    created_at = NOW()
+                RETURNING id
+            """
+            result = execute_query(query, (scan_id, filename, json.dumps({'results': scan_results, 'summary': summary})), fetch=True)
+            final_scan_id = result[0]['id'] if result else scan_id
+        else:
+            # Insert new scan
+            generated_scan_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{filename.replace('.pdf', '')}"
+            query = """
+                INSERT INTO scans (id, filename, scan_results, status, created_at)
+                VALUES (%s, %s, %s, 'completed', NOW())
+                RETURNING id
+            """
+            result = execute_query(query, (generated_scan_id, filename, json.dumps({'results': scan_results, 'summary': summary})), fetch=True)
+            final_scan_id = result[0]['id'] if result else generated_scan_id
+        
+        print(f"[Backend] Saved scan to database: {final_scan_id}")
+        return final_scan_id
+        
     except Exception as e:
-        print(f"[Backend] ✗ Failed to save scan: {e}")
-        raise
+        print(f"[Backend] Error saving scan to database: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 def get_scan_history():
     """Retrieve all scan history - only latest version of each file"""
@@ -422,7 +442,8 @@ def scan_pdf():
 
         # Persist scan so single-file workflows match batch behavior
         try:
-            save_scan_to_db(scan_id, file.filename, scan_results, summary, batch_id=None)
+            # Pass original filename to save_scan_to_db for correct storage
+            save_scan_to_db(file.filename, scan_results, summary, scan_id=scan_id)
             print(f"[Backend] ✓ Scan saved to database")
         except Exception as db_error:
             print(f"[Backend] ERROR saving scan results to database: {db_error}")
@@ -435,7 +456,6 @@ def scan_pdf():
             'timestamp': datetime.now().isoformat(),
             'results': scan_results,
             'summary': summary,
-            'ocr': ocr_results,
             'fixes': fix_suggestions,
             'verapdfStatus': verapdf_status,  # Add veraPDF status to response
             'batchId': None,
@@ -509,21 +529,17 @@ def get_scan_details(scan_id):
                     else:
                         fixes = generate_fix_suggestions(results)
 
-                    scan_data = {
+                    scan_data_for_db = {
                         'results': results,
                         'summary': summary
                     }
                     # Use unified query execution to save scan
-                    query = '''
-                        INSERT INTO scans (id, filename, scan_results, batch_id)
-                        VALUES (%s, %s, %s, %s)
-                    '''
-                    execute_query(query, (scan_id, os.path.basename(scan_id), json.dumps(scan_data), None))
+                    save_scan_to_db(os.path.basename(upload_path), results, summary, scan_id=scan_id)
                     print(f"[Backend] ✓ Scan added to database")
 
                     return jsonify({
                         'scanId': scan_id,
-                        'filename': os.path.basename(scan_id),
+                        'filename': os.path.basename(upload_path),
                         'results': results,
                         'summary': summary,
                         'fixes': fixes,
@@ -694,9 +710,9 @@ def get_fix_suggestions(scan_id):
 def apply_fixes(scan_id):
     """Apply automated fixes to a PDF with AI enhancement and progress tracking"""
     try:
-        from fix_progress_tracker import create_progress_tracker
+        from fix_progress_tracker import create_progress_tracker # This was already imported
 
-        tracker = create_progress_tracker(scan_id, total_steps=10)
+        tracker = create_progress_tracker(scan_id, total_steps=10) # Existing import and usage
 
         data = request.get_json()
         use_ai = data.get('useAI', False)
@@ -744,15 +760,41 @@ def apply_fixes(scan_id):
         }
         tracker.complete_step(step_id, f"Loaded scan data for {scan_data.get('filename', 'unknown')}")
 
-        from auto_fix_engine import AutoFixEngine
+        from auto_fix_engine import AutoFixEngine # Ensure AutoFixEngine is imported here
         fix_engine = AutoFixEngine()
         result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
 
         if result.get('success'):
             try:
-                fixed_file_path = os.path.join('uploads', f"{scan_id}.pdf")
-                
-                print(f"[Backend] Re-scanning fixed file: {fixed_file_path}")
+                # Ensure the filename ends with .pdf
+                if not scan_filename.endswith('.pdf'):
+                    scan_filename = f"{scan_filename}.pdf"
+
+                # Construct the fixed file path
+                fixed_filename = f"{scan_id}_fixed.pdf" # Use a distinct name for the fixed file
+                fixed_path = os.path.join('uploads', fixed_filename)
+
+                # Ensure the fixed file is copied or moved to the correct path if it's not already there
+                # The apply_automated_fixes function is expected to return the path to the fixed file.
+                # For this merge, we assume result['fixed_file'] is the path to the modified PDF.
+                original_fixed_file_path = result.get('fixed_file')
+                if original_fixed_file_path and original_fixed_file_path != fixed_path:
+                    if os.path.exists(original_fixed_file_path):
+                        shutil.copy2(original_fixed_file_path, fixed_path)
+                        print(f"[Backend] Copied fixed file from '{original_fixed_file_path}' to '{fixed_path}'")
+                    else:
+                        print(f"[Backend] Warning: Original fixed file not found at '{original_fixed_file_path}'")
+                elif not os.path.exists(fixed_path) and original_fixed_file_path == fixed_path:
+                    print(f"[Backend] Fixed file already at correct path: {fixed_path}")
+                else:
+                    print(f"[Backend] Warning: Could not determine or locate the fixed file. Expected path: {fixed_path}")
+                    # Attempt to handle if the fix_engine modifies the original file in place and `result['fixed_file']` is incorrect or missing
+                    if os.path.exists(os.path.join('uploads', scan_id)):
+                        fixed_path = os.path.join('uploads', scan_id) # Fallback to original if modified in place
+                        print(f"[Backend] Using original file path as fixed path: {fixed_path}")
+
+
+                print(f"[Backend] Re-scanning fixed file: {fixed_filename} from path: {fixed_path}")
                 
                 step_id = tracker.add_step(
                     "Re-scan Fixed PDF",
@@ -762,7 +804,7 @@ def apply_fixes(scan_id):
                 tracker.start_step(step_id)
                 
                 analyzer = PDFAccessibilityAnalyzer()
-                new_scan_results = analyzer.analyze(fixed_file_path)
+                new_scan_results = analyzer.analyze(fixed_path) # Use the confirmed fixed_path
                 new_summary = analyzer.calculate_summary(new_scan_results)
                 
                 print(f"[Backend] New scan results: {new_summary.get('totalIssues', 0)} issues")
@@ -808,10 +850,13 @@ def apply_fixes(scan_id):
                     INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
                     VALUES (%s, %s, %s, %s, %s)
                 '''
+                # Ensure original file name also has .pdf extension for consistency
+                original_filename_with_ext = f"{scan_id}.pdf" if not scan_filename.endswith('.pdf') else scan_filename
+
                 execute_query(insert_query, (
                     scan_id,
-                    f"{scan_id}.pdf",  # Original file with .pdf extension
-                    f"{scan_id}.pdf",  # Fixed file overwrites original with .pdf extension
+                    original_filename_with_ext,  # Original file with .pdf extension
+                    fixed_filename,              # Fixed file with .pdf extension
                     json.dumps(result.get('fixesApplied', [])),
                     result.get('successCount', 0)
                 ))
@@ -823,7 +868,7 @@ def apply_fixes(scan_id):
                 return jsonify({
                     'success': True,
                     'message': f"Successfully applied {result.get('successCount', 0)} fixes",
-                    'fixedFile': f"{scan_id}.pdf",
+                    'fixedFile': fixed_filename,
                     'fixesApplied': result.get('fixesApplied', []),
                     'successCount': result.get('successCount', 0),
                     'newScanResults': new_scan_results,
@@ -842,10 +887,11 @@ def apply_fixes(scan_id):
                         INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
                         VALUES (%s, %s, %s, %s, %s)
                     '''
+                    original_filename_with_ext = f"{scan_id}.pdf" if not scan_filename.endswith('.pdf') else scan_filename
                     execute_query(insert_query, (
                         scan_id,
-                        f"{scan_id}.pdf",
-                        f"{scan_id}.pdf",
+                        original_filename_with_ext,
+                        fixed_filename,
                         json.dumps(result.get('fixesApplied', [])),
                         result.get('successCount', 0)
                     ))
@@ -895,7 +941,7 @@ def get_fix_progress(scan_id):
 def apply_semi_automated_fixes(scan_id):
     """Apply semi-automated fixes to a scanned PDF"""
     try:
-        from fix_progress_tracker import create_progress_tracker
+        from fix_progress_tracker import create_progress_tracker # Already imported
 
         tracker = create_progress_tracker(scan_id, total_steps=8)
 
@@ -960,24 +1006,27 @@ def apply_semi_automated_fixes(scan_id):
                 }), 503
 
             # AI fixes not available - fall back to traditional fixes
-            from auto_fix_engine import AutoFixEngine
+            from auto_fix_engine import AutoFixEngine # Ensure imported
             fix_engine = AutoFixEngine()
             result = fix_engine.apply_semi_automated_fixes(scan_id, scan_data, tracker)
         else:
-            from auto_fix_engine import AutoFixEngine
+            from auto_fix_engine import AutoFixEngine # Ensure imported
             fix_engine = AutoFixEngine()
             result = fix_engine.apply_semi_automated_fixes(scan_id, scan_data, tracker)
 
         if result.get('success'):
             try:
+                # Ensure original filename ends with .pdf for consistency
+                original_filename_with_ext = scan_filename if scan_filename.endswith('.pdf') else f"{scan_filename}.pdf"
+
                 insert_query = '''
                     INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
                     VALUES (%s, %s, %s, %s, %s)
                 '''
                 execute_query(insert_query, (
                     scan_id,
-                    scan_id,
-                    result.get('fixedFile', scan_id),
+                    original_filename_with_ext,
+                    result.get('fixedFile', scan_id), # Use provided fixedFile or default to scan_id
                     json.dumps(result.get('fixesApplied', [])),
                     result.get('successCount', 0)
                 ))
@@ -996,9 +1045,9 @@ def apply_semi_automated_fixes(scan_id):
 
             try:
                 # Re-analyze the fixed PDF
-                file_path = os.path.join('uploads', scan_id)
+                fixed_path = os.path.join('uploads', result.get('fixedFile', f"{scan_id}.pdf"))
                 analyzer = PDFAccessibilityAnalyzer()
-                new_scan_results = analyzer.analyze(file_path)
+                new_scan_results = analyzer.analyze(fixed_path)
 
                 new_summary = analyzer.calculate_summary(new_scan_results)
                 
@@ -1084,47 +1133,100 @@ def get_fix_history(scan_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/download-fixed/<scan_id>', methods=['GET'])
-def download_fixed_file(scan_id):
-    """Download the fixed PDF file"""
+@app.route('/api/download-fixed/<path:identifier>', methods=['GET'])
+def download_fixed_file(identifier):
+    """Download a fixed PDF file by scan_id or filename"""
     try:
-        print(f"[Backend] Download request for fixed file: {scan_id}")
+        print(f"[Backend] Download request for: {identifier}")
         
-        file_path = os.path.join('uploads', f"{scan_id}.pdf")
-        
-        print(f"[Backend] Looking for fixed file at: {file_path}")
-        
-        if not os.path.exists(file_path):
-            print(f"[Backend] File not found: {file_path}")
-            return jsonify({'error': 'Fixed file not found on disk'}), 404
-        
-        file_size = os.path.getsize(file_path)
-        print(f"[Backend] File size: {file_size} bytes")
-        
-        if file_size == 0:
-            print(f"[Backend] File is empty: {file_path}")
-            return jsonify({'error': 'Fixed file is empty'}), 500
-        
-        query = 'SELECT filename FROM scans WHERE id = %s'
-        result = execute_query(query, (scan_id,), fetch=True)
-        
-        if result:
-            original_filename = result[0]['filename']
-            download_name = f"{os.path.splitext(original_filename)[0]}_fixed.pdf"
-        else:
-            download_name = f"{scan_id}_fixed.pdf"
-        
-        print(f"[Backend] Sending file: {download_name} ({file_size} bytes)")
-        
-        return send_file(
-            file_path,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=download_name
-        )
+        # Try to find the file in fix_history first (most recent fix)
+        cursor = None
+        conn = None
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            cursor.execute("""
+                SELECT fixed_file, scan_id 
+                FROM fix_history 
+                WHERE scan_id = %s OR fixed_file LIKE %s
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            """, (identifier, f"%{identifier}%"))
+            
+            result = cursor.fetchone()
+            
+            file_path = None
+            download_name = None
+
+            if result:
+                # Use the fixed file
+                fixed_file = result['fixed_file']
+                
+                # Ensure .pdf extension
+                if not fixed_file.endswith('.pdf'):
+                    fixed_file = f"{fixed_file}.pdf"
+                
+                # Check multiple possible locations
+                possible_paths = [
+                    os.path.join('uploads', fixed_file),
+                    os.path.join('uploads', os.path.basename(fixed_file)),
+                    fixed_file,
+                    os.path.join('uploads', f"{result['scan_id']}.pdf"),
+                ]
+                
+                for path in possible_paths:
+                    print(f"[Backend] Checking path: {path}")
+                    if os.path.exists(path):
+                        file_path = path
+                        break
+                
+                download_name = os.path.basename(fixed_file)
+
+            if not file_path:
+                # Try to find in scans table if no fixed file found or if identifier matches scan_id directly
+                cursor.execute("""
+                    SELECT id as scan_id, filename 
+                    FROM scans 
+                    WHERE id = %s OR filename LIKE %s
+                    LIMIT 1
+                """, (identifier, f"%{identifier}%"))
+                result = cursor.fetchone()
+                
+                if not result:
+                    print(f"[Backend] No record found for: {identifier}")
+                    return jsonify({'error': 'Scan not found'}), 404
+                
+                # Use the original file if no fixed version exists
+                file_path = os.path.join('uploads', result['filename'])
+                download_name = result['filename']
+            
+            # Verify file exists and is not empty
+            if not os.path.exists(file_path):
+                print(f"[Backend] File does not exist: {file_path}")
+                return jsonify({'error': 'File not found on disk'}), 404
+            
+            file_size = os.path.getsize(file_path)
+            if file_size == 0:
+                print(f"[Backend] File is empty: {file_path}")
+                return jsonify({'error': 'File is empty'}), 500
+            
+            print(f"[Backend] Sending file: {download_name} ({file_size} bytes) from {file_path}")
+            
+            return send_file(
+                file_path,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=download_name
+            )
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
         
     except Exception as e:
-        print(f"[Backend] Error downloading fixed file: {e}")
+        print(f"[Backend] Error downloading file: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -1296,13 +1398,13 @@ def apply_manual_fix(scan_id):
             print(f"[ManualFix]   Results keys: {list(new_results.keys())}")
 
             # Update the scan record with new results
-            scan_data = {
+            scan_data_for_db = {
                 'results': new_results,
                 'summary': new_summary
             }
 
             print(f"[ManualFix] Updating database with new scan data...")
-            print(f"[ManualFix]   Scan data size: {len(json.dumps(scan_data))} bytes")
+            print(f"[ManualFix]   Scan data size: {len(json.dumps(scan_data_for_db))} bytes")
 
             update_query = f'''
                 UPDATE scans
@@ -1311,7 +1413,7 @@ def apply_manual_fix(scan_id):
             '''
 
             try:
-                execute_query(update_query, (json.dumps(scan_data), scan_id))
+                execute_query(update_query, (json.dumps(scan_data_for_db), scan_id))
                 print(f"[ManualFix] ✓ Database updated successfully")
 
                 # Verify the update by reading it back
@@ -1445,17 +1547,8 @@ def process_single_file(file, idx, batch_id, total_files):
             fixes = get_empty_fixes_structure()
 
         try:
-            scan_data = {
-                'results': issues,
-                'summary': summary
-            }
-
             # Use unified query execution to save scan (thread-safe with db_lock)
-            query = '''
-                INSERT INTO scans (id, filename, scan_results, batch_id)
-                VALUES (%s, %s, %s, %s)
-            '''
-            execute_query(query, (scan_id, file.filename, json.dumps(scan_data), batch_id))
+            save_scan_to_db(file.filename, issues, summary, scan_id=scan_id)
             print(f"[Backend] ✓ Scan saved to database")
         except Exception as db_error:
             print(f"[Backend] ERROR saving scan to database: {db_error}")
@@ -1566,6 +1659,7 @@ def scan_batch():
                 try:
                     scan_result, issue_count = future.result()
                     if scan_result:
+                        scan_result['batchId'] = batch_id # Assign batchId to scan result
                         scan_results.append(scan_result)
                         total_issues += issue_count
                         print(f"[Backend] ✓ Collected result for {file.filename}")
@@ -1626,7 +1720,7 @@ def fix_all_batch(batch_id):
         print(f"[Backend] ========== FIX ALL BATCH: {batch_id} ==========")
 
         # Use unified query execution to get scans
-        query = f'SELECT id, filename FROM scans WHERE batch_id = %s'
+        query = f'SELECT id, filename, batch_id FROM scans WHERE batch_id = %s'
         scans = execute_query(query, (batch_id,), fetch=True)
 
         print(f"[Backend] Found {len(scans)} scans in batch {batch_id}")
@@ -1641,11 +1735,14 @@ def fix_all_batch(batch_id):
         for scan in scans:
             scan_id = scan['id']
             filename = scan['filename']
+            db_batch_id = scan['batch_id'] # Keep track of original batch ID
+            
             try:
-                pdf_path = os.path.join('uploads', scan_id)
+                # Construct the path to the original PDF file
+                original_pdf_path = os.path.join('uploads', scan_id)
 
-                if not os.path.exists(pdf_path):
-                    print(f"[Backend] ERROR: File not found: {pdf_path}")
+                if not os.path.exists(original_pdf_path):
+                    print(f"[Backend] ERROR: File not found: {original_pdf_path}")
                     results.append({
                         'scanId': scan_id,
                         'filename': filename,
@@ -1656,23 +1753,39 @@ def fix_all_batch(batch_id):
 
                 print(f"[Backend] Applying fixes to: {filename}")
                 auto_fix_engine = AutoFixEngine()
-                result = auto_fix_engine.apply_automated_fixes(pdf_path)
+                # apply_automated_fixes should return the path to the fixed file
+                result = auto_fix_engine.apply_automated_fixes(scan_id, {'filename': filename, 'results': {}}, tracker=None) # Pass empty tracker for now
 
                 if result.get('success'):
                     success_count += 1
 
+                    # Construct the path to the fixed file
+                    fixed_filename = f"{scan_id}_fixed.pdf"
+                    fixed_path = os.path.join('uploads', fixed_filename)
+
+                    # Ensure the fixed file is correctly located and named
+                    if result.get('fixed_file') and result.get('fixed_file') != fixed_path:
+                        if os.path.exists(result['fixed_file']):
+                            shutil.copy2(result['fixed_file'], fixed_path)
+                            print(f"[Backend] Copied fixed file from '{result['fixed_file']}' to '{fixed_path}'")
+                        else:
+                            print(f"[Backend] Warning: Original fixed file not found at '{result['fixed_file']}'")
+                    elif not os.path.exists(fixed_path) and result.get('fixed_file') == fixed_path:
+                        print(f"[Backend] Fixed file already at correct path: {fixed_path}")
+                    else:
+                        print(f"[Backend] Warning: Could not determine or locate the fixed file. Expected path: {fixed_path}")
+
                     # Re-scan the fixed file to get updated results
-                    fixed_file_path = os.path.join('uploads', result['fixedFile'])
-                    print(f"[Backend] Re-scanning fixed file: {result['fixedFile']}")
+                    print(f"[Backend] Re-scanning fixed file: {fixed_filename} from path: {fixed_path}")
 
                     analyzer = PDFAccessibilityAnalyzer()
-                    new_results = analyzer.analyze(fixed_file_path)
-                    new_summary = analyzer.calculate_summary(new_results)
+                    new_scan_results = analyzer.analyze(fixed_path)
+                    new_summary = analyzer.calculate_summary(new_scan_results)
 
                     print(f"[Backend] New scan results: {new_summary.get('totalIssues', 0)} issues, {new_summary.get('complianceScore', 0)}% compliance")
 
-                    scan_data = {
-                        'results': new_results,
+                    scan_data_updated = {
+                        'results': new_scan_results,
                         'summary': new_summary
                     }
 
@@ -1681,29 +1794,35 @@ def fix_all_batch(batch_id):
                         SET scan_results = %s, status = %s
                         WHERE id = %s
                     '''
-                    execute_query(update_query, (json.dumps(scan_data), 'fixed', scan_id))
+                    execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
                     print(f"[Backend] ✓ Updated scan record with new results")
 
                     insert_query = f'''
                         INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
                         VALUES (%s, %s, %s, %s, %s)
                     '''
+                    # Ensure original filename has .pdf extension
+                    original_filename_with_ext = filename if filename.endswith('.pdf') else f"{filename}.pdf"
                     execute_query(insert_query, (
                         scan_id,
-                        scan_id,
-                        result['fixedFile'],
+                        original_filename_with_ext,
+                        fixed_filename,
                         json.dumps(result.get('fixesApplied', [])),
                         result.get('successCount', 0)
                     ))
                     print(f"[Backend] ✓ Fixes applied successfully to {filename}")
 
+                else:
+                    print(f"[Backend] ✗ Fix failed for {filename}: {result.get('error', 'Unknown error')}")
+
                 results.append({
                     'scanId': scan_id,
                     'filename': filename,
                     'success': result.get('success', False),
-                    'fixedFile': result.get('fixedFile'),
+                    'fixedFile': fixed_filename if result.get('success') else None,
                     'fixesApplied': result.get('fixesApplied', []),
-                    'successCount': result.get('successCount', 0)
+                    'successCount': result.get('successCount', 0),
+                    'error': result.get('error')
                 })
 
             except Exception as e:
@@ -1767,17 +1886,13 @@ def fix_batch_file(batch_id, scan_id):
                     results = analyzer.analyze(pdf_path)
                     summary = analyzer.calculate_summary(results)
 
-                    scan_data = {
+                    scan_data_for_db = {
                         'results': results,
                         'summary': summary
                     }
 
                     # Use unified query execution to add scan
-                    query = '''
-                        INSERT INTO scans (id, filename, scan_results, batch_id)
-                        VALUES (%s, %s, %s, %s)
-                    '''
-                    execute_query(query, (scan_id, os.path.basename(scan_id), json.dumps(scan_data), batch_id))
+                    save_scan_to_db(os.path.basename(pdf_path), results, summary, scan_id=scan_id)
                     print(f"[Backend] ✓ Scan added to database")
                 except Exception as e:
                     print(f"[Backend] ERROR adding scan to database: {e}")
@@ -1792,6 +1907,7 @@ def fix_batch_file(batch_id, scan_id):
             db_batch_id = result[0]['batch_id']
             print(f"[Backend] ✓ Found scan: {filename}, batch_id: {db_batch_id}")
 
+        # Construct the path to the original PDF file
         pdf_path = os.path.join('uploads', scan_id)
 
         if not os.path.exists(pdf_path):
@@ -1800,21 +1916,38 @@ def fix_batch_file(batch_id, scan_id):
 
         print(f"[Backend] ✓ File found, applying fixes...")
         auto_fix_engine = AutoFixEngine()
-        fix_result = auto_fix_engine.apply_automated_fixes(pdf_path)
+        # apply_automated_fixes should return the path to the fixed file
+        fix_result = auto_fix_engine.apply_automated_fixes(scan_id, {'filename': filename, 'results': {}}, tracker=None) # Pass empty tracker for now
 
         if fix_result.get('success'):
+            # Construct the fixed file path
+            fixed_filename = f"{scan_id}_fixed.pdf"
+            fixed_path = os.path.join('uploads', fixed_filename)
+
+            # Ensure the fixed file is correctly located and named
+            if fix_result.get('fixed_file') and fix_result.get('fixed_file') != fixed_path:
+                if os.path.exists(fix_result['fixed_file']):
+                    shutil.copy2(fix_result['fixed_file'], fixed_path)
+                    print(f"[Backend] Copied fixed file from '{fix_result['fixed_file']}' to '{fixed_path}'")
+                else:
+                    print(f"[Backend] Warning: Original fixed file not found at '{fix_result['fixed_file']}'")
+            elif not os.path.exists(fixed_path) and fix_result.get('fixed_file') == fixed_path:
+                print(f"[Backend] Fixed file already at correct path: {fixed_path}")
+            else:
+                print(f"[Backend] Warning: Could not determine or locate the fixed file. Expected path: {fixed_path}")
+
+            # Re-scan the fixed file
             try:
-                # Re-scan the fixed file
-                fixed_file_path = os.path.join('uploads', fix_result['fixedFile'])
-                print(f"[Backend] Re-scanning fixed file: {fix_result['fixedFile']}")
+                # Re-scan the fixed PDF to get updated results
+                print(f"[Backend] Re-scanning fixed file: {fixed_filename} from path: {fixed_path}")
 
                 analyzer = PDFAccessibilityAnalyzer()
-                new_results = analyzer.analyze(fixed_file_path)
+                new_results = analyzer.analyze(fixed_path)
                 new_summary = analyzer.calculate_summary(new_results)
 
                 print(f"[Backend] New scan results: {new_summary.get('totalIssues', 0)} issues, {new_summary.get('complianceScore', 0)}% compliance")
 
-                scan_data = {
+                scan_data_updated = {
                     'results': new_results,
                     'summary': new_summary
                 }
@@ -1824,17 +1957,19 @@ def fix_batch_file(batch_id, scan_id):
                     SET scan_results = %s, status = %s
                     WHERE id = %s
                 '''
-                execute_query(update_query, (json.dumps(scan_data), 'fixed', scan_id))
+                execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
                 print(f"[Backend] ✓ Updated scan record with new results")
 
                 insert_query = f'''
                     INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
                     VALUES (%s, %s, %s, %s, %s)
                 '''
+                # Ensure original filename has .pdf extension
+                original_filename_with_ext = filename if filename.endswith('.pdf') else f"{filename}.pdf"
                 execute_query(insert_query, (
                     scan_id,
-                    scan_id,
-                    fix_result['fixedFile'],
+                    original_filename_with_ext,
+                    fixed_filename,
                     json.dumps(fix_result.get('fixesApplied', [])),
                     fix_result.get('successCount', 0)
                 ))
@@ -1885,20 +2020,43 @@ def export_batch(batch_id):
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             for scan in scans:
                 # Use fixed file if available, otherwise use original
-                fixed_file = scan['fixed_file']
+                fixed_file_db_entry = scan['fixed_file'] # from fix_history
                 scan_id = scan['id']
-                filename = scan['filename']
+                original_filename = scan['filename']
 
-                if not filename.endswith('.pdf'):
-                    filename = filename + '.pdf'
+                # Ensure original filename has .pdf extension
+                if not original_filename.endswith('.pdf'):
+                    original_filename = f"{original_filename}.pdf"
 
-                file_to_add = fixed_file if fixed_file else scan_id
-                file_path = os.path.join('uploads', file_to_add)
+                file_to_add_path = None
+                download_filename = original_filename
 
-                if os.path.exists(file_path):
-                    # Add file to ZIP with original filename (now with .pdf extension)
-                    zip_file.write(file_path, filename)
-                    print(f"[Backend] Added to ZIP: {filename}")
+                if fixed_file_db_entry:
+                    # Check if the fixed file exists
+                    potential_fixed_path = os.path.join('uploads', fixed_file_db_entry)
+                    if os.path.exists(potential_fixed_path):
+                        file_to_add_path = potential_fixed_path
+                        download_filename = fixed_file_db_entry # Use the name from DB entry
+                        print(f"[Backend] Found fixed file: {download_filename}")
+                    else:
+                        print(f"[Backend] Fixed file '{fixed_file_db_entry}' not found on disk, falling back to original scan file.")
+                
+                # If fixed file not found or not applicable, try to use the original scan file
+                if not file_to_add_path:
+                    original_scan_path = os.path.join('uploads', scan_id)
+                    if os.path.exists(original_scan_path):
+                        file_to_add_path = original_scan_path
+                        # download_filename remains original_filename
+                        print(f"[Backend] Using original scan file: {scan_id}")
+                    else:
+                        print(f"[Backend] Original scan file not found for scan_id: {scan_id}. Skipping.")
+
+                if file_to_add_path and os.path.exists(file_to_add_path):
+                    zip_file.write(file_to_add_path, download_filename)
+                    print(f"[Backend] Added to ZIP: {download_filename}")
+                else:
+                    print(f"[Backend] Could not find file to add for scan {scan_id}. Skipping.")
+
 
         zip_buffer.seek(0)
 
@@ -1932,7 +2090,7 @@ def batch_operations(batch_id):
                 WHERE batch_id = %s
                 ORDER BY upload_date
             '''
-            scans = execute_query(query, (batch_id,), fetch=True)
+            scans = execute_query(query, (batch[0]['id'],), fetch=True) # Use batch[0]['id']
 
             scan_details = []
             for scan in scans:
@@ -1989,21 +2147,22 @@ def batch_operations(batch_id):
             deleted_files = 0
             for scan in scans:
                 scan_id = scan['id']
-                file_path = os.path.join('uploads', scan_id)
-
-                if os.path.exists(file_path):
+                # Original file
+                original_file_path = os.path.join('uploads', scan_id)
+                if os.path.exists(original_file_path):
                     try:
-                        os.remove(file_path)
+                        os.remove(original_file_path)
                         deleted_files += 1
-                        print(f"[Backend] ✓ Deleted file: {file_path}")
+                        print(f"[Backend] ✓ Deleted original file: {original_file_path}")
                     except Exception as e:
-                        print(f"[Backend] ✗ Failed to delete file {file_path}: {e}")
-
-                # Also check for fixed files
+                        print(f"[Backend] ✗ Failed to delete original file {original_file_path}: {e}")
+                
+                # Fixed file (look for scan_id_fixed.pdf)
                 fixed_file_path = os.path.join('uploads', f"{scan_id}_fixed.pdf")
                 if os.path.exists(fixed_file_path):
                     try:
                         os.remove(fixed_file_path)
+                        deleted_files += 1
                         print(f"[Backend] ✓ Deleted fixed file: {fixed_file_path}")
                     except Exception as e:
                         print(f"[Backend] ✗ Failed to delete fixed file {fixed_file_path}: {e}")
@@ -2307,14 +2466,24 @@ def ai_apply_fixes(scan_id):
         }), 503
 
     try:
+        # Ensure the original PDF file exists
         pdf_path = os.path.join('uploads', scan_id)
-
-        print(f"[AI Direct Fix] ========== AI DIRECT FIX: {scan_id} ==========")
-        print(f"[AI Direct Fix] Looking for file: {pdf_path}")
+        if not os.path.exists(pdf_path):
+            # If the original scan ID file doesn't exist, try to find the correct filename from the DB
+            query_filename = f'SELECT filename FROM scans WHERE id = %s'
+            filename_result = execute_query(query_filename, (scan_id,), fetch=True)
+            if filename_result:
+                original_filename = filename_result[0]['filename']
+                if not original_filename.endswith('.pdf'):
+                    original_filename += '.pdf'
+                pdf_path = os.path.join('uploads', original_filename)
 
         if not os.path.exists(pdf_path):
-            print(f"[AI Direct Fix] Error: File not found at {pdf_path}")
+            print(f"[AI Direct Fix] Error: File not found for scan_id {scan_id} at {pdf_path}")
             return jsonify({'error': f'PDF file not found: {scan_id}'}), 404
+
+        print(f"[AI Direct Fix] ========== AI DIRECT FIX: {scan_id} ==========")
+        print(f"[AI Direct Fix] Using file: {pdf_path}")
 
         # Get current scan results to understand issues
         query = f'SELECT scan_results FROM scans WHERE id = %s'
@@ -2338,13 +2507,33 @@ def ai_apply_fixes(scan_id):
         fix_result = AI_REMEDIATION_ENGINE.apply_ai_powered_fixes(pdf_path, issues)
 
         if fix_result.get('success') and fix_result.get('fixedFile'):
+            # Construct the path for the fixed file
+            fixed_filename = fix_result['fixedFile']
+            fixed_path = os.path.join('uploads', fixed_filename)
+
+            # Ensure the fixed file is correctly located
+            if fix_result.get('fixed_file_path') and fix_result.get('fixed_file_path') != fixed_path:
+                if os.path.exists(fix_result['fixed_file_path']):
+                    shutil.copy2(fix_result['fixed_file_path'], fixed_path)
+                    print(f"[AI Direct Fix] Copied fixed file from '{fix_result['fixed_file_path']}' to '{fixed_path}'")
+                else:
+                    print(f"[AI Direct Fix] Warning: AI-generated fixed file not found at '{fix_result['fixed_file_path']}'")
+            elif not os.path.exists(fixed_path) and fix_result.get('fixed_file_path') == fixed_path:
+                print(f"[AI Direct Fix] Fixed file already at correct path: {fixed_path}")
+            else:
+                print(f"[AI Direct Fix] Warning: Could not determine or locate the AI fixed file. Expected path: {fixed_path}")
+                # If the AI engine modifies in place, use that path
+                if os.path.exists(os.path.join('uploads', scan_id)):
+                    fixed_path = os.path.join('uploads', scan_id)
+                    print(f"[AI Direct Fix] Using original file path as fixed path: {fixed_path}")
+
+
             try:
                 # Re-scan the fixed PDF to get updated results
-                fixed_file_path = fix_result['fixedPath']
-                print(f"[AI Direct Fix] Re-scanning AI-fixed file: {fix_result['fixedFile']}")
+                print(f"[AI Direct Fix] Re-scanning AI-fixed file: {fixed_filename} from path: {fixed_path}")
 
                 analyzer = PDFAccessibilityAnalyzer()
-                new_results = analyzer.analyze(fixed_file_path)
+                new_results = analyzer.analyze(fixed_path)
                 new_summary = analyzer.calculate_summary(new_results)
 
                 print(f"[AI Direct Fix] ✓ Re-scan complete:")
@@ -2352,7 +2541,7 @@ def ai_apply_fixes(scan_id):
                 print(f"[AI Direct Fix]   Compliance: {new_summary.get('complianceScore', 0)}%")
 
                 # Update the scan record with new results
-                scan_data = {
+                scan_data_updated = {
                     'results': new_results,
                     'summary': new_summary
                 }
@@ -2363,7 +2552,7 @@ def ai_apply_fixes(scan_id):
                     SET scan_results = %s, status = %s
                     WHERE id = %s
                 '''
-                execute_query(update_query, (json.dumps(scan_data), 'ai_fixed', scan_id))
+                execute_query(update_query, (json.dumps(scan_data_updated), 'ai_fixed', scan_id))
                 print(f"[AI Direct Fix] ✓ Database updated successfully")
 
                 # Add new results and summary to the response
@@ -2375,10 +2564,14 @@ def ai_apply_fixes(scan_id):
                     INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
                     VALUES (%s, %s, %s, %s, %s)
                 '''
+                # Ensure original filename has .pdf extension
+                original_filename = filename_result[0]['filename'] if filename_result else scan_id
+                original_filename_with_ext = original_filename if original_filename.endswith('.pdf') else f"{original_filename}.pdf"
+
                 execute_query(insert_query, (
                     scan_id,
-                    scan_id,
-                    fix_result['fixedFile'],
+                    original_filename_with_ext,
+                    fixed_filename,
                     json.dumps(fix_result.get('fixesApplied', [])),
                     fix_result.get('successCount', 0)
                 ))
@@ -2408,6 +2601,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"[Backend] ✗ Failed to start server: {e}")
         print("[Backend] Check your database configuration:")
-        print(f"[Backend]   DATABASE_URL={NEON_NEON_DATABASE_URL}")
+        print(f"[Backend]   DATABASE_URL={NEON_NEON_NEON_DATABASE_URL}")
         import traceback
         traceback.print_exc()
