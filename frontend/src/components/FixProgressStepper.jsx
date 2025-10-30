@@ -28,6 +28,11 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
           clearInterval(pollInterval)
 
           if (progressData.status === "completed") {
+            console.log(
+              "[v0] FixProgressStepper: All steps:",
+              progressData.steps.map((s) => ({ name: s.name, status: s.status, hasResultData: !!s.resultData })),
+            )
+
             // Look for the re-scan step to get new results
             const rescanStep = progressData.steps.find(
               (step) => step.name === "Re-scan Fixed PDF" && step.status === "completed",
@@ -35,9 +40,14 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
 
             console.log("[v0] FixProgressStepper: Re-scan step found:", rescanStep ? "YES" : "NO")
             if (rescanStep) {
-              console.log("[v0] FixProgressStepper: Re-scan step object:", JSON.stringify(rescanStep, null, 2))
+              console.log("[v0] FixProgressStepper: Re-scan step full object:", rescanStep)
               console.log("[v0] FixProgressStepper: Re-scan step keys:", Object.keys(rescanStep))
-              console.log("[v0] FixProgressStepper: Re-scan step.resultData:", rescanStep.resultData)
+              console.log("[v0] FixProgressStepper: Re-scan step.resultData type:", typeof rescanStep.resultData)
+              console.log("[v0] FixProgressStepper: Re-scan step.resultData value:", rescanStep.resultData)
+
+              if (rescanStep.resultData) {
+                console.log("[v0] FixProgressStepper: resultData keys:", Object.keys(rescanStep.resultData))
+              }
             }
 
             if (rescanStep && rescanStep.resultData) {
