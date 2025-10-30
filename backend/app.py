@@ -20,7 +20,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-NEON_DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -247,32 +247,36 @@ def get_history():
         return "", 200
     
     try:
-        # Get all individual scans
         scans = execute_query(
             """
-            SELECT id, filename, upload_date as "uploadDate", status, 
-                   total_issues, critical_issues, error_issues, warning_issues
+            SELECT id, filename, upload_date as "uploadDate", status, scan_results
             FROM scans 
             ORDER BY upload_date DESC
             """,
             fetch=True
         )
         
-        # Add summary to each scan
         for scan in scans:
+            scan_data = scan.get('scan_results', {})
+            if isinstance(scan_data, str):
+                scan_data = json.loads(scan_data)
+            
+            summary = scan_data.get('summary', {})
             scan['summary'] = {
-                'totalIssues': scan.get('total_issues', 0),
-                'critical': scan.get('critical_issues', 0),
-                'error': scan.get('error_issues', 0),
-                'warning': scan.get('warning_issues', 0)
+                'totalIssues': summary.get('total_issues', 0),
+                'critical': summary.get('critical', 0),
+                'error': summary.get('error', 0),
+                'warning': summary.get('warning', 0)
             }
+            # Remove scan_results from response to keep it clean
+            del scan['scan_results']
         
         # Get all batches (if batch table exists)
         batches = []
         try:
             batches = execute_query(
                 """
-                SELECT batch_id as "batchId", name, upload_date as "uploadDate", 
+                SELECT id as "batchId", name, upload_date as "uploadDate", 
                        status, file_count as "fileCount", total_issues as "totalIssues"
                 FROM batches 
                 ORDER BY upload_date DESC
@@ -288,6 +292,8 @@ def get_history():
         })
     except Exception as e:
         print(f"[Backend] Error fetching history: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -303,12 +309,12 @@ def get_fix_history(scan_id):
         
         fixes = execute_query(
             """
-            SELECT id, scan_id as "scanId", fix_type as "fixType", 
-                   description, status, applied_at as "appliedAt",
-                   page_number as "pageNumber", element_type as "elementType"
+            SELECT id, scan_id as "scanId", original_file as "originalFile",
+                   fixed_file as "fixedFile", fixes_applied as "fixesApplied",
+                   success_count as "successCount", timestamp
             FROM fix_history 
             WHERE scan_id = %s 
-            ORDER BY applied_at DESC
+            ORDER BY timestamp DESC
             """,
             (scan_id,),
             fetch=True
@@ -318,6 +324,8 @@ def get_fix_history(scan_id):
         return jsonify({"fixes": fixes})
     except Exception as e:
         print(f"[Backend] Error fetching fix history: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
