@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react"
 import axios from "axios"
-import "./UploadArea.css"
+// import "./UploadArea.css"
 
 export default function UploadArea({ onScanComplete }) {
   const [isDragging, setIsDragging] = useState(false)
@@ -176,7 +176,7 @@ export default function UploadArea({ onScanComplete }) {
 
   return (
     <div className="w-full max-w-7xl mx-auto">
-      <div className="flex flex-col lg:flex-row gap-6">
+      <div className="flex flex-col lg:flex-row gap-6 min-h-[60vh] items-center justify-center">
         {/* Upload Area - Left Side */}
         <div className="flex-1 lg:max-w-2xl">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-colors">

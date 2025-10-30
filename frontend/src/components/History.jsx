@@ -113,31 +113,28 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
         <div className="flex gap-2 mb-6">
           <button
             onClick={() => setView("all")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              view === "all"
-                ? "bg-blue-600 text-white"
-                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
-            }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === "all"
+              ? "bg-blue-600 text-white"
+              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+              }`}
           >
             All ({batches.length + scans.length})
           </button>
           <button
             onClick={() => setView("batches")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              view === "batches"
-                ? "bg-blue-600 text-white"
-                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
-            }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === "batches"
+              ? "bg-blue-600 text-white"
+              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+              }`}
           >
             Batches ({batches.length})
           </button>
           <button
             onClick={() => setView("individual")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              view === "individual"
-                ? "bg-blue-600 text-white"
-                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
-            }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === "individual"
+              ? "bg-blue-600 text-white"
+              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+              }`}
           >
             Individual ({scans.length})
           </button>
@@ -156,9 +153,9 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                 onClick={() => onSelectBatch && onSelectBatch(batch.batchId)}
               >
                 <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center min-w-0 gap-2">
                     <svg
-                      className="w-5 h-5 text-blue-600 dark:text-blue-400"
+                      className="w-5 h-5 text-blue-600 flex-shrink-0 dark:text-blue-400"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -226,9 +223,9 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                 onClick={() => onSelectScan(scan)}
               >
                 <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     <svg
-                      className="w-5 h-5 text-red-600 dark:text-red-400"
+                      className="w-5 h-5 flex-shrink-0 text-red-600 dark:text-red-400"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
