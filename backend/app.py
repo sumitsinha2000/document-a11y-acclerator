@@ -16,19 +16,19 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
+NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
 # Ensure that if DATABASE_URL is not set, it tries NEON_DATABASE_URL or NEON_POSTGRES_URL
-if not DATABASE_URL:
-    DATABASE_URL = os.getenv('NEON_DATABASE_URL')
-if not DATABASE_URL:
-    DATABASE_URL = os.getenv('NEON_POSTGRES_URL')
+if not NEON_NEON_DATABASE_URL:
+    NEON_NEON_DATABASE_URL = os.getenv('NEON_DATABASE_URL')
+if not NEON_NEON_DATABASE_URL:
+    NEON_NEON_DATABASE_URL = os.getenv('NEON_POSTGRES_URL')
 
-if not DATABASE_URL:
+if not NEON_NEON_DATABASE_URL:
     print("[Backend] ✗ CRITICAL ERROR: No DATABASE_URL found in environment variables!")
     print("[Backend] Please set one of: DATABASE_URL, NEON_DATABASE_URL, or NEON_POSTGRES_URL")
     raise Exception("DATABASE_URL not configured")
 else:
-    print(f"[Backend] ✓ Database URL configured: {DATABASE_URL[:30]}...")
+    print(f"[Backend] ✓ Database URL configured: {NEON_NEON_DATABASE_URL[:30]}...")
 
 # Determine database type from environment
 # NEON_DATABASE_URL = os.environ.get('NEON_DATABASE_URL', '') # This line is now redundant due to the above change
@@ -107,7 +107,7 @@ def get_db_connection():
     """Get a PostgreSQL database connection"""
     try:
         conn = psycopg2.connect(
-            DATABASE_URL,
+            NEON_NEON_DATABASE_URL,
             cursor_factory=RealDictCursor,
             connect_timeout=10
         )
@@ -115,7 +115,7 @@ def get_db_connection():
         return conn
     except psycopg2.OperationalError as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
-        print(f"[Backend] DATABASE_URL: {DATABASE_URL[:50]}...")
+        print(f"[Backend] DATABASE_URL: {NEON_NEON_DATABASE_URL[:50]}...")
         raise Exception(f"Failed to connect to database: {e}")
     except Exception as e:
         print(f"[Backend] ✗ Unexpected database error: {e}")
@@ -761,6 +761,44 @@ def apply_fixes(scan_id):
 
         if result.get('success'):
             try:
+                fixed_file_path = os.path.join('uploads', result.get('fixedFile', scan_id))
+                print(f"[Backend] Re-scanning fixed file: {result.get('fixedFile')}")
+                
+                analyzer = PDFAccessibilityAnalyzer()
+                new_scan_results = analyzer.analyze(fixed_file_path)
+                new_summary = analyzer.calculate_summary(new_scan_results)
+                
+                print(f"[Backend] New scan results: {new_summary.get('totalIssues', 0)} issues (was {scan_data.get('summary', {}).get('totalIssues', 'unknown')})")
+                print(f"[Backend] New compliance score: {new_summary.get('complianceScore', 0)}%")
+                
+                # Update scan record with new results
+                scan_data_updated = {
+                    'results': new_scan_results,
+                    'summary': new_summary
+                }
+                
+                update_query = '''
+                    UPDATE scans
+                    SET scan_results = %s, status = %s
+                    WHERE id = %s
+                '''
+                execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
+                print(f"[Backend] ✓ Updated scan record with new results")
+                
+                # Generate new fix suggestions based on remaining issues
+                new_fixes = get_empty_fixes_structure()
+                if AUTO_FIX_AVAILABLE:
+                    try:
+                        auto_fix_engine = AutoFixEngine()
+                        generated_fixes = auto_fix_engine.generate_fixes(new_scan_results)
+                        new_fixes = ensure_fixes_structure(generated_fixes)
+                    except Exception as e:
+                        print(f"[Backend] Error generating new fixes: {e}")
+                        new_fixes = generate_fix_suggestions(new_scan_results)
+                else:
+                    new_fixes = generate_fix_suggestions(new_scan_results)
+                
+                # Save to fix_history
                 insert_query = '''
                     INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
                     VALUES (%s, %s, %s, %s, %s)
@@ -773,66 +811,60 @@ def apply_fixes(scan_id):
                     result.get('successCount', 0)
                 ))
                 print(f"[Backend] ✓ Saved {result.get('successCount', 0)} fixes to fix_history table")
-            except Exception as history_error:
-                print(f"[Backend] ERROR: Failed to save fix history: {history_error}")
+                
+                # Return updated data
+                return jsonify({
+                    'success': True,
+                    'message': f"Successfully applied {result.get('successCount', 0)} fixes",
+                    'fixedFile': result.get('fixedFile'),
+                    'fixesApplied': result.get('fixesApplied', []),
+                    'successCount': result.get('successCount', 0),
+                    'newScanResults': new_scan_results,
+                    'newSummary': new_summary,
+                    'newFixes': new_fixes
+                }), 200
+                
+            except Exception as rescan_error:
+                print(f"[Backend] ERROR: Failed to re-scan fixed file: {rescan_error}")
                 import traceback
                 traceback.print_exc()
+                # Still save to history even if re-scan fails
+                try:
+                    insert_query = '''
+                        INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
+                        VALUES (%s, %s, %s, %s, %s)
+                    '''
+                    execute_query(insert_query, (
+                        scan_id,
+                        scan_id,
+                        result.get('fixedFile', scan_id),
+                        json.dumps(result.get('fixesApplied', [])),
+                        result.get('successCount', 0)
+                    ))
+                except Exception as history_error:
+                    print(f"[Backend] ERROR: Failed to save fix history: {history_error}")
             
+            # If rescan succeeded, complete the tracker steps
             step_id = tracker.add_step(
                 "Re-scan Fixed PDF",
                 "Analyzing fixed PDF to verify improvements",
                 "pending"
             )
             tracker.start_step(step_id)
-
             try:
-                # Re-analyze the fixed PDF
-                file_path = os.path.join('uploads', scan_id)
+                fixed_file_path = os.path.join('uploads', result.get('fixedFile', scan_id))
                 analyzer = PDFAccessibilityAnalyzer()
-                new_scan_results = analyzer.analyze(file_path)
-
+                new_scan_results = analyzer.analyze(fixed_file_path)
                 new_summary = analyzer.calculate_summary(new_scan_results)
                 
-                print(f"[Backend] ✓ Calculated new summary:")
-                print(f"[Backend]   Total issues: {new_summary.get('totalIssues', 0)}")
-                print(f"[Backend]   Compliance score: {new_summary.get('complianceScore', 0)}%")
-                print(f"[Backend]   High severity: {new_summary.get('highSeverity', 0)}")
-
-                # Update scan results in database with proper summary
-                scan_data_updated = {
-                    'results': new_scan_results,
-                    'summary': new_summary  # Store calculated summary instead of None
-                }
-
-                update_query = f'UPDATE scans SET scan_results = %s, status = %s WHERE id = %s'
-                execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
-                
-                print(f"[Backend] ✓ Database updated with new scan results and summary")
-
-                # Generate new fix suggestions
-                if AUTO_FIX_AVAILABLE:
-                    auto_fix_engine = AutoFixEngine()
-                    new_fixes = auto_fix_engine.generate_fixes(new_scan_results)
-                else:
-                    new_fixes = generate_fix_suggestions(new_scan_results)
-
-                result['newScanResults'] = new_scan_results
-                result['newFixes'] = new_fixes
-                result['newSummary'] = new_summary  # Include summary in response
-
-                tracker.complete_step(
-                    step_id,
-                    f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues",
-                    result_data={'newScanResults': new_scan_results, 'newFixes': new_fixes, 'newSummary': new_summary}
-                )
-                print(f"[Backend] Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
+                tracker.complete_step(step_id, f"Re-scan complete: {new_summary.get('totalIssues', 0)} issues found", result_data={'newScanResults': new_scan_results, 'newSummary': new_summary})
                 print(f"[Backend] Step completed with resultData stored")
             except Exception as rescan_error:
-                print(f"[Backend] Warning: Re-scan failed: {rescan_error}")
+                print(f"[Backend] Warning: Re-scan failed during tracker completion: {rescan_error}")
                 tracker.skip_step(step_id, f"Re-scan failed: {str(rescan_error)}")
 
             tracker.complete_all()
-            return jsonify(result)
+            return jsonify(result) # Return the original result from apply_automated_fixes
         else:
             tracker.fail_all(result.get('error', 'Unknown error'))
             return jsonify(result), 500
@@ -1005,8 +1037,9 @@ def apply_semi_automated_fixes(scan_id):
                 result['newFixes'] = new_fixes
                 result['newSummary'] = new_summary  # Include summary in response
 
-                tracker.complete_step(step_id, f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
+                tracker.complete_step(step_id, f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues", result_data={'newScanResults': new_scan_results, 'newFixes': new_fixes, 'newSummary': new_summary})
                 print(f"[Backend] Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
+                print(f"[Backend] Step completed with resultData stored")
             except Exception as rescan_error:
                 print(f"[Backend] Warning: Re-scan failed: {rescan_error}")
                 tracker.skip_step(step_id, f"Re-scan failed: {str(rescan_error)}")
@@ -1059,22 +1092,41 @@ def get_fix_history(scan_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/download-fixed/<filename>', methods=['GET'])
-def download_fixed_pdf(filename):
+@app.route('/api/download-fixed/<scan_id>', methods=['GET'])
+def download_fixed_pdf(scan_id):
     """Download a fixed PDF"""
     try:
         from flask import send_file
-
-        if not filename.endswith('.pdf'):
-            filename = filename + '.pdf'
-
-        file_path = os.path.join('uploads', filename)
-
+        
+        print(f"[Backend] Downloading fixed file for scan: {scan_id}")
+        
+        query = '''
+            SELECT fixed_file, original_file
+            FROM fix_history
+            WHERE scan_id = %s
+            ORDER BY timestamp DESC
+            LIMIT 1
+        '''
+        result = execute_query(query, (scan_id,), fetch=True)
+        
+        if not result or not result[0]['fixed_file']:
+            print(f"[Backend] No fixed file found for scan: {scan_id}")
+            return jsonify({'error': 'Fixed file not found'}), 404
+        
+        fixed_filename = result[0]['fixed_file']
+        file_path = os.path.join('uploads', fixed_filename)
+        
         if not os.path.exists(file_path):
-            return jsonify({'error': 'File not found'}), 404
-
-        return send_file(file_path, as_attachment=True, download_name=filename)
+            print(f"[Backend] Fixed file does not exist at path: {file_path}")
+            return jsonify({'error': 'File not found on disk'}), 404
+        
+        print(f"[Backend] ✓ Sending fixed file: {fixed_filename}")
+        return send_file(file_path, as_attachment=True, download_name=fixed_filename)
+        
     except Exception as e:
+        print(f"[Backend] ERROR downloading fixed file: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/generate-pdf', methods=['POST'])
@@ -2357,6 +2409,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"[Backend] ✗ Failed to start server: {e}")
         print("[Backend] Check your database configuration:")
-        print(f"[Backend]   DATABASE_URL={DATABASE_URL}")
+        print(f"[Backend]   DATABASE_URL={NEON_NEON_DATABASE_URL}")
         import traceback
         traceback.print_exc()
