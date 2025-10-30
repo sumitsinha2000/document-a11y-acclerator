@@ -19,24 +19,24 @@ An automated PDF accessibility scanning and remediation tool with WCAG 2.1, PDF/
 
 1. Navigate to the backend directory:
 
-   ```bash
+   \`\`\`bash
    cd backend
-   ```
+   \`\`\`
 
 2. Install Python dependencies:
 
-   ```bash
+   \`\`\`bash
    pip install -r requirements.txt
-   ```
+   \`\`\`
 
 3. (Optional) Configure PostgreSQL:
    - Create a `.env` file in the backend directory
    - Add your database credentials:
 
-   ```markdown
+   \`\`\`markdown
    DATABASE_TYPE=postgresql
    DATABASE_URL=postgresql://username:password@localhost:5432/database_name
-   ```
+   \`\`\`
 
    - If not configured, the app will use SQLite by default
 
@@ -51,9 +51,9 @@ An automated PDF accessibility scanning and remediation tool with WCAG 2.1, PDF/
 
 6. Start the backend server:
 
-   ```bash
+   \`\`\`bash
    python app.py
-   ```
+   \`\`\`
 
 The backend will run on `http://localhost:5000`
 
@@ -61,21 +61,21 @@ The backend will run on `http://localhost:5000`
 
 1. Navigate to the frontend directory:
 
-   ```bash
+   \`\`\`bash
    cd frontend
-   ```
+   \`\`\`
 
 2. Install dependencies:
 
-   ```bash
+   \`\`\`bash
    npm install
-   ```
+   \`\`\`
 
 3. Start the development server:
 
-   ```bash
+   \`\`\`bash
    npm run dev
-   ```
+   \`\`\`
 
 The frontend will run on `http://localhost:3000`
 
@@ -148,10 +148,10 @@ If you see "ERR_CONNECTION_REFUSED" errors:
 
 1. Make sure the backend server is running:
 
-   ```bash
+   \`\`\`bash
    cd backend
    python app.py
-   ```
+   \`\`\`
 
 2. Check that the backend is running on port 5000
 

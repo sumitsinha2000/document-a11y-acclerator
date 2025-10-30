@@ -35,6 +35,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     console.log("[v0] ReportViewer - Current scan data:", currentScan)
     console.log("[v0] ReportViewer - Scan has fixes:", currentScan.fixes)
     console.log("[v0] ReportViewer - Number of fixes:", currentScan.fixes?.length)
+    console.log("[v0] ReportViewer - Applied fixes:", currentScan.appliedFixes)
 
     if (currentScan.results) {
       console.log("[v0] Scan has results:", currentScan.results)
@@ -63,6 +64,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       console.log("[v0] Received report data:", response.data)
       console.log("[v0] Results structure:", response.data.results)
       console.log("[v0] Results keys:", Object.keys(response.data.results || {}))
+      console.log("[v0] Applied fixes from backend:", response.data.appliedFixes)
       setReportData(response.data)
     } catch (error) {
       console.error("[v0] Error fetching report:", error)
@@ -187,12 +189,14 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         console.log("[v0] ReportViewer - New summary:", response.data.summary)
         console.log("[v0] ReportViewer - New fixes:", response.data.fixes)
         console.log("[v0] ReportViewer - New results:", response.data.results)
+        console.log("[v0] ReportViewer - Applied fixes from refresh:", response.data.appliedFixes)
 
         const newData = {
           ...response.data,
           summary: response.data.summary || { totalIssues: 0, highSeverity: 0, complianceScore: 0 },
           results: response.data.results || {},
           fixes: response.data.fixes || { automated: [], semiAutomated: [], manual: [], estimatedTime: 0 },
+          appliedFixes: response.data.appliedFixes || null,
         }
 
         setReportData(newData)
@@ -445,6 +449,12 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Scanned on {new Date(reportData.uploadDate || reportData.timestamp).toLocaleDateString()}
             </p>
+            {reportData.appliedFixes && (
+              <p className="text-xs text-green-600 dark:text-green-400 font-medium mt-1">
+                ✓ {reportData.appliedFixes.successCount} fixes applied on{" "}
+                {new Date(reportData.appliedFixes.timestamp).toLocaleDateString()}
+              </p>
+            )}
           </div>
 
           {verapdfStatus.isActive && (
@@ -493,7 +503,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
-                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
                       />
                     </svg>
                   </div>

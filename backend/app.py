@@ -15,7 +15,7 @@ load_dotenv()  # Load .env file before accessing environment variables
 
 # Determine database type from environment
 DATABASE_TYPE = os.environ.get('DATABASE_TYPE', 'sqlite')  # 'sqlite' or 'postgresql'
-DATABASE_URL = os.environ.get('DATABASE_URL', '')
+NEON_DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
 # Import appropriate database library
 if DATABASE_TYPE == 'postgresql' and DATABASE_URL:
@@ -566,6 +566,33 @@ def get_scan_details(scan_id):
             verapdf_status['pdfuaCompliance'] = max(0, 100 - (pdfua_issues * 10))
             verapdf_status['totalVeraPDFIssues'] = wcag_issues + pdfua_issues
         
+        print(f"[Backend] Fetching applied fixes from fix_history for scan: {scan_id}")
+        applied_fixes_query = f'''
+            SELECT fixes_applied, success_count, timestamp, fixed_file
+            FROM fix_history
+            WHERE scan_id = {param_placeholder}
+            ORDER BY timestamp DESC
+            LIMIT 1
+        '''
+        applied_fixes_result = execute_query(applied_fixes_query, (scan_id,), fetch=True)
+        
+        applied_fixes_data = None
+        if applied_fixes_result and len(applied_fixes_result) > 0:
+            latest_fix = applied_fixes_result[0]
+            fixes_applied = latest_fix['fixes_applied']
+            if isinstance(fixes_applied, str):
+                fixes_applied = json.loads(fixes_applied)
+            
+            applied_fixes_data = {
+                'fixesApplied': fixes_applied,
+                'successCount': latest_fix['success_count'],
+                'timestamp': latest_fix['timestamp'].isoformat() if latest_fix['timestamp'] else None,
+                'fixedFile': latest_fix['fixed_file']
+            }
+            print(f"[Backend] ✓ Found {latest_fix['success_count']} applied fixes from {latest_fix['timestamp']}")
+        else:
+            print(f"[Backend] No applied fixes found in fix_history for this scan")
+        
         fixes = get_empty_fixes_structure()
         
         if AUTO_FIX_AVAILABLE:
@@ -589,7 +616,8 @@ def get_scan_details(scan_id):
             'fixes': fixes,
             'uploadDate': result[0]['upload_date'].isoformat() if result[0]['upload_date'] else None,
             'batchId': result[0]['batch_id'] if result[0]['batch_id'] else None,
-            'verapdfStatus': verapdf_status  # Add veraPDF status
+            'verapdfStatus': verapdf_status,
+            'appliedFixes': applied_fixes_data  # Add applied fixes to response
         }
         
         print(f"[Backend] ✓ Returning scan details for {result[0]['filename']}")

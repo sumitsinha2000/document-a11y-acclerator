@@ -6,11 +6,11 @@
 
 __Error Message:__
 
-```bash
+\`\`\`bash
 Getting requirements to build wheel did not run successfully
 KeyError: '__version__'
 ERROR: Failed to build 'Pillow' when getting requirements to build wheel
-```
+\`\`\`
 
 __Cause:__ Outdated build tools or incompatibility between setuptools and the package being built.
 
@@ -18,7 +18,7 @@ __Cause:__ Outdated build tools or incompatibility between setuptools and the pa
 
 ##### __Solution 1: Update build tools and use latest Pillow__
 
-```bash
+\`\`\`bash
 
 # Update pip, setuptools, and wheel
 
@@ -31,11 +31,11 @@ pip install Pillow
 # Then install remaining requirements
 
 pip install -r requirements.txt
-```
+\`\`\`
 
 ##### __Solution 2: Install Pillow from pre-built wheel__
 
-```bash
+\`\`\`bash
 
 # Update build tools
 
@@ -48,11 +48,11 @@ pip install --only-binary :all: Pillow
 # Then install remaining requirements
 
 pip install -r requirements.txt
-```
+\`\`\`
 
 ##### __Solution 3: Use conda for Pillow__
 
-```bash
+\`\`\`bash
 
 # If using conda environment
 
@@ -61,11 +61,11 @@ conda install pillow
 # Then install remaining requirements with pip
 
 pip install -r requirements.txt
-```
+\`\`\`
 
 ##### __Solution 4: Skip Pillow temporarily__
 
-```bash
+\`\`\`bash
 
 # Install all packages except Pillow
 
@@ -74,37 +74,37 @@ pip install Flask Flask-CORS PyPDF2 pdfplumber pytesseract pdf2image fpdf pikepd
 # Try Pillow separately later
 
 pip install Pillow
-```
+\`\`\`
 
 ### Issue 2: psycopg2-binary Installation Fails
 
 __Error Message:__
 
-```bash
+\`\`\`bash
 error: Microsoft Visual C++ 14.0 or greater is required
-```
+\`\`\`
 
 #### __Solution (Windows):__
 
 Option 1: Use the binary package (already in requirements.txt):
 
-```bash
+\`\`\`bash
 pip install psycopg2-binary
-```
+\`\`\`
 
 Option 2: If you still have issues, install PostgreSQL development libraries or use SQLite instead by setting in `.env`:
 
-```md
+\`\`\`md
 USE_SQLITE=true
-```
+\`\`\`
 
 ### Issue 3: pytesseract or pdf2image Issues
 
 __Error Message:__
 
-```bash
+\`\`\`bash
 TesseractNotFoundError: tesseract is not installed
-```
+\`\`\`
 
 #### __Solution:__
 
@@ -119,29 +119,29 @@ __Windows:__
 
 __macOS:__
 
-```bash
+\`\`\`bash
 brew install tesseract poppler
-```
+\`\`\`
 
 __Linux:__
 
-```bash
+\`\`\`bash
 sudo apt-get install tesseract-ocr poppler-utils
-```
+\`\`\`
 
 ### Issue 4: Permission Errors (Linux/macOS)
 
 __Error Message:__
 
-```bash
+\`\`\`bash
 PermissionError: [Errno 13] Permission denied
-```
+\`\`\`
 
 #### __Solution:__
 
 Don't use `sudo` with pip. Instead, use a virtual environment:
 
-```bash
+\`\`\`bash
 
 # Create virtual environment
 
@@ -160,13 +160,13 @@ source venv/bin/activate
 # Install requirements
 
 pip install -r requirements.txt
-```
+\`\`\`
 
 ## Complete Fresh Installation Steps
 
 ### Windows
 
-```bash
+\`\`\`bash
 
 # 1. Create and activate virtual environment
 
@@ -190,11 +190,11 @@ copy .env.example .env
 # 5. Run the application
 
 python app.py
-```
+\`\`\`
 
 ### macOS/Linux
 
-```bash
+\`\`\`bash
 
 # 1. Create and activate virtual environment
 
@@ -218,13 +218,13 @@ cp .env.example .env
 # 5. Run the application
 
 python app.py
-```
+\`\`\`
 
 ## Verifying Installation
 
 After installation, verify everything is working:
 
-```bash
+\`\`\`bash
 
 # Check Python version (should be 3.8+)
 
@@ -237,7 +237,7 @@ pip list
 # Test imports
 
 python -c "import flask, PyPDF2, pdfplumber, pikepdf; print('All core packages imported successfully')"
-```
+\`\`\`
 
 ## Database Setup
 
@@ -246,19 +246,19 @@ python -c "import flask, PyPDF2, pdfplumber, pikepdf; print('All core packages i
 1. Install PostgreSQL from <https://www.postgresql.org/download/>
 2. Create a database:
 
-    ```sql
+    \`\`\`sql
     CREATE DATABASE doc_a11y_db;
-    ```
+    \`\`\`
 
 3. Update `.env` with your credentials:
 
-    ```markdown
+    \`\`\`markdown
     DB_HOST=localhost
     DB_PORT=5432
     DB_NAME=doc_a11y_db
     DB_USER=your_username
     DB_PASSWORD=your_password
-    ```
+    \`\`\`
 
 ### SQLite (Fallback)
 
@@ -266,9 +266,9 @@ If you don't want to set up PostgreSQL, use SQLite:
 
 1. Update `.env`:
 
-    ```markdown
+    \`\`\`markdown
     USE_SQLITE=true
-    ```
+    \`\`\`
 
 The application will automatically create a SQLite database file.
 
@@ -289,7 +289,7 @@ If you continue to experience issues:
 
 If you're using Conda instead of venv:
 
-```bash
+\`\`\`bash
 
 # Create conda environment
 
@@ -303,13 +303,13 @@ pip install --upgrade pip setuptools wheel
 # Install requirements
 
 pip install -r requirements.txt
-```
+\`\`\`
 
 ### Docker Users
 
 If you prefer Docker, create a `Dockerfile`:
 
-```dockerfile
+\`\`\`dockerfile
 FROM python:3.10-slim
 
 WORKDIR /app
@@ -335,10 +335,10 @@ COPY . .
 EXPOSE 5000
 
 CMD ["python", "app.py"]
-```
+\`\`\`
 
 Build and run:
 
-```bash
+\`\`\`bash
 docker build -t doc-a11y-accelerator .
 docker run -p 5000:5000 doc-a11y-accelerator

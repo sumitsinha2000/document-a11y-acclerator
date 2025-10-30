@@ -4,18 +4,18 @@
 
 ### macOS
 
-```bash
+\`\`\`bash
 brew install postgresql@15
 brew services start postgresql@15
-```
+\`\`\`
 
 ### Ubuntu/Debian
 
-```bash
+\`\`\`bash
 sudo apt update
 sudo apt install postgresql postgresql-contrib
 sudo systemctl start postgresql
-```
+\`\`\`
 
 ### Windows
 
@@ -25,41 +25,41 @@ Download and install from: <https://www.postgresql.org/download/windows/>
 
 1. Create the database:
 
-    ```bash
+    \`\`\`bash
     createdb accessibility_scans
-    ```
+    \`\`\`
 
     Or using psql:
 
-    ```bash
+    \`\`\`bash
     psql postgres
     CREATE DATABASE accessibility_scans;
     \q
-    ```
+    \`\`\`
 
 2. Set the DATABASE_URL environment variable:
 
-    ```bash
+    \`\`\`bash
     export DATABASE_URL="postgresql://localhost/accessibility_scans"
-    ```
+    \`\`\`
 
     Or for a remote database:
 
-    ```bash
+    \`\`\`bash
     export DATABASE_URL="postgresql://username:password@host:port/database"
-    ```
+    \`\`\`
 
 3. Install Python dependencies:
 
-    ```bash
+    \`\`\`bash
     pip install -r requirements.txt
-    ```
+    \`\`\`
 
 4. Run the backend:
 
-    ```bash
+    \`\`\`bash
     python app.py
-    ```
+    \`\`\`
 
 The database tables will be created automatically on first run.
 
@@ -110,5 +110,5 @@ If you get connection errors, check:
 
 Grant permissions if needed:
 
-```sql
+\`\`\`sql
 GRANT ALL PRIVILEGES ON DATABASE accessibility_scans TO your_username;
