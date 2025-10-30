@@ -49,6 +49,7 @@ export default function ExportDropdown({ scanId, filename }) {
       }
     } catch (error) {
       console.error(`Error exporting ${format}:`, error)
+      alert(`Failed to export report: ${error.response?.data?.error || error.message}`)
     }
   }
 

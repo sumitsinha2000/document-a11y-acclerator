@@ -31,7 +31,7 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALY3BydAAAASwAAAAjZGVzYwAAAVAAAABiZHNj
 bQAAAbQAAAGMd3RwdAAAA0AAAAAUclhZWgAAA1QAAAAUZ1hZWgAAA2gAAAAUYlhZWgAAA3wAAAAU
 clRSQwAAA5AAAAgMYWFyZwAAC5wAAAAgdmNndAAAC7wAAAAwbmRpbgAAC+wAAAA+Y2hhZAAADCwA
 AAAsbW1vZAAADFgAAAAoYlRSQwAAA5AAAAgMZ1RSQwAAA5AAAAgMYWFiZwAAC5wAAAAgYWFnZwAA
-C5wAAAAgZGVzYwAAAAAAAAAIRGlzcGxheQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAG1sdWMAAAAAAAAmAAAADGhySFIAAAAUAAAB2GtvS1IAAAAMAAAB7G5iTk8AAAASAAAB+GlkAAAAAAASAAACCmh1SFUAAAAUAAACHGNzQ1oAAAAWAAACMGRhREsAAAAcAAACRm5sTkwAAAAWAAACYmZpRkkAAAAQAAACeGl0SVQAAAAUAAACiGVzRVMAAAASAAACnHJvUk8AAAASAAACnGZyQ0EAAAAWAAACrmFyAAAAAAAUAAACxHVrVUEAAAAcAAAC2GhlSUwAAAAWAAAC9HpoVFcAAAAKAAADCnZpVk4AAAAOAAADFHNrU0sAAAAWAAADInpoQ04AAAAKAAADCnJ1UlUAAAAkAAADOGVuR0IAAAAUAAADXGZyRlIAAAAWAAADcG1zAAAAAAASAAADhmhpSU4AAAASAAADmHRoVEgAAAAMAAADqmNhRVMAAAAYAAADtnBsUEwAAAASAAADzm5sTkwAAAAWAAACYmVzWEwAAAASAAACnGRlREUAAAAQAAAD4GNzQ1oAAAAWAAACMGVuVVMAAAASAAAD8HB0QlIAAAAYAAAEAnBsUEwAAAASAAADzgBMAEMARAAgAHUAIABiAG8AagBpzuy37AAgAEwAQwBEAEYAYQByAGcAZQAtAEwAQwBEAEwAQwBEACAAVwBhAHIAbgBhAFMAegDtAG4AZQBzACAATABDAEQAQgBhAHIAZQB2AG4A/QAgAEwAQwBEAEwAQwBEAC0AZgBhAHIAdgBlAHMAawDmAHIAbQBLAGwAZQB1AHIAZQBuAC0ATABDAEQAVgDkAHIAaQAtAEwAQwBEAEwAQwBEACAAYQAgAGMAbwBsAG8AcgAgAEwAQwBEACAAYQAgAGMAbwBsAG8AcgBMAEMARAAgAGMAbwBsAG8AcgBBAEMATAAgAGMAbwB1AGwAZQB1AHIgDwBMAEMARAAgBkUGRAZIBkYGKQQaBD4EOwRMBD4EQAQ+BDIEOAQ5ACAATABDAEQgDwBMAEMARAAgBeYF0QXiBdUF4AXZX2mCcgBMAEMARABMAEMARAAgAE0A4AB1AEYAYQByAGUAYgBuAP0AIABMAEMARAQmBDIENQRCBD0EPgQ5ACAEFgQaAC0ENAQ4BEEEPwQ7BDUEOQBDAG8AbABvAHUAcgAgAEwAQwBEAEwAQwBEACAAYwBvAHUAbABlAHUAcgBXAGEAcgBuAGEAIABMAEMARAkwCQIJFwlACSgAIABMAEMARABMAEMARAAgDioONQBMAEMARAAgAGUAbgAgAGMAbwBsAG8AcgBGAGEAcgBiAC0ATABDAEQAQwBvAGwAbwByACAATABDAEQATABDAEQAIABDAG8AbABvAHIAaQBkAG8ASwBvAGwAbwByACAATABDAEQDiAOzA8cDwQPJA7wDtwAgA78DuAPMA70DtwAgAEwAQwBEAEYA5AByAGcALQBMAEMARABSAGUAbgBrAGwAaQAgAEwAQwBEAEwAQwBEACAAYQAgAEMAbwByAGUAczCrMOkw/ABMAEMARHRleHQAAAAAQ29weXJpZ2h0IEFwcGxlIEluYy4sIDIwMTUAAFhZWiAAAAAAAADzUgABAAAAARbPWFlaIAAAAAAAAG+iAAA49QAAA5BYWVogAAAAAAAAYpkAALeFAAAY2lhZWiAAAAAAAAAkoAAAD4QAALbPY3VydgAAAAAAAAQAAAAABQAKAA8AFAAZAB4AIwAoAC0AMgA3ADsAQABFAEoATwBUAFkAXgBjAGgAbQByAHcAfACBAIYAiwCQAJUAmgCfAKQAqQCuALIAtwC8AMEAxgDLANAA1QDbAOAA5QDrAPAA9gD7AQEBBwENARMBGQEfASUBKwEyATgBPgFFAUwBUgFZAWABZwFuAXUBfAGDAYsBkgGaAaEBqQGxAbkBwQHJAdEB2QHhAekB8gH6AgMCDAIUAh0CJgIvAjgCQQJLAlQCXQJnAnECegKEAo4CmAKiAqwCtgLBAssC1QLgAusC9QMAAwsDFgMhAy0DOANDA08DWgNmA3IDfgOKA5YDogOuA7oDxwPTA+AD7AP5BAYEEwQgBC0EOwRIBFUEYwRxBH4EjASaBKgEtgTEBNME4QTwBP4FDQUcBSsFOgVJBVgFZwV3BYYFlgWmBbUFxQXVBeUF9gYGBhYGJwY3BkgGWQZqBnsGjAadBq8GwAbRBuMG9QcHBxkHKwc9B08HYQd0B4YHmQesB78H0gflB/gICwgfCDIIRghaCG4IggiWCKoIvgjSCOcI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AYwBvAHUAbABlAHUAcgBXAGEAcgBuAGEAIABMAEMARAkwCQIJFwlACSgAIABMAEMARABMAEMARAAgDioONQBMAEMARAAgAGUAbgAgAGMAbwBsAG8AcgBGAGEAcgBiAC0ATABDAEQAQwBvAGwAbwByACAATABDAEQATABDAEQAIABDAG8AbABvAHIAaQBkAG8ASwBvAGwAbwByACAATABDAEQDiAOzA8cDwQPJA7wDtwAgA78DuAPMA70DtwAgAEwAQwBEAEYA5AByAGcALQBMAEMARABSAGUAbgBrAGwAaQAgAEwAQwBEAEwAQwBEACAAYQAgAEMAbwByAGUAczCrMOkw/ABMAEMARHRleHQAAAAAQ29weXJpZ2h0IEFwcGxlIEluYy4sIDIwMTUAAFhZWiAAAAAAAADzUgABAAAAARbPWFlaIAAAAAAAAG+iAAA49QAAA5BYWVogAAAAAAAAYpkAALeFAAAY2lhZWiAAAAAAAAAkoAAAD4QAALbPY3VydgAAAAAAAAQAAAAABQAKAA8AFAAZAB4AIwAoAC0AMgA3ADsAQABFAEoATwBUAFkAXgBjAGgAbQByAHcAfACBAIYAiwCQAJUAmgCfAKQAqQCuALIAtwC8AMEAxgDLANAA1QDbAOAA5QDrAPAA9gD7AQEBBwENARMBGQEfASUBKwEyATgBPgFFAUwBUgFZAWABZwFuAXUBfAGDAYsBkgGaAaEBqQGxAbkBwQHJAdEB2QHhAekB8gH6AgMCDAIUAh0CJgIvAjgCQQJLAlQCXQJnAnECegKEAo4CmAKiAqwCtgLBAssC1QLgAusC9QMAAwsDFgMhAy0DOANDA08DWgNmA3IDfgOKA5YDogOuA7oDxwPTA+AD7AP5BAYEEwQgBC0EOwRIBFUEYwRxBH4EjASaBKgEtgTEBNME4QTwBP4FDQUcBSsFOgVJBVgFZwV3BYYFlgWmBbUFxQXVBeUF9gYGBhYGJwY3BkgGWQZqBnsGjAadBq8GwAbRBuMG9QcHBxkHKwc9B08HYQd0B4YHmQesB78H0gflB/gICwgfCDIIRghaCG4IggiWCKoIvgjSCOcI+wkQCSUJOglPCWQJeQmPCaQJugnPCeUJ+woRCicKPQpUCmoKgQqYCq4KxQrcCvMLCwsiCzkLUQtpC4ALmAuwC8gL4Qv5DBIMKgxDDFwMdQyODKc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
 """
 
 class PDFAFixEngine:
@@ -55,11 +55,13 @@ class PDFAFixEngine:
             'addMissingRoleMappings'  # New fix to add all common mappings
         ]
     
-    def apply_pdfa_fixes(self, pdf_path: str, scan_results: Dict[str, Any]) -> Dict[str, Any]:
+    def apply_pdfa_fixes(self, pdf_path: str, scan_results: Dict[str, Any], *, tracker=None) -> Dict[str, Any]:
         """
-        Apply semi-automated PDF/A fixes based on detected issues
+        Apply semi-automated PDF/A fixes based on detected issues with progress tracking
         COMPLETELY REWRITTEN to handle actual scan results and fix structural issues
         """
+        print(f"[PDFAFixEngine.apply_pdfa_fixes] Called with pdf_path={pdf_path}, tracker={tracker}")
+        
         pdf = None
         temp_path = None
         try:
@@ -70,28 +72,39 @@ class PDFAFixEngine:
             
             pdfa_issues = []
             if isinstance(scan_results, dict):
+                # Try to get pdfaIssues from various possible locations
                 pdfa_issues = scan_results.get('pdfaIssues', [])
+                if not pdfa_issues:
+                    # Check if it's nested in results
+                    results = scan_results.get('results', {})
+                    if isinstance(results, dict):
+                        pdfa_issues = results.get('pdfaIssues', [])
                 print(f"[PDFAFixEngine] Found {len(pdfa_issues)} PDF/A issues to fix")
             else:
                 print(f"[PDFAFixEngine] WARNING: scan_results is not a dict, it's {type(scan_results)}")
-                return {
-                    'success': False,
-                    'error': 'Invalid scan results format',
-                    'fixesApplied': [],
-                    'successCount': 0
-                }
+                # Don't fail - just apply basic fixes
+                print(f"[PDFAFixEngine] Applying basic PDF/A fixes anyway")
             
             if len(pdfa_issues) == 0:
                 print(f"[PDFAFixEngine] No PDF/A issues found, applying basic fixes anyway")
+            
+            if tracker:
+                tracker.start_step(3)  # open_pdf step
             
             temp_path = f"{pdf_path}.temp"
             
             pdf = Pdf.open(pdf_path)
             print(f"[PDFAFixEngine] ✓ PDF opened successfully")
             
+            if tracker:
+                tracker.complete_step(3, "PDF opened successfully")
+            
             fixes_applied = []
             success_count = 0
             warnings = []
+            
+            if tracker:
+                tracker.start_step(4)  # add_output_intent step
             
             try:
                 if '/OutputIntents' not in pdf.Root or len(pdf.Root.OutputIntents) == 0:
@@ -100,10 +113,22 @@ class PDFAFixEngine:
                         fixes_applied.append(result)
                         success_count += 1
                         print(f"[PDFAFixEngine] ✓ Added OutputIntent")
+                        if tracker:
+                            tracker.complete_step(4, "Added OutputIntent with sRGB ICC profile")
+                    else:
+                        if tracker:
+                            tracker.skip_step(4, result.get('message', 'Already exists'))
                 else:
                     print(f"[PDFAFixEngine] OutputIntent already exists")
+                    if tracker:
+                        tracker.skip_step(4, "OutputIntent already exists")
             except Exception as e:
                 print(f"[PDFAFixEngine] ✗ Error adding OutputIntent: {e}")
+                if tracker:
+                    tracker.fail_step(4, str(e))
+            
+            if tracker:
+                tracker.start_step(5)  # add_pdfa_id step
             
             try:
                 result = self._add_pdfa_identifier(pdf)
@@ -111,8 +136,18 @@ class PDFAFixEngine:
                     fixes_applied.append(result)
                     success_count += 1
                     print(f"[PDFAFixEngine] ✓ Added PDF/A identifier")
+                    if tracker:
+                        tracker.complete_step(5, "Added PDF/A-1B identifier")
+                else:
+                    if tracker:
+                        tracker.skip_step(5, result.get('message', 'Already exists'))
             except Exception as e:
                 print(f"[PDFAFixEngine] ✗ Error adding PDF/A identifier: {e}")
+                if tracker:
+                    tracker.fail_step(5, str(e))
+            
+            if tracker:
+                tracker.start_step(6)  # fix_metadata step
             
             try:
                 result = self._fix_metadata_consistency(pdf)
@@ -120,8 +155,18 @@ class PDFAFixEngine:
                     fixes_applied.append(result)
                     success_count += 1
                     print(f"[PDFAFixEngine] ✓ Fixed metadata consistency")
+                    if tracker:
+                        tracker.complete_step(6, "Metadata synchronized")
+                else:
+                    if tracker:
+                        tracker.skip_step(6, result.get('message', 'Already consistent'))
             except Exception as e:
                 print(f"[PDFAFixEngine] ✗ Error fixing metadata: {e}")
+                if tracker:
+                    tracker.fail_step(6, str(e))
+            
+            if tracker:
+                tracker.start_step(7)  # fix_structure step
             
             try:
                 result = self._fix_structure_types(pdf)
@@ -129,8 +174,18 @@ class PDFAFixEngine:
                     fixes_applied.append(result)
                     success_count += 1
                     print(f"[PDFAFixEngine] ✓ Fixed structure types")
+                    if tracker:
+                        tracker.complete_step(7, result.get('description', 'Structure types fixed'))
+                else:
+                    if tracker:
+                        tracker.skip_step(7, result.get('message', 'No fixes needed'))
             except Exception as e:
                 print(f"[PDFAFixEngine] ✗ Error fixing structure types: {e}")
+                if tracker:
+                    tracker.fail_step(7, str(e))
+            
+            if tracker:
+                tracker.start_step(8)  # downgrade_version step
             
             try:
                 result = self._downgrade_pdf_version(pdf)
@@ -138,8 +193,15 @@ class PDFAFixEngine:
                     fixes_applied.append(result)
                     success_count += 1
                     print(f"[PDFAFixEngine] ✓ Downgraded PDF version")
+                    if tracker:
+                        tracker.complete_step(8, "PDF version downgraded to 1.4")
+                else:
+                    if tracker:
+                        tracker.skip_step(8, result.get('message', 'Already 1.4'))
             except Exception as e:
                 print(f"[PDFAFixEngine] ✗ Error downgrading PDF version: {e}")
+                if tracker:
+                    tracker.fail_step(8, str(e))
             
             for issue in pdfa_issues:
                 if isinstance(issue, str):
@@ -181,6 +243,9 @@ class PDFAFixEngine:
                     })
                     print(f"[PDFAFixEngine] ⚠ Encryption requires manual intervention")
             
+            if tracker:
+                tracker.start_step(9)  # save_pdf step
+            
             print(f"[PDFAFixEngine] ========== SAVING PDF/A FIXES ==========")
             print(f"[PDFAFixEngine] Applied {success_count} fixes, now saving...")
             print(f"[PDFAFixEngine] Saving to temp file: {temp_path}")
@@ -202,6 +267,9 @@ class PDFAFixEngine:
             shutil.move(temp_path, pdf_path)
             print(f"[PDFAFixEngine] ✓ Original file replaced")
             print(f"[PDFAFixEngine] Final file size: {os.path.getsize(pdf_path)} bytes")
+            
+            if tracker:
+                tracker.complete_step(9, f"PDF saved ({os.path.getsize(pdf_path)} bytes)")
             
             print(f"[PDFAFixEngine] ========== PDF/A FIXES COMPLETE ==========")
             print(f"[PDFAFixEngine] Total fixes applied: {success_count}")
@@ -604,17 +672,3 @@ class PDFAFixEngine:
         except Exception as e:
             print(f"[PDFAFixEngine] Error fixing circular RoleMaps: {e}")
             return False
-
-def apply_pdfa_fixes(pdf_path: str, scan_results: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Apply PDF/A fixes to a PDF file
-    
-    Args:
-        pdf_path: Path to the PDF file
-        scan_results: Scan results dictionary containing pdfaIssues
-        
-    Returns:
-        Dictionary with fix results
-    """
-    engine = PDFAFixEngine()
-    return engine.apply_pdfa_fixes(pdf_path, scan_results)

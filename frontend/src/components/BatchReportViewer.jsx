@@ -132,7 +132,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       window.URL.revokeObjectURL(url)
     } catch (error) {
       console.error("Error exporting batch:", error)
-      alert("Failed to export batch: " + (error.response?.data?.error || error.message))
+      const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message
+      alert(`Failed to export batch: ${errorMessage}`)
     } finally {
       setExporting(false)
     }

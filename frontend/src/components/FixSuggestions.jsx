@@ -5,6 +5,7 @@ import axios from "axios"
 import PDFEditor from "./PDFEditor"
 import { formatTimeEstimate } from "../utils/timeFormat"
 import AIRemediationPanel from "./AIRemediationPanel"
+import FixProgressStepper from "./FixProgressStepper"
 import { API_ENDPOINTS } from "../config/api"
 
 export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
@@ -15,6 +16,9 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [fixedFile, setFixedFile] = useState(null)
   const [showEditor, setShowEditor] = useState(false)
   const [showAIPanel, setShowAIPanel] = useState(false)
+  const [showProgressStepper, setShowProgressStepper] = useState(false)
+  const [currentFixType, setCurrentFixType] = useState("")
+
   const [autoExpanded, setAutoExpanded] = useState(false);
   const [semiExpanded, setSemiExpanded] = useState(false);
   const [manualExpanded, setManualExpanded] = useState(false);
@@ -46,32 +50,19 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
   const handleApplyTraditionalFixes = async () => {
     setApplyingTraditional(true)
+    setShowProgressStepper(true)
+    setCurrentFixType("Traditional Automated Fixes")
+
     try {
       const response = await axios.post(API_ENDPOINTS.applyFixes(scanId), {
         useAI: false,
       })
-      if (response.data.success) {
-        setFixedFile({
-          filename: response.data.fixedFile,
-          message: response.data.message,
-        })
-        alert("Traditional automated fixes applied successfully!")
 
-        if (onRefresh) {
-          console.log("[v0] FixSuggestions - Refreshing data after traditional fixes")
-          try {
-            await onRefresh()
-            console.log("[v0] FixSuggestions - Refresh completed successfully")
-          } catch (refreshError) {
-            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
-          }
-        }
-      } else {
-        alert(response.data.message || "Failed to apply fixes")
-      }
+      // Progress stepper will handle the completion
     } catch (error) {
       console.error("Error applying traditional fixes:", error)
       alert("Error applying fixes: " + (error.response?.data?.message || error.message))
+      setShowProgressStepper(false)
     } finally {
       setApplyingTraditional(false)
     }
@@ -79,32 +70,19 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
   const handleApplyAIFixes = async () => {
     setApplyingAI(true)
+    setShowProgressStepper(true)
+    setCurrentFixType("AI-Powered Automated Fixes")
+
     try {
       const response = await axios.post(API_ENDPOINTS.applyFixes(scanId), {
         useAI: true,
       })
-      if (response.data.success) {
-        setFixedFile({
-          filename: response.data.fixedFile,
-          message: response.data.message,
-        })
-        alert("✨ AI-powered automated fixes applied successfully!")
 
-        if (onRefresh) {
-          console.log("[v0] FixSuggestions - Refreshing data after AI fixes")
-          try {
-            await onRefresh()
-            console.log("[v0] FixSuggestions - Refresh completed successfully")
-          } catch (refreshError) {
-            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
-          }
-        }
-      } else {
-        alert(response.data.message || "Failed to apply AI fixes")
-      }
+      // Progress stepper will handle the completion
     } catch (error) {
       console.error("Error applying AI fixes:", error)
       alert("Error applying AI fixes: " + (error.response?.data?.message || error.message))
+      setShowProgressStepper(false)
     } finally {
       setApplyingAI(false)
     }
@@ -112,28 +90,19 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
   const handleApplyTraditionalSemiFixes = async () => {
     setApplyingTraditionalSemi(true)
+    setShowProgressStepper(true)
+    setCurrentFixType("Traditional Semi-Automated Fixes")
+
     try {
       const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
         useAI: false,
       })
-      if (response.data.success) {
-        alert("Traditional semi-automated fixes applied successfully!")
 
-        if (onRefresh) {
-          console.log("[v0] FixSuggestions - Refreshing data after traditional semi-automated fixes")
-          try {
-            await onRefresh()
-            console.log("[v0] FixSuggestions - Refresh completed successfully")
-          } catch (refreshError) {
-            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
-          }
-        }
-      } else {
-        alert(response.data.message || "Failed to apply semi-automated fixes")
-      }
+      // Progress stepper will handle the completion
     } catch (error) {
       console.error("Error applying traditional semi-automated fixes:", error)
       alert("Error: " + (error.response?.data?.message || error.message))
+      setShowProgressStepper(false)
     } finally {
       setApplyingTraditionalSemi(false)
     }
@@ -141,28 +110,19 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
   const handleApplyAISemiFixes = async () => {
     setApplyingAISemi(true)
+    setShowProgressStepper(true)
+    setCurrentFixType("AI-Powered Semi-Automated Fixes")
+
     try {
       const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
         useAI: true,
       })
-      if (response.data.success) {
-        alert("✨ AI-powered semi-automated fixes applied successfully!")
 
-        if (onRefresh) {
-          console.log("[v0] FixSuggestions - Refreshing data after AI semi-automated fixes")
-          try {
-            await onRefresh()
-            console.log("[v0] FixSuggestions - Refresh completed successfully")
-          } catch (refreshError) {
-            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
-          }
-        }
-      } else {
-        alert(response.data.message || "Failed to apply AI semi-automated fixes")
-      }
+      // Progress stepper will handle the completion
     } catch (error) {
       console.error("Error applying AI semi-automated fixes:", error)
       alert("Error: " + (error.response?.data?.message || error.message))
+      setShowProgressStepper(false)
     } finally {
       setApplyingAISemi(false)
     }
@@ -219,6 +179,41 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
+  const handleProgressComplete = async (success, newScanData) => {
+    setShowProgressStepper(false)
+
+    if (success) {
+      alert(`${currentFixType} applied successfully!`)
+
+      if (newScanData && newScanData.newScanResults && newScanData.newFixes) {
+        console.log("[v0] FixSuggestions - Using new scan data from progress tracker:", newScanData)
+        console.log("[v0] FixSuggestions - New scan results:", newScanData.newScanResults)
+        console.log("[v0] FixSuggestions - New fixes:", newScanData.newFixes)
+
+        if (onRefresh) {
+          try {
+            await onRefresh(newScanData.newScanResults, newScanData.newFixes)
+            console.log("[v0] FixSuggestions - Refresh completed with new scan data")
+          } catch (refreshError) {
+            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+          }
+        }
+      } else {
+        console.log("[v0] FixSuggestions - No new scan data, fetching fresh data")
+        if (onRefresh) {
+          try {
+            await onRefresh()
+            console.log("[v0] FixSuggestions - Refresh completed successfully")
+          } catch (refreshError) {
+            console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+          }
+        }
+      }
+    } else {
+      alert(`${currentFixType} encountered errors. Please check the details.`)
+    }
+  }
+
   const validAutomated = Array.isArray(fixes?.automated) ? fixes.automated.map(cleanFix).filter(Boolean) : []
   const autoVisible = autoExpanded ? validAutomated : validAutomated.slice(0, 5);
   const validSemiAutomated = Array.isArray(fixes?.semiAutomated)
@@ -251,6 +246,14 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
   return (
     <div className="space-y-4">
+      {/* Progress Stepper Modal */}
+      <FixProgressStepper
+        scanId={scanId}
+        isOpen={showProgressStepper}
+        onClose={() => setShowProgressStepper(false)}
+        onComplete={handleProgressComplete}
+      />
+
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold text-gray-900 dark:text-white">Remediation Suggestions</h3>
         <div className="flex items-center gap-3">
@@ -286,7 +289,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-4-4l-4 4m0 0l-4-4m4 4V4"
                 />
               </svg>
               Open PDF Editor
