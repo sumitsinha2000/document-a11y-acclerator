@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
+NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
 # Ensure that if DATABASE_URL is not set, it tries NEON_DATABASE_URL or NEON_POSTGRES_URL
 if not NEON_NEON_DATABASE_URL:
     NEON_NEON_DATABASE_URL = os.getenv('NEON_DATABASE_URL')
@@ -1110,18 +1110,32 @@ def download_fixed_pdf(scan_id):
         result = execute_query(query, (scan_id,), fetch=True)
         
         if not result or not result[0]['fixed_file']:
-            print(f"[Backend] No fixed file found for scan: {scan_id}")
-            return jsonify({'error': 'Fixed file not found'}), 404
-        
-        fixed_filename = result[0]['fixed_file']
-        file_path = os.path.join('uploads', fixed_filename)
+            print(f"[Backend] No fix history found, trying scan_id directly: {scan_id}")
+            file_path = os.path.join('uploads', scan_id)
+        else:
+            fixed_filename = result[0]['fixed_file']
+            file_path = os.path.join('uploads', fixed_filename)
         
         if not os.path.exists(file_path):
             print(f"[Backend] Fixed file does not exist at path: {file_path}")
             return jsonify({'error': 'File not found on disk'}), 404
         
-        print(f"[Backend] ✓ Sending fixed file: {fixed_filename}")
-        return send_file(file_path, as_attachment=True, download_name=fixed_filename)
+        if os.path.getsize(file_path) == 0:
+            print(f"[Backend] ERROR: File is empty: {file_path}")
+            return jsonify({'error': 'File is empty'}), 500
+        
+        download_name = os.path.basename(file_path)
+        if not download_name.endswith('.pdf'):
+            download_name += '.pdf'
+        
+        print(f"[Backend] ✓ Sending fixed PDF: {download_name} ({os.path.getsize(file_path)} bytes)")
+        
+        return send_file(
+            file_path, 
+            as_attachment=True, 
+            download_name=download_name,
+            mimetype='application/pdf'
+        )
         
     except Exception as e:
         print(f"[Backend] ERROR downloading fixed file: {e}")
@@ -1950,7 +1964,6 @@ def batch_operations(batch_id):
                 scan_details.append({
                     'scanId': scan['id'],
                     'filename': scan['filename'],
-                    'results': results,
                     'summary': summary,
                     'uploadDate': scan['upload_date'].isoformat() if scan['upload_date'] else None
                 })
