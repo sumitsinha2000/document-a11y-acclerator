@@ -14,25 +14,17 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Determine database type from environment
-DATABASE_TYPE = os.environ.get('DATABASE_TYPE', 'sqlite')  # 'sqlite' or 'postgresql'
 NEON_DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
 # Import appropriate database library
-if DATABASE_TYPE == 'postgresql' and DATABASE_URL:
-    try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        USE_POSTGRESQL = True
-        print("[Backend] Using PostgreSQL database")
-    except ImportError:
-        print("[Backend] psycopg2 not installed, falling back to SQLite")
-        print("[Backend] Install with: pip install psycopg2-binary")
-        USE_POSTGRESQL = False
-        import sqlite3
-else:
-    USE_POSTGRESQL = False
-    import sqlite3
-    print("[Backend] Using SQLite database")
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    print("[Backend] Using PostgreSQL database")
+except ImportError:
+    print("[Backend] ERROR: psycopg2 not installed")
+    print("[Backend] Install with: pip install psycopg2-binary")
+    raise ImportError("psycopg2 is required. Install with: pip install psycopg2-binary")
 
 from pdf_analyzer import PDFAccessibilityAnalyzer
 from fix_suggestions import generate_fix_suggestions
@@ -93,41 +85,25 @@ CORS(app)
 db_lock = threading.Lock()
 
 def get_db_connection():
-    """Get database connection (PostgreSQL or SQLite)"""
+    """Get PostgreSQL database connection"""
     try:
-        if USE_POSTGRESQL:
-            if not DATABASE_URL:
-                raise Exception("DATABASE_URL environment variable not set")
-            conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-            print("[Backend] ✓ Connected to PostgreSQL")
-            return conn
-        else:
-            conn = sqlite3.connect('accessibility_scans.db', check_same_thread=False)  # Added check_same_thread=False for thread safety
-            conn.row_factory = sqlite3.Row
-            print("[Backend] ✓ Connected to SQLite")
-            return conn
+        if not DATABASE_URL:
+            raise Exception("DATABASE_URL environment variable not set. Please configure your Neon database connection.")
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        print("[Backend] ✓ Connected to PostgreSQL")
+        return conn
     except Exception as e:
         print(f"[Backend] ✗ Database connection error: {e}")
-        print(f"[Backend] Database type: {DATABASE_TYPE}")
         print(f"[Backend] DATABASE_URL set: {bool(DATABASE_URL)}")
-        if USE_POSTGRESQL:
-            print("[Backend] Falling back to SQLite...")
-            # Fallback to SQLite
-            conn = sqlite3.connect('accessibility_scans.db', check_same_thread=False)  # Added check_same_thread=False
-            conn.row_factory = sqlite3.Row
-            return conn
         raise
 
 def execute_query(query, params=None, fetch=False):
-    """Execute database query with automatic parameter style conversion"""
+    """Execute a database query with proper error handling"""
     with db_lock:
+        conn = None
         try:
             conn = get_db_connection()
             c = conn.cursor()
-            
-            if not USE_POSTGRESQL and params and '%s' in query:
-                # Convert PostgreSQL style (%s) to SQLite style (?)
-                query = query.replace('%s', '?')
             
             if params:
                 c.execute(query, params)
@@ -135,111 +111,69 @@ def execute_query(query, params=None, fetch=False):
                 c.execute(query)
             
             if fetch:
-                results = c.fetchall()
+                result = c.fetchall()
                 conn.close()
-                return results
+                return result
             else:
                 conn.commit()
                 conn.close()
-                return None
+                return True
         except Exception as e:
+            if conn:
+                conn.close()
             error_msg = str(e).lower()
-            if 'no such column' in error_msg or 'column' in error_msg and 'does not exist' in error_msg:
-                print(f"[Backend] DATABASE SCHEMA MISMATCH ERROR: {e}")
-                print(f"[Backend] The database table structure doesn't match the expected schema.")
-                print(f"[Backend] Please drop the existing tables or update the schema to match.")
-                print(f"[Backend] Query: {query}")
-                print(f"[Backend] Params: {params}")
-                raise Exception(f"Database schema mismatch: {e}. Please reset the database or update the schema.")
-            else:
-                print(f"[Backend] Database query error: {e}")
-                print(f"[Backend] Query: {query}")
-                print(f"[Backend] Params: {params}")
-                raise
+            if 'column' in error_msg and ('does not exist' in error_msg or 'unknown' in error_msg):
+                print(f"[Backend] ✗ Database schema mismatch detected: {e}")
+                print("[Backend] Please ensure your database schema is up to date.")
+                raise Exception(f"Database schema mismatch: {e}")
+            print(f"[Backend] ✗ Query execution error: {e}")
+            raise
 
 def init_db():
-    """Initialize database for storing scan history"""
+    """Initialize PostgreSQL database for storing scan history"""
     try:
         conn = get_db_connection()
         c = conn.cursor()
         
-        if USE_POSTGRESQL:
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS scans (
-                    id TEXT PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    scan_results JSONB NOT NULL,
-                    status TEXT DEFAULT 'completed',
-                    batch_id TEXT
-                )
-            ''')
-            
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS fix_history (
-                    id SERIAL PRIMARY KEY,
-                    scan_id TEXT NOT NULL,
-                    original_file TEXT NOT NULL,
-                    fixed_file TEXT NOT NULL,
-                    fixes_applied JSONB NOT NULL,
-                    success_count INTEGER DEFAULT 0,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (scan_id) REFERENCES scans(id)
-                )
-            ''')
-            
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS batches (
-                    id TEXT PRIMARY KEY,
-                    name TEXT,
-                    upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    file_count INTEGER DEFAULT 0,
-                    status TEXT DEFAULT 'pending',
-                    total_issues INTEGER DEFAULT 0,
-                    fixed_count INTEGER DEFAULT 0
-                )
-            ''')
-        else:
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS scans (
-                    id TEXT PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    scan_results TEXT NOT NULL,
-                    status TEXT DEFAULT 'completed',
-                    batch_id TEXT
-                )
-            ''')
-            
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS fix_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    scan_id TEXT NOT NULL,
-                    original_file TEXT NOT NULL,
-                    fixed_file TEXT NOT NULL,
-                    fixes_applied TEXT NOT NULL,
-                    success_count INTEGER DEFAULT 0,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN FOREIGN KEY (scan_id) REFERENCES scans(id)
-                )
-            ''')
-            
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS batches (
-                    id TEXT PRIMARY KEY,
-                    name TEXT,
-                    upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    file_count INTEGER DEFAULT 0,
-                    status TEXT DEFAULT 'pending',
-                    total_issues INTEGER DEFAULT 0,
-                    fixed_count INTEGER DEFAULT 0
-                )
-            ''')
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS scans (
+                id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                scan_results JSONB NOT NULL,
+                status TEXT DEFAULT 'completed',
+                batch_id TEXT
+            )
+        ''')
+        
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS fix_history (
+                id SERIAL PRIMARY KEY,
+                scan_id TEXT NOT NULL,
+                original_file TEXT NOT NULL,
+                fixed_file TEXT NOT NULL,
+                fixes_applied JSONB NOT NULL,
+                success_count INTEGER DEFAULT 0,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (scan_id) REFERENCES scans(id)
+            )
+        ''')
+        
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS batches (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                file_count INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'pending',
+                total_issues INTEGER DEFAULT 0,
+                fixed_count INTEGER DEFAULT 0
+            )
+        ''')
         
         conn.commit()
         conn.close()
-        db_type = "PostgreSQL" if USE_POSTGRESQL else "SQLite"
-        print(f"[Backend] ✓ {db_type} database initialized successfully")
+        print(f"[Backend] ✓ PostgreSQL database initialized successfully")
     except Exception as e:
         print(f"[Backend] ✗ Database initialization failed: {e}")
         import traceback
@@ -253,10 +187,10 @@ def save_scan_to_db(scan_id, filename, results, summary=None, batch_id=None):
         'summary': summary
     }
     
-    param_placeholder = '%s' if USE_POSTGRESQL else '?'
-    query = f'''
+    # Use unified query execution for saving
+    query = '''
         INSERT INTO scans (id, filename, scan_results, batch_id)
-        VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+        VALUES (%s, %s, %s, %s)
     '''
     execute_query(query, (scan_id, filename, json.dumps(scan_data), batch_id))
 
@@ -457,8 +391,8 @@ def get_scan_details(scan_id):
     try:
         print(f"[Backend] ========== LOADING SCAN: {scan_id} ==========")
         
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'SELECT filename, scan_results, upload_date, batch_id FROM scans WHERE id = {param_placeholder}'
+        # Use unified query execution to get scan data
+        query = f'SELECT filename, scan_results, upload_date, batch_id FROM scans WHERE id = %s'
         result = execute_query(query, (scan_id,), fetch=True)
         
         if not result:
@@ -503,12 +437,12 @@ def get_scan_details(scan_id):
                         'results': results,
                         'summary': summary
                     }
-                    param_placeholder = '%s' if USE_POSTGRESQL else '?'
-                    insert_query = f'''
+                    # Use unified query execution to save scan
+                    query = '''
                         INSERT INTO scans (id, filename, scan_results, batch_id)
-                        VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                        VALUES (%s, %s, %s, %s)
                     '''
-                    execute_query(insert_query, (scan_id, os.path.basename(scan_id), json.dumps(scan_data), None))
+                    execute_query(query, (scan_id, os.path.basename(scan_id), json.dumps(scan_data), None))
                     print(f"[Backend] ✓ Scan added to database")
                     
                     return jsonify({
@@ -567,10 +501,10 @@ def get_scan_details(scan_id):
             verapdf_status['totalVeraPDFIssues'] = wcag_issues + pdfua_issues
         
         print(f"[Backend] Fetching applied fixes from fix_history for scan: {scan_id}")
-        applied_fixes_query = f'''
+        applied_fixes_query = '''
             SELECT fixes_applied, success_count, timestamp, fixed_file
             FROM fix_history
-            WHERE scan_id = {param_placeholder}
+            WHERE scan_id = %s
             ORDER BY timestamp DESC
             LIMIT 1
         '''
@@ -633,8 +567,7 @@ def get_scan_details(scan_id):
 def export_scan(scan_id):
     """Export scan results as JSON"""
     try:
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'SELECT filename, scan_results, upload_date FROM scans WHERE id = {param_placeholder}'
+        query = f'SELECT filename, scan_results, upload_date FROM scans WHERE id = %s'
         result = execute_query(query, (scan_id,), fetch=True)
         
         if not result:
@@ -662,8 +595,7 @@ def get_fix_suggestions(scan_id):
         return jsonify({'error': 'Auto-fix engine not available'}), 503
     
     try:
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
+        query = f'SELECT scan_results FROM scans WHERE id = %s'
         result = execute_query(query, (scan_id,), fetch=True)
         
         if not result:
@@ -722,8 +654,7 @@ def apply_fixes(scan_id):
         tracker.start_step(step_id)
         
         # Use unified query execution to get scan data
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'SELECT filename, scan_results FROM scans WHERE id = {param_placeholder}'
+        query = f'SELECT filename, scan_results FROM scans WHERE id = %s'
         scan_data_result = execute_query(query, (scan_id,), fetch=True)
         
         if not scan_data_result:
@@ -780,7 +711,7 @@ def apply_fixes(scan_id):
                     'summary': None
                 }
                 
-                update_query = f'UPDATE scans SET scan_results = {param_placeholder}, status = {param_placeholder} WHERE id = {param_placeholder}'
+                update_query = f'UPDATE scans SET scan_results = %s, status = %s WHERE id = %s'
                 execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
                 
                 # Generate new fix suggestions
@@ -792,12 +723,6 @@ def apply_fixes(scan_id):
                 
                 result['newScanResults'] = new_scan_results
                 result['newFixes'] = new_fixes
-                
-                print(f"[Backend] Storing new scan results in tracker step")
-                print(f"[Backend] newScanResults keys: {list(new_scan_results.keys())}")
-                print(f"[Backend] newScanResults.wcagIssues count: {len(new_scan_results.get('wcagIssues', []))}")
-                print(f"[Backend] newScanResults.pdfuaIssues count: {len(new_scan_results.get('pdfuaIssues', []))}")
-                print(f"[Backend] newFixes keys: {list(new_fixes.keys()) if isinstance(new_fixes, dict) else 'not a dict'}")
                 
                 tracker.complete_step(
                     step_id, 
@@ -886,8 +811,7 @@ def apply_semi_automated_fixes(scan_id):
         tracker.start_step(step_id)
         
         # Use unified query execution to get scan data
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'SELECT filename, scan_results FROM scans WHERE id = {param_placeholder}'
+        query = f'SELECT filename, scan_results FROM scans WHERE id = %s'
         scan_data_result = execute_query(query, (scan_id,), fetch=True)
         
         if not scan_data_result:
@@ -944,7 +868,7 @@ def apply_semi_automated_fixes(scan_id):
                     'summary': None
                 }
                 
-                update_query = f'UPDATE scans SET scan_results = {param_placeholder}, status = {param_placeholder} WHERE id = {param_placeholder}'
+                update_query = f'UPDATE scans SET scan_results = %s, status = %s WHERE id = %s'
                 execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
                 
                 # Generate new fix suggestions
@@ -986,11 +910,10 @@ def get_fix_history(scan_id):
     """Get fix history for a specific scan"""
     try:
         # Use unified query execution for fetch
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'''
+        query = '''
             SELECT id, original_file, fixed_file, fixes_applied, success_count, timestamp
             FROM fix_history
-            WHERE scan_id = {param_placeholder}
+            WHERE scan_id = %s
             ORDER BY timestamp DESC
         '''
         history = execute_query(query, (scan_id,), fetch=True)
@@ -1205,11 +1128,10 @@ def apply_manual_fix(scan_id):
             print(f"[ManualFix] Updating database with new scan data...")
             print(f"[ManualFix]   Scan data size: {len(json.dumps(scan_data))} bytes")
             
-            param_placeholder = '%s' if USE_POSTGRESQL else '?'
             update_query = f'''
                 UPDATE scans 
-                SET scan_results = {param_placeholder}
-                WHERE id = {param_placeholder}
+                SET scan_results = %s
+                WHERE id = %s
             '''
             
             try:
@@ -1217,7 +1139,7 @@ def apply_manual_fix(scan_id):
                 print(f"[ManualFix] ✓ Database updated successfully")
                 
                 # Verify the update by reading it back
-                verify_query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
+                verify_query = f'SELECT scan_results FROM scans WHERE id = %s'
                 verify_result = execute_query(verify_query, (scan_id,), fetch=True)
                 
                 if verify_result:
@@ -1241,7 +1163,7 @@ def apply_manual_fix(scan_id):
             try:
                 insert_query = f'''
                     INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
-                    VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                    VALUES (%s, %s, %s, %s, %s)
                 '''
                 execute_query(insert_query, (
                     scan_id,
@@ -1353,12 +1275,11 @@ def process_single_file(file, idx, batch_id, total_files):
             }
             
             # Use unified query execution to save scan (thread-safe with db_lock)
-            param_placeholder = '%s' if USE_POSTGRESQL else '?'
-            insert_query = f'''
+            query = '''
                 INSERT INTO scans (id, filename, scan_results, batch_id)
-                VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                VALUES (%s, %s, %s, %s)
             '''
-            execute_query(insert_query, (scan_id, file.filename, json.dumps(scan_data), batch_id))
+            execute_query(query, (scan_id, file.filename, json.dumps(scan_data), batch_id))
             print(f"[Backend] ✓ Scan saved to database")
         except Exception as db_error:
             print(f"[Backend] ERROR saving scan to database: {db_error}")
@@ -1435,10 +1356,9 @@ def scan_batch():
         
         try:
             # Use unified query execution for batch creation
-            param_placeholder = '%s' if USE_POSTGRESQL else '?'
-            query = f'''
+            query = '''
                 INSERT INTO batches (id, name, file_count, status)
-                VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                VALUES (%s, %s, %s, %s)
             '''
             execute_query(query, (batch_id, f"Batch {datetime.now().strftime('%Y-%m-%d %H:%M')}", len(pdf_files), 'processing'))
             print(f"[Backend] ✓ Batch record created in database")
@@ -1486,13 +1406,12 @@ def scan_batch():
         
         try:
             # Use unified query execution to update batch status
-            param_placeholder = '%s' if USE_POSTGRESQL else '?'
-            update_query = f'''
+            query = '''
                 UPDATE batches 
-                SET status = {param_placeholder}, total_issues = {param_placeholder}, file_count = {param_placeholder}
-                WHERE id = {param_placeholder}
+                SET status = %s, total_issues = %s, file_count = %s
+                WHERE id = %s
             '''
-            execute_query(update_query, ('completed', total_issues, len(scan_results), batch_id))
+            execute_query(query, ('completed', total_issues, len(scan_results), batch_id))
             print(f"[Backend] ✓ Batch record updated")
         except Exception as db_error:
             print(f"[Backend] ERROR updating batch record: {db_error}")
@@ -1531,8 +1450,7 @@ def fix_all_batch(batch_id):
         print(f"[Backend] ========== FIX ALL BATCH: {batch_id} ==========")
         
         # Use unified query execution to get scans
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'SELECT id, filename FROM scans WHERE batch_id = {param_placeholder}'
+        query = f'SELECT id, filename FROM scans WHERE batch_id = %s'
         scans = execute_query(query, (batch_id,), fetch=True)
         
         print(f"[Backend] Found {len(scans)} scans in batch {batch_id}")
@@ -1582,18 +1500,17 @@ def fix_all_batch(batch_id):
                         'summary': new_summary
                     }
                     
-                    param_placeholder = '%s' if USE_POSTGRESQL else '?'
                     update_query = f'''
                         UPDATE scans 
-                        SET scan_results = {param_placeholder}, status = {param_placeholder}
-                        WHERE id = {param_placeholder}
+                        SET scan_results = %s, status = %s
+                        WHERE id = %s
                     '''
                     execute_query(update_query, (json.dumps(scan_data), 'fixed', scan_id))
                     print(f"[Backend] ✓ Updated scan record with new results")
                     
                     insert_query = f'''
                         INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
-                        VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                        VALUES (%s, %s, %s, %s, %s)
                     '''
                     execute_query(insert_query, (
                         scan_id,
@@ -1625,11 +1542,10 @@ def fix_all_batch(batch_id):
                 })
         
         # Use unified query execution to update batch status
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
         update_query = f'''
             UPDATE batches 
-            SET status = {param_placeholder}, fixed_count = {param_placeholder}
-            WHERE id = {param_placeholder}
+            SET status = %s, fixed_count = %s
+            WHERE id = %s
         '''
         execute_query(update_query, ('fixed', success_count, batch_id))
         
@@ -1662,8 +1578,7 @@ def fix_batch_file(batch_id, scan_id):
         print(f"[Backend] Scan ID: {scan_id}")
         
         # Use unified query execution to get scan details
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'SELECT filename, batch_id FROM scans WHERE id = {param_placeholder}'
+        query = f'SELECT filename, batch_id FROM scans WHERE id = %s'
         result = execute_query(query, (scan_id,), fetch=True)
         
         if not result:
@@ -1682,12 +1597,11 @@ def fix_batch_file(batch_id, scan_id):
                     }
                     
                     # Use unified query execution to add scan
-                    param_placeholder = '%s' if USE_POSTGRESQL else '?'
-                    insert_query = f'''
+                    query = '''
                         INSERT INTO scans (id, filename, scan_results, batch_id)
-                        VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                        VALUES (%s, %s, %s, %s)
                     '''
-                    execute_query(insert_query, (scan_id, os.path.basename(scan_id), json.dumps(scan_data), batch_id))
+                    execute_query(query, (scan_id, os.path.basename(scan_id), json.dumps(scan_data), batch_id))
                     print(f"[Backend] ✓ Scan added to database")
                 except Exception as e:
                     print(f"[Backend] ERROR adding scan to database: {e}")
@@ -1729,18 +1643,17 @@ def fix_batch_file(batch_id, scan_id):
                     'summary': new_summary
                 }
                 
-                param_placeholder = '%s' if USE_POSTGRESQL else '?'
                 update_query = f'''
                     UPDATE scans 
-                    SET scan_results = {param_placeholder}, status = {param_placeholder}
-                    WHERE id = {param_placeholder}
+                    SET scan_results = %s, status = %s
+                    WHERE id = %s
                 '''
                 execute_query(update_query, (json.dumps(scan_data), 'fixed', scan_id))
                 print(f"[Backend] ✓ Updated scan record with new results")
                 
                 insert_query = f'''
                     INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
-                    VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                    VALUES (%s, %s, %s, %s, %s)
                 '''
                 execute_query(insert_query, (
                     scan_id,
@@ -1779,12 +1692,11 @@ def export_batch(batch_id):
         
         # Get all scans in the batch
         # Use unified query execution for export
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'''
+        query = '''
             SELECT s.id, s.filename, fh.fixed_file
             FROM scans s
             LEFT JOIN fix_history fh ON s.id = fh.scan_id
-            WHERE s.batch_id = {param_placeholder}
+            WHERE s.batch_id = %s
         '''
         scans = execute_query(query, (batch_id,), fetch=True)
         
@@ -1832,18 +1744,16 @@ def batch_operations(batch_id):
     """Get or delete batch details"""
     if request.method == 'GET':
         try:
-            param_placeholder = '%s' if USE_POSTGRESQL else '?'
-            query = 'SELECT * FROM batches WHERE id = ?' if not USE_POSTGRESQL else 'SELECT * FROM batches WHERE id = %s'
+            query = 'SELECT * FROM batches WHERE id = %s'
             batch = execute_query(query, (batch_id,), fetch=True)
             
             if not batch:
                 return jsonify({'error': 'Batch not found'}), 404
             
-            param_placeholder = '%s' if USE_POSTGRESQL else '?'
-            query = f'''
+            query = '''
                 SELECT id, filename, scan_results, upload_date
                 FROM scans
-                WHERE batch_id = {param_placeholder}
+                WHERE batch_id = %s
                 ORDER BY upload_date
             '''
             scans = execute_query(query, (batch_id,), fetch=True)
@@ -1891,8 +1801,7 @@ def batch_operations(batch_id):
             print(f"[Backend] ========== DELETING BATCH: {batch_id} ==========")
             
             # Get all scans in the batch
-            param_placeholder = '%s' if USE_POSTGRESQL else '?'
-            query = f'SELECT id FROM scans WHERE batch_id = {param_placeholder}'
+            query = f'SELECT id FROM scans WHERE batch_id = %s'
             scans = execute_query(query, (batch_id,), fetch=True)
             
             if not scans:
@@ -1925,19 +1834,18 @@ def batch_operations(batch_id):
                         print(f"[Backend] ✗ Failed to delete fixed file {fixed_file_path}: {e}")
             
             # Delete fix history records
-            param_placeholder = '%s' if USE_POSTGRESQL else '?'
             for scan in scans:
-                delete_query = f'DELETE FROM fix_history WHERE scan_id = {param_placeholder}'
+                delete_query = 'DELETE FROM fix_history WHERE scan_id = %s'
                 execute_query(delete_query, (scan['id'],))
             print(f"[Backend] ✓ Deleted fix history records")
             
             # Delete scan records
-            delete_scans_query = f'DELETE FROM scans WHERE batch_id = {param_placeholder}'
+            delete_scans_query = 'DELETE FROM scans WHERE batch_id = %s'
             execute_query(delete_scans_query, (batch_id,))
             print(f"[Backend] ✓ Deleted {len(scans)} scan records")
             
             # Delete batch record
-            delete_batch_query = f'DELETE FROM batches WHERE id = {param_placeholder}'
+            delete_batch_query = 'DELETE FROM batches WHERE id = %s'
             execute_query(delete_batch_query, (batch_id,))
             print(f"[Backend] ✓ Deleted batch record")
             
@@ -1971,11 +1879,10 @@ def get_history():
         batches = []
         for batch in batches_result:
             # Get scans for this batch
-            param_placeholder = '%s' if USE_POSTGRESQL else '?'
-            scans_query = f'''
+            scans_query = '''
                 SELECT id, filename, scan_results, upload_date
                 FROM scans
-                WHERE batch_id = {param_placeholder}
+                WHERE batch_id = %s
                 ORDER BY upload_date
             '''
             scans = execute_query(scans_query, (batch['id'],), fetch=True)
@@ -2071,8 +1978,7 @@ def ai_analyze_scan(scan_id):
         print(f"[AI] ========== AI ANALYSIS: {scan_id} ==========")
         
         # Get scan results
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
+        query = f'SELECT scan_results FROM scans WHERE id = %s'
         result = execute_query(query, (scan_id,), fetch=True)
         
         if not result:
@@ -2236,8 +2142,7 @@ def ai_apply_fixes(scan_id):
             return jsonify({'error': f'PDF file not found: {scan_id}'}), 404
         
         # Get current scan results to understand issues
-        param_placeholder = '%s' if USE_POSTGRESQL else '?'
-        query = f'SELECT scan_results FROM scans WHERE id = {param_placeholder}'
+        query = f'SELECT scan_results FROM scans WHERE id = %s'
         result = execute_query(query, (scan_id,), fetch=True)
         
         if not result:
@@ -2278,11 +2183,10 @@ def ai_apply_fixes(scan_id):
                 }
                 
                 print(f"[AI Direct Fix] Updating database with new scan data...")
-                param_placeholder = '%s' if USE_POSTGRESQL else '?'
                 update_query = f'''
                     UPDATE scans 
-                    SET scan_results = {param_placeholder}, status = {param_placeholder}
-                    WHERE id = {param_placeholder}
+                    SET scan_results = %s, status = %s
+                    WHERE id = %s
                 '''
                 execute_query(update_query, (json.dumps(scan_data), 'ai_fixed', scan_id))
                 print(f"[AI Direct Fix] ✓ Database updated successfully")
@@ -2292,10 +2196,9 @@ def ai_apply_fixes(scan_id):
                 fix_result['newSummary'] = new_summary
                 
                 # Save fix history
-                param_placeholder = '%s' if USE_POSTGRESQL else '?'
                 insert_query = f'''
                     INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
-                    VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                    VALUES (%s, %s, %s, %s, %s)
                 '''
                 execute_query(insert_query, (
                     scan_id,
@@ -2330,7 +2233,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"[Backend] ✗ Failed to start server: {e}")
         print("[Backend] Check your database configuration:")
-        print(f"[Backend]   DATABASE_TYPE={DATABASE_TYPE}")
-        print(f"[Backend]   DATABASE_URL={'set' if DATABASE_URL else 'not set'}")
+        print(f"[Backend]   DATABASE_URL={DATABASE_URL}")
         import traceback
         traceback.print_exc()
