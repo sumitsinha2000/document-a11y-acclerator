@@ -10,6 +10,8 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
   const [view, setView] = useState("all") // 'all', 'batches', 'individual'
   const [error, setError] = useState(null)
   const [deletingBatch, setDeletingBatch] = useState(null)
+  const [deletingScan, setDeletingScan] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     fetchHistory()
@@ -17,6 +19,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
 
   const fetchHistory = async () => {
     try {
+      setRefreshing(true)
       console.log("[v0] Fetching history from /api/history")
       const response = await fetch(API_ENDPOINTS.history)
 
@@ -35,6 +38,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
       setError(error.message)
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -77,6 +81,40 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
     }
   }
 
+  const handleDeleteScan = async (scanId, filename, e) => {
+    e.stopPropagation()
+
+    if (!confirm(`Are you sure you want to delete "${filename}"? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      setDeletingScan(scanId)
+      console.log("[v0] Deleting scan:", scanId)
+
+      const response = await fetch(`${API_ENDPOINTS.scan}/${scanId}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to delete scan")
+      }
+
+      const result = await response.json()
+      console.log("[v0] Scan deleted successfully:", result)
+
+      await fetchHistory()
+
+      alert(`Successfully deleted "${filename}"`)
+    } catch (error) {
+      console.error("[v0] Error deleting scan:", error)
+      alert(`Failed to delete scan: ${error.message}`)
+    } finally {
+      setDeletingScan(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -107,34 +145,61 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
         >
           ← Back to Upload
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Upload History</h1>
+
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Upload History</h1>
+
+          <button
+            onClick={fetchHistory}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <svg
+              className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            {refreshing ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
 
         {/* View Toggle */}
         <div className="flex gap-2 mb-6">
           <button
             onClick={() => setView("all")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === "all"
-              ? "bg-blue-600 text-white"
-              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
-              }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              view === "all"
+                ? "bg-blue-600 text-white"
+                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+            }`}
           >
             All ({batches.length + scans.length})
           </button>
           <button
             onClick={() => setView("batches")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === "batches"
-              ? "bg-blue-600 text-white"
-              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
-              }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              view === "batches"
+                ? "bg-blue-600 text-white"
+                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+            }`}
           >
             Batches ({batches.length})
           </button>
           <button
             onClick={() => setView("individual")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === "individual"
-              ? "bg-blue-600 text-white"
-              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
-              }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              view === "individual"
+                ? "bg-blue-600 text-white"
+                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+            }`}
           >
             Individual ({scans.length})
           </button>
@@ -239,9 +304,30 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                     </svg>
                     <h3 className="font-semibold text-gray-900 dark:text-white truncate">{scan.filename}</h3>
                   </div>
-                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                    {scan.status}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                      {scan.status}
+                    </span>
+                    <button
+                      onClick={(e) => handleDeleteScan(scan.id, scan.filename, e)}
+                      disabled={deletingScan === scan.id}
+                      className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Delete scan"
+                    >
+                      {deletingScan === scan.id ? (
+                        <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                   {new Date(scan.uploadDate).toLocaleDateString()} at {new Date(scan.uploadDate).toLocaleTimeString()}
