@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
+NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
 # Ensure that if DATABASE_URL is not set, it tries NEON_DATABASE_URL or NEON_POSTGRES_URL
 if not DATABASE_URL:
     DATABASE_URL = os.getenv('DATABASE_URL')
@@ -738,39 +738,31 @@ def apply_fixes(scan_id):
         }
         tracker.complete_step(step_id, f"Loaded scan data for {scan_data.get('filename', 'unknown')}")
 
-        # Apply fixes with progress tracking
-        if use_ai:
-            # Check if AI remediation is available
-            if not AI_REMEDIATION_AVAILABLE:
-                tracker.fail_step(step_id, "AI remediation engine is not available.")
-                tracker.fail_all("AI remediation engine is not available.")
-                return jsonify({
-                    'success': False,
-                    'message': 'AI remediation functionality is not available. Set SAMBANOVA_API_KEY.'
-                }), 503
-
-            # AI fixes not available - fall back to traditional fixes
-            from auto_fix_engine import AutoFixEngine
-            fix_engine = AutoFixEngine()
-            result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
-        else:
-            from auto_fix_engine import AutoFixEngine
-            fix_engine = AutoFixEngine()
-            result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
+        from auto_fix_engine import AutoFixEngine
+        fix_engine = AutoFixEngine()
+        result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
 
         if result.get('success'):
             try:
-                fixed_file_path = os.path.join('uploads', result.get('fixedFile', scan_id))
-                print(f"[Backend] Re-scanning fixed file: {result.get('fixedFile')}")
+                fixed_file_path = os.path.join('uploads', scan_id)
+                print(f"[Backend] Re-scanning fixed file: {scan_id}")
+                
+                step_id = tracker.add_step(
+                    "Re-scan Fixed PDF",
+                    "Analyzing fixed PDF to verify improvements",
+                    "pending"
+                )
+                tracker.start_step(step_id)
                 
                 analyzer = PDFAccessibilityAnalyzer()
                 new_scan_results = analyzer.analyze(fixed_file_path)
                 new_summary = analyzer.calculate_summary(new_scan_results)
                 
-                print(f"[Backend] New scan results: {new_summary.get('totalIssues', 0)} issues (was {scan_data.get('summary', {}).get('totalIssues', 'unknown')})")
+                print(f"[Backend] New scan results: {new_summary.get('totalIssues', 0)} issues")
                 print(f"[Backend] New compliance score: {new_summary.get('complianceScore', 0)}%")
                 
-                # Update scan record with new results
+                tracker.complete_step(step_id, f"Re-scan complete: {new_summary.get('totalIssues', 0)} issues remaining")
+                
                 scan_data_updated = {
                     'results': new_scan_results,
                     'summary': new_summary
@@ -784,7 +776,13 @@ def apply_fixes(scan_id):
                 execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
                 print(f"[Backend] ✓ Updated scan record with new results")
                 
-                # Generate new fix suggestions based on remaining issues
+                step_id = tracker.add_step(
+                    "Generate New Fix Suggestions",
+                    "Creating fix suggestions for remaining issues",
+                    "pending"
+                )
+                tracker.start_step(step_id)
+                
                 new_fixes = get_empty_fixes_structure()
                 if AUTO_FIX_AVAILABLE:
                     try:
@@ -797,7 +795,8 @@ def apply_fixes(scan_id):
                 else:
                     new_fixes = generate_fix_suggestions(new_scan_results)
                 
-                # Save to fix_history
+                tracker.complete_step(step_id, f"Generated {len(new_fixes.get('automated', []))} new fix suggestions")
+                
                 insert_query = '''
                     INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
                     VALUES (%s, %s, %s, %s, %s)
@@ -805,17 +804,18 @@ def apply_fixes(scan_id):
                 execute_query(insert_query, (
                     scan_id,
                     scan_id,
-                    result.get('fixedFile', scan_id),
+                    scan_id,  # Fixed file is the same as scan_id
                     json.dumps(result.get('fixesApplied', [])),
                     result.get('successCount', 0)
                 ))
                 print(f"[Backend] ✓ Saved {result.get('successCount', 0)} fixes to fix_history table")
                 
-                # Return updated data
+                tracker.complete_all(f"Successfully applied {result.get('successCount', 0)} fixes")
+                
                 return jsonify({
                     'success': True,
                     'message': f"Successfully applied {result.get('successCount', 0)} fixes",
-                    'fixedFile': result.get('fixedFile'),
+                    'fixedFile': scan_id,
                     'fixesApplied': result.get('fixesApplied', []),
                     'successCount': result.get('successCount', 0),
                     'newScanResults': new_scan_results,
@@ -827,7 +827,8 @@ def apply_fixes(scan_id):
                 print(f"[Backend] ERROR: Failed to re-scan fixed file: {rescan_error}")
                 import traceback
                 traceback.print_exc()
-                # Still save to history even if re-scan fails
+                tracker.fail_all(f"Re-scan failed: {str(rescan_error)}")
+                
                 try:
                     insert_query = '''
                         INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
@@ -836,49 +837,33 @@ def apply_fixes(scan_id):
                     execute_query(insert_query, (
                         scan_id,
                         scan_id,
-                        result.get('fixedFile', scan_id),
+                        scan_id,
                         json.dumps(result.get('fixesApplied', [])),
                         result.get('successCount', 0)
                     ))
                 except Exception as history_error:
                     print(f"[Backend] ERROR: Failed to save fix history: {history_error}")
-            
-            # If rescan succeeded, complete the tracker steps
-            step_id = tracker.add_step(
-                "Re-scan Fixed PDF",
-                "Analyzing fixed PDF to verify improvements",
-                "pending"
-            )
-            tracker.start_step(step_id)
-            try:
-                fixed_file_path = os.path.join('uploads', result.get('fixedFile', scan_id))
-                analyzer = PDFAccessibilityAnalyzer()
-                new_scan_results = analyzer.analyze(fixed_file_path)
-                new_summary = analyzer.calculate_summary(new_scan_results)
                 
-                tracker.complete_step(step_id, f"Re-scan complete: {new_summary.get('totalIssues', 0)} issues found", result_data={'newScanResults': new_scan_results, 'newSummary': new_summary})
-                print(f"[Backend] Step completed with resultData stored")
-            except Exception as rescan_error:
-                print(f"[Backend] Warning: Re-scan failed during tracker completion: {rescan_error}")
-                tracker.skip_step(step_id, f"Re-scan failed: {str(rescan_error)}")
-
-            tracker.complete_all()
-            return jsonify(result) # Return the original result from apply_automated_fixes
+                return jsonify({
+                    'success': False,
+                    'message': f"Fixes applied but re-scan failed: {str(rescan_error)}",
+                    'error': str(rescan_error)
+                }), 500
         else:
             tracker.fail_all(result.get('error', 'Unknown error'))
-            return jsonify(result), 500
+            return jsonify({
+                'success': False,
+                'message': result.get('error', 'Failed to apply fixes'),
+                'error': result.get('error', 'Unknown error')
+            }), 500
+            
     except Exception as e:
-        print(f"[Backend] Error applying fixes: {str(e)}")
+        print(f"[Backend] ERROR in apply_fixes: {e}")
         import traceback
         traceback.print_exc()
-
         if 'tracker' in locals():
             tracker.fail_all(str(e))
-
-        return jsonify({
-            'success': False,
-            'message': f'Error applying fixes: {str(e)}'
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/fix-progress/<scan_id>', methods=['GET'])
 def get_fix_progress(scan_id):
@@ -1099,6 +1084,7 @@ def download_fixed_pdf(scan_id):
         
         print(f"[Backend] Downloading fixed file for scan: {scan_id}")
         
+        # Query fix_history for the fixed file
         query = '''
             SELECT fixed_file, original_file
             FROM fix_history
@@ -1109,25 +1095,36 @@ def download_fixed_pdf(scan_id):
         result = execute_query(query, (scan_id,), fetch=True)
         
         if not result or not result[0]['fixed_file']:
-            print(f"[Backend] No fix history found, trying scan_id directly: {scan_id}")
-            file_path = os.path.join('uploads', scan_id)
+            print(f"[Backend] No fix history found, using scan_id directly: {scan_id}")
+            # Ensure .pdf extension
+            if not scan_id.endswith('.pdf'):
+                file_path = os.path.join('uploads', f"{scan_id}.pdf")
+            else:
+                file_path = os.path.join('uploads', scan_id)
         else:
             fixed_filename = result[0]['fixed_file']
+            # Ensure .pdf extension
+            if not fixed_filename.endswith('.pdf'):
+                fixed_filename = f"{fixed_filename}.pdf"
             file_path = os.path.join('uploads', fixed_filename)
         
+        print(f"[Backend] Looking for file at: {file_path}")
+        
         if not os.path.exists(file_path):
-            print(f"[Backend] Fixed file does not exist at path: {file_path}")
+            print(f"[Backend] ERROR: Fixed file does not exist at path: {file_path}")
             return jsonify({'error': 'File not found on disk'}), 404
         
-        if os.path.getsize(file_path) == 0:
+        file_size = os.path.getsize(file_path)
+        if file_size == 0:
             print(f"[Backend] ERROR: File is empty: {file_path}")
             return jsonify({'error': 'File is empty'}), 500
         
+        # Extract clean filename for download
         download_name = os.path.basename(file_path)
         if not download_name.endswith('.pdf'):
-            download_name += '.pdf'
+            download_name = f"{download_name}.pdf"
         
-        print(f"[Backend] ✓ Sending fixed PDF: {download_name} ({os.path.getsize(file_path)} bytes)")
+        print(f"[Backend] ✓ Sending fixed PDF: {download_name} ({file_size} bytes)")
         
         return send_file(
             file_path, 
