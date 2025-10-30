@@ -132,12 +132,16 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     if (newScanResults && newFixes) {
       console.log("[v0] ReportViewer - Using provided data directly (no fetch needed)")
 
+      // Handle both formats: {results, summary} or just the results object
       const actualResults = newScanResults.results || newScanResults
       const actualSummary = newScanResults.summary || {
         totalIssues: (actualResults.wcagIssues?.length || 0) + (actualResults.pdfuaIssues?.length || 0),
         wcagIssues: actualResults.wcagIssues?.length || 0,
         pdfuaIssues: actualResults.pdfuaIssues?.length || 0,
         criticalIssues: actualResults.wcagIssues?.filter((i) => i.severity === "critical").length || 0,
+        complianceScore: Math.round(
+          100 - ((actualResults.wcagIssues?.length || 0) + (actualResults.pdfuaIssues?.length || 0)) * 2,
+        ),
       }
 
       const newData = {

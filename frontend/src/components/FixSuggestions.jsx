@@ -19,9 +19,9 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [showProgressStepper, setShowProgressStepper] = useState(false)
   const [currentFixType, setCurrentFixType] = useState("")
 
-  const [autoExpanded, setAutoExpanded] = useState(false);
-  const [semiExpanded, setSemiExpanded] = useState(false);
-  const [manualExpanded, setManualExpanded] = useState(false);
+  const [autoExpanded, setAutoExpanded] = useState(false)
+  const [semiExpanded, setSemiExpanded] = useState(false)
+  const [manualExpanded, setManualExpanded] = useState(false)
   const safeRender = (value, fallback = "N/A") => {
     if (value === null || value === undefined) return fallback
     if (typeof value === "string") return value
@@ -192,6 +192,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
         if (onRefresh) {
           try {
+            // Pass newScanResults first, then newFixes (matching ReportViewer.refreshScanData signature)
             await onRefresh(newScanData.newScanResults, newScanData.newFixes)
             console.log("[v0] FixSuggestions - Refresh completed with new scan data")
           } catch (refreshError) {
@@ -215,7 +216,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   }
 
   const validAutomated = Array.isArray(fixes?.automated) ? fixes.automated.map(cleanFix).filter(Boolean) : []
-  const autoVisible = autoExpanded ? validAutomated : validAutomated.slice(0, 5);
+  const autoVisible = autoExpanded ? validAutomated : validAutomated.slice(0, 5)
   const validSemiAutomated = Array.isArray(fixes?.semiAutomated)
     ? fixes.semiAutomated.map(cleanFix).filter(Boolean)
     : []
@@ -225,8 +226,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const hasSemiAutomated = validSemiAutomated.length > 0
   const hasManual = validManual.length > 0
   const hasAnyFixes = hasAutomated || hasSemiAutomated || hasManual
-  const semiVisible = semiExpanded ? validSemiAutomated : validSemiAutomated.slice(0, 5);
-  const manualVisible = manualExpanded ? validManual : validManual.slice(0, 5);
+  const semiVisible = semiExpanded ? validSemiAutomated : validSemiAutomated.slice(0, 5)
+  const manualVisible = manualExpanded ? validManual : validManual.slice(0, 5)
 
   if (!fixes) {
     return (
@@ -348,7 +349,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 <button
                   type="button"
                   aria-expanded={autoExpanded}
-                  onClick={() => setAutoExpanded(v => !v)}
+                  onClick={() => setAutoExpanded((v) => !v)}
                   className="w-full mb-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600
                bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600
                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
@@ -431,7 +432,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 <button
                   type="button"
                   aria-expanded={semiExpanded}
-                  onClick={() => setSemiExpanded(v => !v)}
+                  onClick={() => setSemiExpanded((v) => !v)}
                   className="w-full mt-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600
                 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600
                 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
@@ -520,7 +521,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 <button
                   type="button"
                   aria-expanded={manualExpanded}
-                  onClick={() => setManualExpanded(v => !v)}
+                  onClick={() => setManualExpanded((v) => !v)}
                   className="w-full mt-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600
                 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600
                 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
