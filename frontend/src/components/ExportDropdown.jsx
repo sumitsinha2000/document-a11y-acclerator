@@ -63,25 +63,176 @@ export default function ExportDropdown({ scanId, filename }) {
   }
 
   const generateHTMLReport = (data, filename) => {
+    const summary = data.summary || {}
+    const results = data.results || {}
+
+    let issuesHTML = ""
+    Object.entries(results).forEach(([category, issues]) => {
+      if (Array.isArray(issues) && issues.length > 0) {
+        issuesHTML += `
+          <div class="category-section">
+            <h2>${category.replace(/([A-Z])/g, " $1").trim()}</h2>
+            ${issues
+              .map(
+                (issue) => `
+              <div class="issue-item ${issue.severity || "medium"}">
+                <div class="issue-header">
+                  <span class="severity-badge ${issue.severity || "medium"}">${issue.severity || "Medium"}</span>
+                  <span class="issue-title">${issue.description || issue.title || "Issue"}</span>
+                </div>
+                <div class="issue-details">
+                  ${issue.page ? `<p><strong>Page:</strong> ${issue.page}</p>` : ""}
+                  ${issue.pages ? `<p><strong>Pages:</strong> ${issue.pages.join(", ")}</p>` : ""}
+                  ${issue.recommendation ? `<p><strong>Recommendation:</strong> ${issue.recommendation}</p>` : ""}
+                  ${issue.wcagCriteria ? `<p><strong>WCAG Criteria:</strong> ${issue.wcagCriteria}</p>` : ""}
+                </div>
+              </div>
+            `,
+              )
+              .join("")}
+          </div>
+        `
+      }
+    })
+
     return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Accessibility Report - ${filename}</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
-    .container { max-width: 900px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; }
-    h1 { color: #333; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; }
-    .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0; }
-    .summary-card { background-color: #f0f4f8; padding: 15px; border-radius: 5px; text-align: center; }
-    .issue-item { background-color: #f9f9f9; border-left: 4px solid #3b82f6; padding: 10px; margin: 10px 0; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 20px;
+    }
+    .container { 
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 40px;
+      text-align: center;
+    }
+    .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+    .header p { font-size: 1.1em; opacity: 0.9; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      padding: 40px;
+      background: #f8f9fa;
+    }
+    .summary-card {
+      background: white;
+      padding: 25px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      text-align: center;
+      transition: transform 0.2s;
+    }
+    .summary-card:hover { transform: translateY(-5px); }
+    .summary-card h3 { color: #666; font-size: 0.9em; text-transform: uppercase; margin-bottom: 10px; }
+    .summary-card .value { font-size: 2.5em; font-weight: bold; color: #667eea; }
+    .content { padding: 40px; }
+    .category-section { margin-bottom: 40px; }
+    .category-section h2 {
+      color: #667eea;
+      font-size: 1.8em;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 3px solid #667eea;
+    }
+    .issue-item {
+      background: #f8f9fa;
+      border-left: 4px solid #667eea;
+      padding: 20px;
+      margin: 15px 0;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+    .issue-item:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .issue-item.critical { border-left-color: #dc3545; }
+    .issue-item.high { border-left-color: #fd7e14; }
+    .issue-item.medium { border-left-color: #ffc107; }
+    .issue-item.low { border-left-color: #28a745; }
+    .issue-header {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      margin-bottom: 10px;
+    }
+    .severity-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.75em;
+      font-weight: bold;
+      text-transform: uppercase;
+      color: white;
+    }
+    .severity-badge.critical { background: #dc3545; }
+    .severity-badge.high { background: #fd7e14; }
+    .severity-badge.medium { background: #ffc107; color: #333; }
+    .severity-badge.low { background: #28a745; }
+    .issue-title { font-weight: 600; font-size: 1.1em; color: #333; }
+    .issue-details { margin-top: 10px; color: #666; }
+    .issue-details p { margin: 5px 0; }
+    .footer {
+      background: #f8f9fa;
+      padding: 30px;
+      text-align: center;
+      color: #666;
+      border-top: 1px solid #dee2e6;
+    }
+    @media print {
+      body { background: white; padding: 0; }
+      .container { box-shadow: none; }
+      .summary-card:hover, .issue-item:hover { transform: none; }
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Accessibility Compliance Report</h1>
-    <p><strong>Document:</strong> ${filename}</p>
-    <p><strong>Scan Date:</strong> ${new Date(data.uploadDate).toLocaleString()}</p>
+    <div class="header">
+      <h1>📄 Accessibility Compliance Report</h1>
+      <p><strong>Document:</strong> ${filename}</p>
+      <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+    </div>
+
+    <div class="summary">
+      <div class="summary-card">
+        <h3>Compliance Score</h3>
+        <div class="value">${summary.complianceScore || 0}%</div>
+      </div>
+      <div class="summary-card">
+        <h3>Total Issues</h3>
+        <div class="value">${summary.totalIssues || 0}</div>
+      </div>
+      <div class="summary-card">
+        <h3>High Severity</h3>
+        <div class="value">${summary.highSeverity || 0}</div>
+      </div>
+    </div>
+
+    <div class="content">
+      ${issuesHTML || '<p style="text-align: center; color: #28a745; font-size: 1.2em;">✅ No issues found! This document is fully compliant.</p>'}
+    </div>
+
+    <div class="footer">
+      <p>Generated by Document Accessibility Accelerator</p>
+      <p>Report Date: ${new Date().toLocaleDateString()}</p>
+    </div>
   </div>
 </body>
 </html>`

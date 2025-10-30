@@ -107,6 +107,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
 
     setIsRefreshing(true)
+    console.log("[v0] ReportViewer - Starting data refresh...")
 
     try {
       const currentScan = scans[selectedFileIndex]
@@ -122,8 +123,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
       console.log("[v0] ReportViewer - Fetching completely fresh data for scanId:", scanId)
 
-      // Wait a moment for backend to finish processing
-      await new Promise((resolve) => setTimeout(resolve, 1500))
+      await new Promise((resolve) => setTimeout(resolve, 2500))
 
       // Fetch with aggressive cache-busting
       const timestamp = Date.now()
@@ -137,6 +137,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
           t: timestamp,
           _: Math.random(),
           refresh: "true",
+          bustCache: timestamp,
         },
       })
 
@@ -181,6 +182,14 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       setRefreshKey((prev) => prev + 1)
 
       console.log("[v0] ReportViewer - State updated successfully with fresh data")
+      console.log("[v0] ReportViewer - New reportData:", {
+        totalIssues: newData.summary.totalIssues,
+        complianceScore: newData.summary.complianceScore,
+        fixCounts: {
+          automated: newData.fixes.automated.length,
+          semiAutomated: newData.fixes.semiAutomated.length,
+        },
+      })
     } catch (error) {
       console.error("[v0] ReportViewer - Error refreshing scan data:", error)
       alert("Failed to refresh data. Please try again.")

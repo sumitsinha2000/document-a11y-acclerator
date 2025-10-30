@@ -183,17 +183,25 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setShowProgressStepper(false)
 
     if (success) {
-      alert(`${currentFixType} applied successfully!`)
-
       console.log("[v0] FixSuggestions - Fixes applied successfully, triggering refresh")
+
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+
       if (onRefresh) {
         try {
           // Call with no parameters - let ReportViewer fetch completely fresh data
           await onRefresh()
           console.log("[v0] FixSuggestions - Refresh completed successfully")
+
+          alert(`${currentFixType} applied successfully! The report has been updated.`)
         } catch (refreshError) {
           console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+          alert(
+            `${currentFixType} applied, but failed to refresh the report. Please click the Refresh button manually.`,
+          )
         }
+      } else {
+        alert(`${currentFixType} applied successfully!`)
       }
     } else {
       alert(`${currentFixType} encountered errors. Please check the details.`)
