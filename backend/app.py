@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-DATABASE_URL = os.getenv('DATABASE_URL')
+NEON_DATABASE_URL = os.getenv('DATABASE_URL')
 
 if not DATABASE_URL:
     print("[Backend] ✗ CRITICAL ERROR: No DATABASE_URL found in environment variables!")
@@ -755,6 +755,24 @@ def apply_fixes(scan_id):
             result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
 
         if result.get('success'):
+            try:
+                insert_query = '''
+                    INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
+                    VALUES (%s, %s, %s, %s, %s)
+                '''
+                execute_query(insert_query, (
+                    scan_id,
+                    scan_id,
+                    result.get('fixedFile', scan_id),
+                    json.dumps(result.get('fixesApplied', [])),
+                    result.get('successCount', 0)
+                ))
+                print(f"[Backend] ✓ Saved {result.get('successCount', 0)} fixes to fix_history table")
+            except Exception as history_error:
+                print(f"[Backend] ERROR: Failed to save fix history: {history_error}")
+                import traceback
+                traceback.print_exc()
+            
             step_id = tracker.add_step(
                 "Re-scan Fixed PDF",
                 "Analyzing fixed PDF to verify improvements",
@@ -912,6 +930,24 @@ def apply_semi_automated_fixes(scan_id):
             result = fix_engine.apply_semi_automated_fixes(scan_id, scan_data, tracker)
 
         if result.get('success'):
+            try:
+                insert_query = '''
+                    INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
+                    VALUES (%s, %s, %s, %s, %s)
+                '''
+                execute_query(insert_query, (
+                    scan_id,
+                    scan_id,
+                    result.get('fixedFile', scan_id),
+                    json.dumps(result.get('fixesApplied', [])),
+                    result.get('successCount', 0)
+                ))
+                print(f"[Backend] ✓ Saved {result.get('successCount', 0)} fixes to fix_history table")
+            except Exception as history_error:
+                print(f"[Backend] ERROR: Failed to save fix history: {history_error}")
+                import traceback
+                traceback.print_exc()
+            
             step_id = tracker.add_step(
                 "Re-scan Fixed PDF",
                 "Analyzing fixed PDF to verify improvements",
