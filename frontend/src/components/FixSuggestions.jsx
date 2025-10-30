@@ -186,25 +186,25 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       alert(`${currentFixType} applied successfully!`)
 
       if (newScanData && newScanData.newScanResults && newScanData.newFixes) {
-        console.log("[v0] FixSuggestions - Using new scan data from progress tracker:", newScanData)
-        console.log("[v0] FixSuggestions - New scan results:", newScanData.newScanResults)
+        console.log("[v0] FixSuggestions - Received new scan data from progress:", newScanData)
+        console.log("[v0] FixSuggestions - New results:", newScanData.newScanResults)
         console.log("[v0] FixSuggestions - New fixes:", newScanData.newFixes)
 
         if (onRefresh) {
           try {
-            // Pass newScanResults first, then newFixes (matching ReportViewer.refreshScanData signature)
-            await onRefresh(newScanData.newScanResults, newScanData.newFixes)
-            console.log("[v0] FixSuggestions - Refresh completed with new scan data")
+            // Call with no parameters - let ReportViewer fetch fresh data
+            await onRefresh()
+            console.log("[v0] FixSuggestions - Refresh completed")
           } catch (refreshError) {
             console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
           }
         }
       } else {
-        console.log("[v0] FixSuggestions - No new scan data, fetching fresh data")
+        console.log("[v0] FixSuggestions - No new scan data, triggering refresh")
         if (onRefresh) {
           try {
             await onRefresh()
-            console.log("[v0] FixSuggestions - Refresh completed successfully")
+            console.log("[v0] FixSuggestions - Refresh completed")
           } catch (refreshError) {
             console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
           }
@@ -360,7 +360,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             </div>
             <div className="space-y-2">
               <button
-                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
                 onClick={handleApplyTraditionalFixes}
                 disabled={applyingTraditional}
                 aria-busy={applyingTraditional}

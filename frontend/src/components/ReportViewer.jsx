@@ -109,121 +109,54 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     setIsRefreshing(true)
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 300))
-    } catch (error) {
-      console.error("[v0] ReportViewer - Error during refresh delay:", error)
-    }
+      const currentScan = scans[selectedFileIndex]
+      let scanId = currentScan.scanId || currentScan.id
 
-    const currentScan = scans[selectedFileIndex]
-    let scanId = currentScan.scanId || currentScan.id
-
-    if (scanId && scanId.includes("_fixed_")) {
-      const match = scanId.match(/^(scan_\d+_\d+_[^_]+)/)
-      if (match) {
-        scanId = match[1] + ".pdf"
-      }
-    }
-
-    console.log("[v0] ReportViewer - Starting refresh for scanId:", scanId)
-    console.log("[v0] ReportViewer - New scan results provided:", newScanResults)
-    console.log("[v0] ReportViewer - New fixes provided:", newFixes)
-    console.log("[v0] ReportViewer - Current reportData before refresh:", reportData)
-
-    if (newScanResults && newFixes) {
-      console.log("[v0] ReportViewer - Using provided data directly (no fetch needed)")
-
-      // Handle both formats: {results, summary} or just the results object
-      const actualResults = newScanResults.results || newScanResults
-      const actualSummary = newScanResults.summary || {
-        totalIssues: (actualResults.wcagIssues?.length || 0) + (actualResults.pdfuaIssues?.length || 0),
-        wcagIssues: actualResults.wcagIssues?.length || 0,
-        pdfuaIssues: actualResults.pdfuaIssues?.length || 0,
-        criticalIssues: actualResults.wcagIssues?.filter((i) => i.severity === "critical").length || 0,
-        complianceScore: Math.round(
-          100 - ((actualResults.wcagIssues?.length || 0) + (actualResults.pdfuaIssues?.length || 0)) * 2,
-        ),
+      if (scanId && scanId.includes("_fixed_")) {
+        const match = scanId.match(/^(scan_\d+_\d+_[^_]+)/)
+        if (match) {
+          scanId = match[1] + ".pdf"
+        }
       }
 
-      const newData = {
-        ...reportData,
-        summary: actualSummary,
-        results: actualResults,
-        fixes: newFixes,
-      }
+      console.log("[v0] ReportViewer - Fetching fresh data for scanId:", scanId)
 
-      console.log("[v0] ReportViewer - New data structure created:", newData)
-      console.log("[v0] ReportViewer - New summary:", actualSummary)
-      console.log("[v0] ReportViewer - New results:", actualResults)
-      console.log("[v0] ReportViewer - New fixes:", newFixes)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      setReportData(newData)
-      console.log("[v0] ReportViewer - setReportData called with new data")
-
-      setRefreshKey((prev) => {
-        const newKey = prev + 1
-        console.log("[v0] ReportViewer - Refresh key updated:", prev, "->", newKey)
-        return newKey
+      const timestamp = Date.now()
+      const response = await axios.get(`/api/scan/${scanId}`, {
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+        params: {
+          t: timestamp,
+          _: Math.random(),
+        },
       })
 
-      setIsRefreshing(false)
-      console.log("[v0] ReportViewer - State updated successfully with provided data")
-      console.log("[v0] ReportViewer - reportData should now be:", newData)
-      return
-    }
+      console.log("[v0] ReportViewer - Received fresh data:", response.data)
+      console.log("[v0] ReportViewer - New summary:", response.data.summary)
+      console.log("[v0] ReportViewer - New fixes count:", response.data.fixes)
 
-    if (scanId) {
-      try {
-        console.log("[v0] ReportViewer - Fetching updated scan data from backend...")
-        await new Promise((resolve) => setTimeout(resolve, 800))
-
-        const timestamp = Date.now()
-        const response = await axios.get(`/api/scan/${scanId}`, {
-          headers: {
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            Pragma: "no-cache",
-            Expires: "0",
-          },
-          params: {
-            t: timestamp,
-            _: Math.random(), // Additional cache buster
-          },
-        })
-
-        console.log("[v0] ReportViewer - Received updated data:", response.data)
-        console.log("[v0] ReportViewer - New summary:", response.data.summary)
-        console.log("[v0] ReportViewer - New fixes:", response.data.fixes)
-        console.log("[v0] ReportViewer - New results:", response.data.results)
-        console.log("[v0] ReportViewer - Applied fixes from refresh:", response.data.appliedFixes)
-
-        const newData = {
-          ...response.data,
-          summary: response.data.summary || { totalIssues: 0, highSeverity: 0, complianceScore: 0 },
-          results: response.data.results || {},
-          fixes: response.data.fixes || { automated: [], semiAutomated: [], manual: [], estimatedTime: 0 },
-          appliedFixes: response.data.appliedFixes || null,
-        }
-
-        setReportData(newData)
-        setRefreshKey((prev) => {
-          const newKey = prev + 1
-          console.log("[v0] ReportViewer - Refresh key updated:", prev, "->", newKey)
-          return newKey
-        })
-
-        console.log("[v0] ReportViewer - State updated successfully from fetch")
-
-        await new Promise((resolve) => setTimeout(resolve, 100))
-
-        console.log("[v0] ReportViewer - Refresh complete")
-      } catch (error) {
-        console.error("[v0] ReportViewer - Error refreshing scan data:", error)
-        console.error("[v0] ReportViewer - Failed scanId:", scanId)
-        console.error("[v0] ReportViewer - Error response:", error.response?.data)
+      const newData = {
+        ...response.data,
+        summary: response.data.summary || { totalIssues: 0, highSeverity: 0, complianceScore: 0 },
+        results: response.data.results || {},
+        fixes: response.data.fixes || { automated: [], semiAutomated: [], manual: [], estimatedTime: 0 },
+        appliedFixes: response.data.appliedFixes || null,
       }
-    } else {
-      console.error("[v0] ReportViewer - No valid scan ID found for refresh")
+
+      setReportData(newData)
+      setRefreshKey((prev) => prev + 1)
+
+      console.log("[v0] ReportViewer - State updated successfully")
+    } catch (error) {
+      console.error("[v0] ReportViewer - Error refreshing scan data:", error)
+    } finally {
+      setIsRefreshing(false)
     }
-    setIsRefreshing(false)
   }
 
   const handleAiRemediation = async (issueType, fixCategory) => {
@@ -232,7 +165,6 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       const currentScan = scans[selectedFileIndex]
       const scanId = currentScan.scanId || currentScan.id
 
-      // Get issues for the specific type
       const issues = reportData.results[issueType] || []
 
       console.log(`[v0] Requesting AI ${fixCategory} strategy for ${issueType}:`, issues.length, "issues")
@@ -271,7 +203,6 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       if (response.data.success) {
         console.log("[v0] AI fixes applied successfully:", response.data)
 
-        // Refresh the scan data with new results
         if (response.data.newResults && response.data.newSummary) {
           await refreshScanData(response.data.newResults, response.data.newSummary)
         } else {

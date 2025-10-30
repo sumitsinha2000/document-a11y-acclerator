@@ -581,58 +581,134 @@ Title only, no explanation:"""
                     'success': True
                 })
             
-            # Fix structure issues with AI guidance
-            if any('structure' in str(issue).lower() for category in issues.values() for issue in category):
-                print("[SambaNova AI Fix] Applying AI-guided structure fixes...")
+            print("[SambaNova AI Fix] Applying comprehensive AI-guided structure fixes...")
+            
+            # Add MarkInfo
+            if not hasattr(pdf.Root, 'MarkInfo'):
+                pdf.Root.MarkInfo = pdf.make_indirect(Dictionary(Marked=True, Suspects=False))
+                fixes_applied.append({
+                    'type': 'ai_structure',
+                    'description': 'AI added MarkInfo with proper tagging',
+                    'success': True
+                })
+            
+            # Add ViewerPreferences
+            if not hasattr(pdf.Root, 'ViewerPreferences'):
+                pdf.Root.ViewerPreferences = pdf.make_indirect(Dictionary(DisplayDocTitle=True))
+                fixes_applied.append({
+                    'type': 'ai_viewer_prefs',
+                    'description': 'AI added ViewerPreferences',
+                    'success': True
+                })
+            
+            if not hasattr(pdf.Root, 'StructTreeRoot'):
+                # Create comprehensive RoleMap with ALL standard structure types
+                role_map = pdf.make_indirect(Dictionary())
                 
-                # Add MarkInfo
-                if not hasattr(pdf.Root, 'MarkInfo'):
-                    pdf.Root.MarkInfo = pdf.make_indirect(Dictionary(Marked=True, Suspects=False))
-                    fixes_applied.append({
-                        'type': 'ai_structure',
-                        'description': 'AI added MarkInfo with proper tagging',
-                        'success': True
-                    })
+                # Map all non-standard structure types to standard types
+                standard_mappings = {
+                    '/Content': '/Div',
+                    '/Decoration': '/Artifact',
+                    '/Diagram': '/Figure',
+                    '/Equation': '/Formula',
+                    '/Footer': '/Sect',
+                    '/FormField': '/Form',
+                    '/Graph': '/Figure',
+                    '/Header': '/Sect',
+                    '/Heading': '/H',
+                    '/Highlight': '/Span',
+                    '/Background': '/Artifact',
+                    '/Body': '/Sect',
+                    '/BulletList': '/L',
+                    '/Chapter': '/Sect',
+                    '/Chart': '/Figure',
+                    '/CheckBox': '/Form',
+                    '/Comment': '/Note',
+                    '/Annotation': '/Note',
+                    '/Annotations': '/Note',
+                    '/Article': '/Sect',
+                    '/Artifact': '/Artifact',
+                    '/Subheading': '/H'
+                }
                 
-                # Add ViewerPreferences
-                if not hasattr(pdf.Root, 'ViewerPreferences'):
-                    pdf.Root.ViewerPreferences = pdf.make_indirect(Dictionary(DisplayDocTitle=True))
-                    fixes_applied.append({
-                        'type': 'ai_viewer_prefs',
-                        'description': 'AI added ViewerPreferences',
-                        'success': True
-                    })
+                for non_standard, standard in standard_mappings.items():
+                    role_map[Name(non_standard)] = Name(standard)
                 
-                # Create structure tree with AI-guided elements
-                if not hasattr(pdf.Root, 'StructTreeRoot'):
+                fixes_applied.append({
+                    'type': 'ai_role_map',
+                    'description': f'AI created comprehensive RoleMap with {len(standard_mappings)} structure type mappings',
+                    'success': True
+                })
+                
+                parent_tree = pdf.make_indirect(Dictionary(Nums=Array([])))
+                
+                struct_tree_root = pdf.make_indirect(Dictionary(
+                    Type=Name('/StructTreeRoot'),
+                    K=Array([]),
+                    RoleMap=role_map,
+                    ParentTree=parent_tree
+                ))
+                pdf.Root.StructTreeRoot = struct_tree_root
+                
+                # Create Document element
+                doc_element = pdf.make_indirect(Dictionary(
+                    Type=Name('/StructElem'),
+                    S=Name('/Document'),
+                    P=pdf.Root.StructTreeRoot,
+                    K=Array([]),
+                    Lang=String('en-US')
+                ))
+                
+                pdf.Root.StructTreeRoot.K.append(doc_element)
+                
+                fixes_applied.append({
+                    'type': 'ai_structure_tree',
+                    'description': 'AI created complete structure tree with Document element and comprehensive role mappings',
+                    'success': True
+                })
+            else:
+                if hasattr(pdf.Root.StructTreeRoot, 'RoleMap'):
+                    role_map = pdf.Root.StructTreeRoot.RoleMap
+                else:
                     role_map = pdf.make_indirect(Dictionary())
-                    role_map[Name('/Heading')] = Name('/H')
-                    role_map[Name('/Subheading')] = Name('/H')
-                    
-                    parent_tree = pdf.make_indirect(Dictionary(Nums=Array([])))
-                    
-                    struct_tree_root = pdf.make_indirect(Dictionary(
-                        Type=Name('/StructTreeRoot'),
-                        K=Array([]),
-                        RoleMap=role_map,
-                        ParentTree=parent_tree
-                    ))
-                    pdf.Root.StructTreeRoot = struct_tree_root
-                    
-                    # Create Document element
-                    doc_element = pdf.make_indirect(Dictionary(
-                        Type=Name('/StructElem'),
-                        S=Name('/Document'),
-                        P=pdf.Root.StructTreeRoot,
-                        K=Array([]),
-                        Lang=String('en-US')
-                    ))
-                    
-                    pdf.Root.StructTreeRoot.K.append(doc_element)
-                    
+                    pdf.Root.StructTreeRoot.RoleMap = role_map
+                
+                # Add missing mappings
+                standard_mappings = {
+                    '/Content': '/Div',
+                    '/Decoration': '/Artifact',
+                    '/Diagram': '/Figure',
+                    '/Equation': '/Formula',
+                    '/Footer': '/Sect',
+                    '/FormField': '/Form',
+                    '/Graph': '/Figure',
+                    '/Header': '/Sect',
+                    '/Heading': '/H',
+                    '/Highlight': '/Span',
+                    '/Background': '/Artifact',
+                    '/Body': '/Sect',
+                    '/BulletList': '/L',
+                    '/Chapter': '/Sect',
+                    '/Chart': '/Figure',
+                    '/CheckBox': '/Form',
+                    '/Comment': '/Note',
+                    '/Annotation': '/Note',
+                    '/Annotations': '/Note',
+                    '/Article': '/Sect',
+                    '/Artifact': '/Artifact',
+                    '/Subheading': '/H'
+                }
+                
+                mappings_added = 0
+                for non_standard, standard in standard_mappings.items():
+                    if Name(non_standard) not in role_map:
+                        role_map[Name(non_standard)] = Name(standard)
+                        mappings_added += 1
+                
+                if mappings_added > 0:
                     fixes_applied.append({
-                        'type': 'ai_structure_tree',
-                        'description': 'AI created complete structure tree with Document element',
+                        'type': 'ai_role_map_update',
+                        'description': f'AI added {mappings_added} missing structure type mappings to existing RoleMap',
                         'success': True
                     })
             
@@ -697,7 +773,7 @@ Title only, no explanation:"""
                 'fixesApplied': fixes_applied,
                 'successCount': len(fixes_applied),
                 'aiAnalysis': analysis.get('ai_analysis', ''),
-                'message': f'AI successfully applied {len(fixes_applied)} intelligent fixes'
+                'message': f'AI successfully applied {len(fixes_applied)} intelligent fixes including comprehensive PDF/UA structure type mappings'
             }
             
         except Exception as e:
