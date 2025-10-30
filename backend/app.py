@@ -615,13 +615,24 @@ def export_scan(scan_id):
         scan_data = result[0]['scan_results']
         if isinstance(scan_data, str):
             scan_data = json.loads(scan_data)
+
+        # Newer records store results and summary together; normalize so results stays iterable.
+        if isinstance(scan_data, dict) and 'results' in scan_data:
+            results_data = scan_data.get('results', {})
+            summary_data = scan_data.get('summary')
+        else:
+            results_data = scan_data or {}
+            summary_data = None
         
         export_data = {
             'scanId': scan_id,
             'filename': result[0]['filename'],
             'uploadDate': result[0]['upload_date'].isoformat() if result[0]['upload_date'] else None,
-            'results': scan_data
+            'results': results_data
         }
+
+        if summary_data is not None:
+            export_data['summary'] = summary_data
         
         return jsonify(export_data), 200
     except Exception as e:
