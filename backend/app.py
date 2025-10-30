@@ -17,22 +17,18 @@ from fix_suggestions import generate_fix_suggestions
 from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
-# Get database URL from environment (try multiple possible variable names)
-NEON_NEON_NEON_NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
-# Ensure that if DATABASE_URL is not set, it tries NEON_DATABASE_URL or NEON_POSTGRES_URL
-if not NEON_NEON_NEON_NEON_DATABASE_URL:
-    NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL')
+# SIMPLIFIED: Use only NEON_DATABASE_URL as the environment variable name for the database connection string.
+DATABASE_URL = os.getenv('DATABASE_URL')
 
-
-if not NEON_NEON_NEON_NEON_DATABASE_URL:
+if not DATABASE_URL:
     print("[Backend] ✗ CRITICAL ERROR: No DATABASE_URL found in environment variables!")
-    print("[Backend] Please set one of: DATABASE_URL, NEON_DATABASE_URL, or NEON_POSTGRES_URL")
+    print("[Backend] Please set DATABASE_URL in your environment")
     raise Exception("DATABASE_URL not configured")
 else:
-    print(f"[Backend] ✓ Database URL configured: {NEON_NEON_NEON_NEON_DATABASE_URL[:30]}...")
+    print(f"[Backend] ✓ Database URL configured: {DATABASE_URL[:30]}...")
 
-# Determine database type from environment
-# NEON_DATABASE_URL = os.environ.get('NEON_DATABASE_URL', '') # This line is now redundant due to the above change
+# Redundant imports removed
+# Redundant database type detection removed
 
 # Import appropriate database library
 try:
@@ -108,7 +104,7 @@ def get_db_connection():
     """Get a PostgreSQL database connection"""
     try:
         conn = psycopg2.connect(
-            NEON_NEON_NEON_NEON_DATABASE_URL,
+            DATABASE_URL,
             cursor_factory=RealDictCursor,
             connect_timeout=10
         )
@@ -116,7 +112,7 @@ def get_db_connection():
         return conn
     except psycopg2.OperationalError as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
-        print(f"[Backend] DATABASE_URL: {NEON_NEON_NEON_NEON_DATABASE_URL[:50]}...")
+        print(f"[Backend] DATABASE_URL: {DATABASE_URL[:50]}...")
         raise Exception(f"Failed to connect to database: {e}")
     except Exception as e:
         print(f"[Backend] ✗ Unexpected database error: {e}")
@@ -2725,6 +2721,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"[Backend] ✗ Failed to start server: {e}")
         print("[Backend] Check your database configuration:")
-        print(f"[Backend]   DATABASE_URL={NEON_NEON_NEON_NEON_DATABASE_URL}")
+        print(f"[Backend]   DATABASE_URL={DATABASE_URL}")
         import traceback
         traceback.print_exc()
