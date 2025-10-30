@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-NEON_NEON_NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
+NEON_NEON_NEON_NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
 # Ensure that if DATABASE_URL is not set, it tries NEON_DATABASE_URL or NEON_POSTGRES_URL
 if not NEON_NEON_NEON_NEON_DATABASE_URL:
     NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL')
@@ -237,40 +237,71 @@ def init_db():
         traceback.print_exc()
         raise
 
-def save_scan_to_db(filename, scan_results, summary, scan_id=None):
-    """Save or update scan results in the database using UPSERT"""
+# CHANGE: Added is_update parameter to control INSERT vs UPDATE behavior
+def save_scan_to_db(filename, scan_results, summary, scan_id=None, is_update=False):
+    """Save or update scan results in the database
+    
+    Args:
+        filename: Name of the PDF file
+        scan_results: Dictionary of scan results
+        summary: Summary statistics
+        scan_id: Optional scan ID (if None, generates new one)
+        is_update: If True, updates existing record; if False, always creates new record
+    """
     try:
         # Ensure filename has .pdf extension
         if not filename.endswith('.pdf'):
             filename = f"{filename}.pdf"
         
-        # Use unified query execution to save scan (thread-safe with db_lock)
-        if scan_id:
-            # UPSERT: Update existing scan
+        if is_update and scan_id:
+            # UPDATE: Update existing scan (used when applying fixes)
+            query = """
+                UPDATE scans 
+                SET scan_results = %s,
+                    status = 'completed',
+                    created_at = NOW()
+                WHERE id = %s
+                RETURNING id
+            """
+            result = execute_query(query, (json.dumps({'results': scan_results, 'summary': summary}), scan_id), fetch=True)
+            if result:
+                final_scan_id = result[0]['id']
+                print(f"[Backend] Updated existing scan: {final_scan_id}")
+            else:
+                # If update fails, fall back to insert
+                print(f"[Backend] Update failed, inserting new scan")
+                is_update = False
+        
+        if not is_update:
+            # INSERT: Always create new scan record (used for fresh uploads)
+            if not scan_id:
+                # Generate unique scan_id with microseconds to avoid collisions
+                scan_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{filename.replace('.pdf', '')}"
+            
             query = """
                 INSERT INTO scans (id, filename, scan_results, status, created_at)
                 VALUES (%s, %s, %s, 'completed', NOW())
-                ON CONFLICT (id) 
-                DO UPDATE SET 
-                    scan_results = EXCLUDED.scan_results,
-                    status = 'completed',
-                    created_at = NOW()
+                ON CONFLICT (id) DO NOTHING
                 RETURNING id
             """
             result = execute_query(query, (scan_id, filename, json.dumps({'results': scan_results, 'summary': summary})), fetch=True)
-            final_scan_id = result[0]['id'] if result else scan_id
-        else:
-            # Insert new scan
-            generated_scan_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{filename.replace('.pdf', '')}"
-            query = """
-                INSERT INTO scans (id, filename, scan_results, status, created_at)
-                VALUES (%s, %s, %s, 'completed', NOW())
-                RETURNING id
-            """
-            result = execute_query(query, (generated_scan_id, filename, json.dumps({'results': scan_results, 'summary': summary})), fetch=True)
-            final_scan_id = result[0]['id'] if result else generated_scan_id
+            
+            if result:
+                final_scan_id = result[0]['id']
+                print(f"[Backend] Created new scan: {final_scan_id}")
+            else:
+                # Conflict occurred, retry with new ID
+                print(f"[Backend] ID conflict, generating new scan_id")
+                scan_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{filename.replace('.pdf', '')}_retry"
+                query = """
+                    INSERT INTO scans (id, filename, scan_results, status, created_at)
+                    VALUES (%s, %s, %s, 'completed', NOW())
+                    RETURNING id
+                """
+                result = execute_query(query, (scan_id, filename, json.dumps({'results': scan_results, 'summary': summary})), fetch=True)
+                final_scan_id = result[0]['id'] if result else scan_id
+                print(f"[Backend] Created new scan with retry: {final_scan_id}")
         
-        print(f"[Backend] Saved scan to database: {final_scan_id}")
         return final_scan_id
         
     except Exception as e:
@@ -529,12 +560,8 @@ def get_scan_details(scan_id):
                     else:
                         fixes = generate_fix_suggestions(results)
 
-                    scan_data_for_db = {
-                        'results': results,
-                        'summary': summary
-                    }
-                    # Use unified query execution to save scan
-                    save_scan_to_db(os.path.basename(upload_path), results, summary, scan_id=scan_id)
+                    # Use is_update=False to ensure a new record is created if not found
+                    save_scan_to_db(os.path.basename(upload_path), results, summary, scan_id=scan_id, is_update=False)
                     print(f"[Backend] ✓ Scan added to database")
 
                     return jsonify({
@@ -891,17 +918,21 @@ def apply_fixes(scan_id):
                     'summary': new_summary
                 }
                 
-                update_query = '''
-                    INSERT INTO scans (id, filename, scan_results, status, upload_date)
-                    VALUES (%s, %s, %s, %s, NOW())
-                    ON CONFLICT (id) DO UPDATE SET
-                        scan_results = EXCLUDED.scan_results,
-                        status = EXCLUDED.status,
-                        upload_date = NOW()
-                '''
-                execute_query(update_query, (actual_scan_id, scan_filename, json.dumps(scan_data_updated), 'fixed'))
-                print(f"[Backend] ✓ Updated scan record with new results using UPSERT")
+                # CHANGE: Use is_update=True to update the existing scan record
+                updated_scan_id = save_scan_to_db(
+                    os.path.basename(fixed_file_path),
+                    new_scan_results,
+                    new_summary,
+                    scan_id=actual_scan_id,
+                    is_update=True  # Update existing record instead of creating new one
+                )
 
+                if not updated_scan_id:
+                    print("[Backend] ERROR: Failed to update scan record in DB after fixes.")
+                    tracker.fail_all("Failed to update scan record in DB.")
+                    return jsonify({'success': False, 'message': 'Fixes applied, but failed to update scan record.'}), 500
+                
+                print(f"[Backend] ✓ Updated scan record with new results: {updated_scan_id}")
                 
                 step_id = tracker.add_step(
                     "Generate New Fix Suggestions",
@@ -1140,8 +1171,18 @@ def apply_semi_automated_fixes(scan_id):
                     'summary': new_summary  # Store calculated summary instead of None
                 }
 
-                update_query = f'UPDATE scans SET scan_results = %s, status = %s WHERE id = %s'
-                execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
+                updated_scan_id = save_scan_to_db(
+                    os.path.basename(fixed_path), # Use the filename from the fixed path
+                    new_scan_results,
+                    new_summary,
+                    scan_id=scan_id,
+                    is_update=True
+                )
+
+                if not updated_scan_id:
+                    print("[Backend] ERROR: Failed to update scan record in DB after semi-auto fixes.")
+                    tracker.fail_all("Failed to update scan record in DB.")
+                    return jsonify({'success': False, 'message': 'Fixes applied, but failed to update scan record.'}), 500
                 
                 print(f"[Backend] ✓ Database updated with new scan results and summary")
 
@@ -1625,8 +1666,8 @@ def process_single_file(file, idx, batch_id, total_files):
             fixes = get_empty_fixes_structure()
 
         try:
-            # Use unified query execution to save scan (thread-safe with db_lock)
-            save_scan_to_db(file.filename, issues, summary, scan_id=scan_id)
+            # Use is_update=False to always create a new scan record for batch processing
+            save_scan_to_db(file.filename, issues, summary, scan_id=scan_id, is_update=False)
             print(f"[Backend] ✓ Scan saved to database")
         except Exception as db_error:
             print(f"[Backend] ERROR saving scan to database: {db_error}")
@@ -1969,8 +2010,8 @@ def fix_batch_file(batch_id, scan_id):
                         'summary': summary
                     }
 
-                    # Use unified query execution to add scan
-                    save_scan_to_db(os.path.basename(pdf_path), results, summary, scan_id=scan_id)
+                    # Use is_update=False to ensure a new record is created if not found
+                    save_scan_to_db(os.path.basename(pdf_path), results, summary, scan_id=scan_id, is_update=False)
                     print(f"[Backend] ✓ Scan added to database")
                 except Exception as e:
                     print(f"[Backend] ERROR adding scan to database: {e}")
@@ -2030,12 +2071,17 @@ def fix_batch_file(batch_id, scan_id):
                     'summary': new_summary
                 }
 
-                update_query = f'''
-                    UPDATE scans
-                    SET scan_results = %s, status = %s
-                    WHERE id = %s
-                '''
-                execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
+                updated_scan_id = save_scan_to_db(
+                    os.path.basename(fixed_path),
+                    new_results,
+                    new_summary,
+                    scan_id=scan_id,
+                    is_update=True
+                )
+                if not updated_scan_id:
+                    print("[Backend] ERROR: Failed to update scan record in DB after fixes.")
+                    return jsonify({'success': False, 'message': 'Fixes applied, but failed to update scan record.'}), 500
+                
                 print(f"[Backend] ✓ Updated scan record with new results")
 
                 insert_query = f'''
