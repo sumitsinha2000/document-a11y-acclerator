@@ -107,7 +107,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
 
     setIsRefreshing(true)
-    console.log("[v0] ReportViewer - Starting data refresh...")
+    console.log("[v0] ReportViewer - Starting comprehensive data refresh...")
 
     try {
       const currentScan = scans[selectedFileIndex]
@@ -115,7 +115,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
       console.log("[v0] ReportViewer - Fetching completely fresh data for scanId:", scanId)
 
-      await new Promise((resolve) => setTimeout(resolve, 3000))
+      await new Promise((resolve) => setTimeout(resolve, 3500))
 
       const timestamp = Date.now()
       const response = await axios.get(`/api/scan/${scanId}`, {
@@ -135,11 +135,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       console.log("[v0] ReportViewer - Received fresh data from backend")
       console.log("[v0] ReportViewer - New total issues:", response.data.summary?.totalIssues)
       console.log("[v0] ReportViewer - New compliance score:", response.data.summary?.complianceScore)
-      console.log("[v0] ReportViewer - New fixes:", {
-        automated: response.data.fixes?.automated?.length || 0,
-        semiAutomated: response.data.fixes?.semiAutomated?.length || 0,
-        manual: response.data.fixes?.manual?.length || 0,
-      })
+      console.log("[v0] ReportViewer - Applied fixes:", response.data.appliedFixes)
 
       const results = response.data.results || {}
       const totalIssues =
@@ -173,14 +169,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       setRefreshKey((prev) => prev + 1)
 
       console.log("[v0] ReportViewer - State updated successfully with fresh data")
-      console.log("[v0] ReportViewer - New reportData:", {
-        totalIssues: newData.summary.totalIssues,
-        complianceScore: newData.summary.complianceScore,
-        fixCounts: {
-          automated: newData.fixes.automated.length,
-          semiAutomated: newData.fixes.semiAutomated.length,
-        },
-      })
+      console.log("[v0] ReportViewer - Fix history will auto-refresh via key change")
     } catch (error) {
       console.error("[v0] ReportViewer - Error refreshing scan data:", error)
       alert("Failed to refresh data. Please try again.")
@@ -505,7 +494,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         </div>
 
         <div className="mb-6">
-          <FixHistory scanId={reportData.scanId} onRefresh={refreshScanData} />
+          <FixHistory key={`fix-history-${refreshKey}`} scanId={reportData.scanId} onRefresh={refreshScanData} />
         </div>
 
         <div id="fixes" className="mb-6" key={`fixes-${refreshKey}`}>

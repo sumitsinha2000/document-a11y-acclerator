@@ -32,7 +32,7 @@ const safeRenderFix = (fix) => {
   return "Unknown fix"
 }
 
-export default function FixHistory({ scanId }) {
+export default function FixHistory({ scanId, onRefresh }) {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -45,7 +45,18 @@ export default function FixHistory({ scanId }) {
   const fetchFixHistory = async () => {
     try {
       setLoading(true)
-      const response = await axios.get(API_ENDPOINTS.fixHistory(scanId))
+      const timestamp = Date.now()
+      const response = await axios.get(API_ENDPOINTS.fixHistory(scanId), {
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+        params: {
+          t: timestamp,
+          _: Math.random(),
+        },
+      })
       setHistory(response.data.history || [])
       setError(null)
     } catch (err) {

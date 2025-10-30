@@ -18,18 +18,18 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file before accessing environment variables
 
 # Get database URL from environment (try multiple possible variable names)
-NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
+NEON_NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL') # Changed NEON_DATABASE_URL to DATABASE_URL
 # Ensure that if DATABASE_URL is not set, it tries NEON_DATABASE_URL or NEON_POSTGRES_URL
-if not NEON_NEON_NEON_DATABASE_URL:
-    NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL')
+if not NEON_NEON_NEON_NEON_DATABASE_URL:
+    NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv('DATABASE_URL')
 
 
-if not NEON_NEON_NEON_DATABASE_URL:
+if not NEON_NEON_NEON_NEON_DATABASE_URL:
     print("[Backend] ✗ CRITICAL ERROR: No DATABASE_URL found in environment variables!")
     print("[Backend] Please set one of: DATABASE_URL, NEON_DATABASE_URL, or NEON_POSTGRES_URL")
     raise Exception("DATABASE_URL not configured")
 else:
-    print(f"[Backend] ✓ Database URL configured: {NEON_NEON_NEON_DATABASE_URL[:30]}...")
+    print(f"[Backend] ✓ Database URL configured: {NEON_NEON_NEON_NEON_DATABASE_URL[:30]}...")
 
 # Determine database type from environment
 # NEON_DATABASE_URL = os.environ.get('NEON_DATABASE_URL', '') # This line is now redundant due to the above change
@@ -108,7 +108,7 @@ def get_db_connection():
     """Get a PostgreSQL database connection"""
     try:
         conn = psycopg2.connect(
-            NEON_NEON_NEON_DATABASE_URL,
+            NEON_NEON_NEON_NEON_DATABASE_URL,
             cursor_factory=RealDictCursor,
             connect_timeout=10
         )
@@ -116,7 +116,7 @@ def get_db_connection():
         return conn
     except psycopg2.OperationalError as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
-        print(f"[Backend] DATABASE_URL: {NEON_NEON_NEON_DATABASE_URL[:50]}...")
+        print(f"[Backend] DATABASE_URL: {NEON_NEON_NEON_NEON_DATABASE_URL[:50]}...")
         raise Exception(f"Failed to connect to database: {e}")
     except Exception as e:
         print(f"[Backend] ✗ Unexpected database error: {e}")
@@ -745,11 +745,19 @@ def apply_fixes(scan_id):
 
         query = f'SELECT filename, scan_results FROM scans WHERE id = %s'
         scan_data_result = execute_query(query, (scan_id,), fetch=True)
+        
+        # If not found by id, try by filename
+        if not scan_data_result:
+            print(f"[Backend] Scan not found by id, trying by filename: {scan_id}")
+            query = f'SELECT filename, scan_results FROM scans WHERE filename = %s OR filename = %s'
+            scan_data_result = execute_query(query, (scan_id, f"{scan_id}.pdf"), fetch=True)
 
         if not scan_data_result:
-            tracker.fail_step(step_id, f"Scan not found: {scan_id}")
-            tracker.fail_all(f"Scan not found: {scan_id}")
-            return jsonify({'success': False, 'message': 'Scan not found'}), 404
+            error_msg = f"Scan not found: {scan_id}. Please ensure the file has been scanned first."
+            print(f"[Backend] ERROR: {error_msg}")
+            tracker.fail_step(step_id, error_msg)
+            tracker.fail_all(error_msg)
+            return jsonify({'success': False, 'message': error_msg}), 404
 
         scan_filename = scan_data_result[0]['filename']
         scan_results_json = scan_data_result[0]['scan_results']
@@ -760,9 +768,50 @@ def apply_fixes(scan_id):
         }
         tracker.complete_step(step_id, f"Loaded scan data for {scan_data.get('filename', 'unknown')}")
 
-        from auto_fix_engine import AutoFixEngine # Ensure AutoFixEngine is imported here
-        fix_engine = AutoFixEngine()
-        result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
+        # If AI is requested and available, use AI powered fix generation
+        fixes_to_apply = []
+        if use_ai and AI_REMEDIATION_AVAILABLE:
+            print("[Backend] Using AI-powered fix generation...")
+            try:
+                # Fetch issues for AI analysis
+                query_issues = f'SELECT scan_results FROM scans WHERE id = %s'
+                issues_result = execute_query(query_issues, (scan_id,), fetch=True)
+                if issues_result:
+                    issues_data = issues_result[0]['scan_results']
+                    issues = json.loads(issues_data) if isinstance(issues_data, str) else issues_data
+                    
+                    # Ensure issues is in the expected format (dict with 'results' key)
+                    if not (isinstance(issues, dict) and 'results' in issues):
+                        issues = {'results': issues} # Wrap if not already nested
+
+                    ai_fixes_result = AI_REMEDIATION_ENGINE.apply_ai_powered_fixes_from_issues(scan_id, scan_data, issues, tracker)
+                    if ai_fixes_result.get('success'):
+                        fixes_to_apply = ai_fixes_result.get('fixesApplied', [])
+                        result = ai_fixes_result # Use AI result directly
+                    else:
+                        print(f"[Backend] AI fix application failed: {ai_fixes_result.get('error')}. Falling back to traditional methods.")
+                        # Fallback to traditional if AI fails
+                        from auto_fix_engine import AutoFixEngine # Ensure AutoFixEngine is imported here
+                        fix_engine = AutoFixEngine()
+                        result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
+                else:
+                    print("[Backend] Could not retrieve scan issues for AI analysis. Falling back to traditional.")
+                    from auto_fix_engine import AutoFixEngine # Ensure AutoFixEngine is imported here
+                    fix_engine = AutoFixEngine()
+                    result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
+
+            except Exception as ai_error:
+                print(f"[Backend] ERROR applying AI fixes: {ai_error}. Falling back to traditional methods.")
+                import traceback
+                traceback.print_exc()
+                from auto_fix_engine import AutoFixEngine # Ensure AutoFixEngine is imported here
+                fix_engine = AutoFixEngine()
+                result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
+        else:
+            # Traditional fix application
+            from auto_fix_engine import AutoFixEngine # Ensure AutoFixEngine is imported here
+            fix_engine = AutoFixEngine()
+            result = fix_engine.apply_automated_fixes(scan_id, scan_data, tracker)
 
         if result.get('success'):
             try:
@@ -818,12 +867,16 @@ def apply_fixes(scan_id):
                 }
                 
                 update_query = '''
-                    UPDATE scans
-                    SET scan_results = %s, status = %s
-                    WHERE id = %s
+                    INSERT INTO scans (id, filename, scan_results, status, upload_date)
+                    VALUES (%s, %s, %s, %s, NOW())
+                    ON CONFLICT (id) DO UPDATE SET
+                        scan_results = EXCLUDED.scan_results,
+                        status = EXCLUDED.status,
+                        upload_date = NOW()
                 '''
-                execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
-                print(f"[Backend] ✓ Updated scan record with new results")
+                execute_query(update_query, (scan_id, scan_filename, json.dumps(scan_data_updated), 'fixed'))
+                print(f"[Backend] ✓ Updated scan record with new results using UPSERT")
+
                 
                 step_id = tracker.add_step(
                     "Generate New Fix Suggestions",
@@ -851,7 +904,7 @@ def apply_fixes(scan_id):
                     VALUES (%s, %s, %s, %s, %s)
                 '''
                 # Ensure original file name also has .pdf extension for consistency
-                original_filename_with_ext = f"{scan_id}.pdf" if not scan_filename.endswith('.pdf') else scan_filename
+                original_filename_with_ext = scan_filename if scan_filename.endswith('.pdf') else f"{scan_filename}.pdf"
 
                 execute_query(insert_query, (
                     scan_id,
@@ -887,7 +940,7 @@ def apply_fixes(scan_id):
                         INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
                         VALUES (%s, %s, %s, %s, %s)
                     '''
-                    original_filename_with_ext = f"{scan_id}.pdf" if not scan_filename.endswith('.pdf') else scan_filename
+                    original_filename_with_ext = scan_filename if scan_filename.endswith('.pdf') else f"{scan_filename}.pdf"
                     execute_query(insert_query, (
                         scan_id,
                         original_filename_with_ext,
@@ -2601,6 +2654,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"[Backend] ✗ Failed to start server: {e}")
         print("[Backend] Check your database configuration:")
-        print(f"[Backend]   DATABASE_URL={NEON_NEON_NEON_DATABASE_URL}")
+        print(f"[Backend]   DATABASE_URL={NEON_NEON_NEON_NEON_DATABASE_URL}")
         import traceback
         traceback.print_exc()
