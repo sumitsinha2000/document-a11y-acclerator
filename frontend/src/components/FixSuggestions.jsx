@@ -6,7 +6,14 @@ import PDFEditor from "./PDFEditor"
 import { formatTimeEstimate } from "../utils/timeFormat"
 import AIRemediationPanel from "./AIRemediationPanel"
 import FixProgressStepper from "./FixProgressStepper"
+import AlertModal from "./AlertModal"
 import { API_ENDPOINTS } from "../config/api"
+
+const showAlert =
+  (setAlertModal) =>
+  (title, message, type = "info") => {
+    setAlertModal({ isOpen: true, title, message, type })
+  }
 
 export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [applyingTraditional, setApplyingTraditional] = useState(false)
@@ -22,6 +29,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [autoExpanded, setAutoExpanded] = useState(false)
   const [semiExpanded, setSemiExpanded] = useState(false)
   const [manualExpanded, setManualExpanded] = useState(false)
+  const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" })
+
   const safeRender = (value, fallback = "N/A") => {
     if (value === null || value === undefined) return fallback
     if (typeof value === "string") return value
@@ -61,7 +70,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       // Progress stepper will handle the completion
     } catch (error) {
       console.error("Error applying traditional fixes:", error)
-      alert("Error applying fixes: " + (error.response?.data?.message || error.message))
+      showAlert(setAlertModal)("Error applying fixes", error.response?.data?.message || error.message)
       setShowProgressStepper(false)
     } finally {
       setApplyingTraditional(false)
@@ -81,7 +90,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       // Progress stepper will handle the completion
     } catch (error) {
       console.error("Error applying AI fixes:", error)
-      alert("Error applying AI fixes: " + (error.response?.data?.message || error.message))
+      showAlert(setAlertModal)("Error applying AI fixes", error.response?.data?.message || error.message)
       setShowProgressStepper(false)
     } finally {
       setApplyingAI(false)
@@ -101,7 +110,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       // Progress stepper will handle the completion
     } catch (error) {
       console.error("Error applying traditional semi-automated fixes:", error)
-      alert("Error: " + (error.response?.data?.message || error.message))
+      showAlert(setAlertModal)("Error", error.response?.data?.message || error.message)
       setShowProgressStepper(false)
     } finally {
       setApplyingTraditionalSemi(false)
@@ -121,7 +130,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       // Progress stepper will handle the completion
     } catch (error) {
       console.error("Error applying AI semi-automated fixes:", error)
-      alert("Error: " + (error.response?.data?.message || error.message))
+      showAlert(setAlertModal)("Error", error.response?.data?.message || error.message)
       setShowProgressStepper(false)
     } finally {
       setApplyingAISemi(false)
@@ -175,7 +184,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       document.body.removeChild(link)
     } catch (error) {
       console.error("Error downloading fixed file:", error)
-      alert("Error downloading fixed file: " + (error.response?.data?.message || error.message))
+      showAlert(setAlertModal)("Error downloading fixed file", error.response?.data?.message || error.message)
     }
   }
 
@@ -193,18 +202,25 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           await onRefresh()
           console.log("[v0] FixSuggestions - Refresh completed successfully")
 
-          alert(`${currentFixType} applied successfully! The report has been updated.`)
+          showAlert(setAlertModal)(
+            `${currentFixType} Applied`,
+            `${currentFixType} applied successfully! The report has been updated.`,
+          )
         } catch (refreshError) {
           console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
-          alert(
+          showAlert(setAlertModal)(
+            `${currentFixType} Applied`,
             `${currentFixType} applied, but failed to refresh the report. Please click the Refresh button manually.`,
           )
         }
       } else {
-        alert(`${currentFixType} applied successfully!`)
+        showAlert(setAlertModal)(`${currentFixType} Applied`, `${currentFixType} applied successfully!`)
       }
     } else {
-      alert(`${currentFixType} encountered errors. Please check the details.`)
+      showAlert(setAlertModal)(
+        `${currentFixType} Error`,
+        `${currentFixType} encountered errors. Please check the details.`,
+      )
     }
   }
 
@@ -248,6 +264,15 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         onComplete={handleProgressComplete}
       />
 
+      {/* Alert Modal */}
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={() => setAlertModal({ ...alertModal, isOpen: false })}
+        title={alertModal.title}
+        message={alertModal.message}
+        type={alertModal.type}
+      />
+
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold text-gray-900 dark:text-white">Remediation Suggestions</h3>
         <div className="flex items-center gap-3">
@@ -267,7 +292,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={2}
-                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 01-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
               />
             </svg>
             AI Insights
@@ -283,7 +308,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-4-4l-4 4m0 0l-4-4m4 4V4"
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                 />
               </svg>
               Open PDF Editor
@@ -308,10 +333,14 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" role="region" aria-label="Fix suggestions by type">
         {/* Automated Fixes Card */}
         {hasAutomated && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700 flex flex-col">
             <h4 className="text-sm font-semibold text-green-600 dark:text-green-400 mb-1">Automated Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Can be applied automatically</p>
-            <div className="space-y-2 mb-3" role="list">
+            <div
+              className="flex-1 overflow-y-auto max-h-96 space-y-2 mb-3 pr-2"
+              role="list"
+              style={{ scrollbarWidth: "thin" }}
+            >
               {autoVisible.map((fix, idx) => (
                 <div
                   key={idx}
@@ -338,20 +367,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                   </div>
                 </div>
               ))}
-              {validAutomated.length > 5 && (
-                <button
-                  type="button"
-                  aria-expanded={autoExpanded}
-                  onClick={() => setAutoExpanded((v) => !v)}
-                  className="w-full mb-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600
-               bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600
-               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-                >
-                  {autoExpanded ? "View less" : `View more (${validAutomated.length - 5})`}
-                </button>
-              )}
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 mt-auto">
               <button
                 className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
                 onClick={handleApplyTraditionalFixes}
@@ -390,10 +407,14 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
         {/* Semi-Automated Fixes Card */}
         {hasSemiAutomated && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700 flex flex-col">
             <h4 className="text-sm font-semibold text-yellow-600 dark:text-yellow-400 mb-1">Semi-Automated Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Require review & confirmation</p>
-            <div className="space-y-2 mb-3" role="list">
+            <div
+              className="flex-1 overflow-y-auto max-h-96 space-y-2 mb-3 pr-2"
+              role="list"
+              style={{ scrollbarWidth: "thin" }}
+            >
               {semiVisible.map((fix, idx) => (
                 <div
                   key={idx}
@@ -420,21 +441,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                   </div>
                 </div>
               ))}
-
-              {validSemiAutomated.length > 5 && (
-                <button
-                  type="button"
-                  aria-expanded={semiExpanded}
-                  onClick={() => setSemiExpanded((v) => !v)}
-                  className="w-full mt-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600
-                bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600
-                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-                >
-                  {semiExpanded ? "View less" : `View more (${validSemiAutomated.length - 5})`}
-                </button>
-              )}
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 mt-auto">
               <button
                 className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                 onClick={handleApplyTraditionalSemiFixes}
@@ -479,10 +487,14 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
         {/* Manual Fixes Card */}
         {hasManual && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700 flex flex-col">
             <h4 className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-1">Manual Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Require manual intervention</p>
-            <div className="space-y-2" role="list">
+            <div
+              className="flex-1 overflow-y-auto max-h-96 space-y-2 pr-2"
+              role="list"
+              style={{ scrollbarWidth: "thin" }}
+            >
               {manualVisible.map((fix, idx) => (
                 <div
                   key={idx}
@@ -509,19 +521,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                   </div>
                 </div>
               ))}
-
-              {validManual.length > 5 && (
-                <button
-                  type="button"
-                  aria-expanded={manualExpanded}
-                  onClick={() => setManualExpanded((v) => !v)}
-                  className="w-full mt-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600
-                bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600
-                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-                >
-                  {manualExpanded ? "View less" : `View more (${validManual.length - 5})`}
-                </button>
-              )}
             </div>
           </div>
         )}

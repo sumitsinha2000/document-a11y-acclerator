@@ -168,22 +168,21 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Applying Fixes</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                 {progress.status === "completed"
-                  ? "All fixes applied successfully!"
+                  ? "✅ All fixes applied successfully! Your document has been remediated."
                   : progress.status === "failed"
-                    ? "Fix process encountered errors"
+                    ? "❌ Fix process encountered errors. Please review the details below."
                     : `Processing step ${progress.currentStep} of ${progress.totalSteps}...`}
               </p>
             </div>
-            {(progress.status === "completed" || progress.status === "failed") && (
-              <button
-                onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              aria-label="Close progress dialog"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
           {/* Progress Bar */}
@@ -286,14 +285,12 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
                 <span className="text-red-600 dark:text-red-400 ml-2">({progress.failedSteps} failed)</span>
               )}
             </div>
-            {(progress.status === "completed" || progress.status === "failed") && (
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
-              >
-                Close
-              </button>
-            )}
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              {progress.status === "completed" ? "Done" : progress.status === "failed" ? "Close" : "Cancel"}
+            </button>
           </div>
         </div>
       </div>

@@ -117,8 +117,35 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg text-gray-600 dark:text-gray-400">Loading history...</div>
+      <div className="max-w-7xl mx-auto p-6">
+        <div className="mb-6">
+          <div className="h-8 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-4"></div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="h-10 w-64 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+            <div className="h-10 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+          </div>
+          <div className="flex gap-2 mb-6">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-10 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-8">
+          <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-4"></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4"
+              >
+                <div className="h-6 w-3/4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-3"></div>
+                <div className="h-4 w-1/2 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-2"></div>
+                <div className="h-4 w-full bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
@@ -281,68 +308,82 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Individual Uploads</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {scans.map((scan) => (
-              <div
-                key={scan.id}
-                className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => onSelectScan(scan)}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <svg
-                      className="w-5 h-5 flex-shrink-0 text-red-600 dark:text-red-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                      />
-                    </svg>
-                    <h3 className="font-semibold text-gray-900 dark:text-white truncate">{scan.filename}</h3>
+            {scans.map((scan) => {
+              const scanResults =
+                typeof scan.scan_results === "string" ? JSON.parse(scan.scan_results) : scan.scan_results || {}
+
+              const results = scanResults.results || scanResults
+              const totalIssues = Object.values(results).reduce((sum, issues) => {
+                return sum + (Array.isArray(issues) ? issues.length : 0)
+              }, 0)
+
+              return (
+                <div
+                  key={scan.id}
+                  className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-shadow cursor-pointer"
+                  onClick={() => onSelectScan(scan)}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <svg
+                        className="w-5 h-5 flex-shrink-0 text-red-600 dark:text-red-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                        />
+                      </svg>
+                      <h3 className="font-semibold text-gray-900 dark:text-white truncate">{scan.filename}</h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          scan.status === "fixed"
+                            ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
+                            : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                        }`}
+                      >
+                        {scan.status}
+                      </span>
+                      <button
+                        onClick={(e) => handleDeleteScan(scan.id, scan.filename, e)}
+                        disabled={deletingScan === scan.id}
+                        className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Delete scan"
+                      >
+                        {deletingScan === scan.id ? (
+                          <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                      {scan.status}
-                    </span>
-                    <button
-                      onClick={(e) => handleDeleteScan(scan.id, scan.filename, e)}
-                      disabled={deletingScan === scan.id}
-                      className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Delete scan"
-                    >
-                      {deletingScan === scan.id ? (
-                        <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-                      ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                          />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                  {new Date(scan.uploadDate).toLocaleDateString()} at {new Date(scan.uploadDate).toLocaleTimeString()}
-                </p>
-                {scan.summary && (
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                    {new Date(scan.uploadDate).toLocaleDateString()} at {new Date(scan.uploadDate).toLocaleTimeString()}
+                  </p>
                   <div className="flex items-center justify-between text-sm mb-2">
                     <span className="text-gray-600 dark:text-gray-400">Issues:</span>
-                    <span className="font-semibold text-gray-900 dark:text-white">{scan.summary.totalIssues || 0}</span>
+                    <span className="font-semibold text-gray-900 dark:text-white">{totalIssues}</span>
                   </div>
-                )}
-                <div className="flex items-center justify-end text-xs">
-                  <button className="text-blue-600 dark:text-blue-400 hover:underline">View →</button>
+                  <div className="flex items-center justify-end text-xs">
+                    <button className="text-blue-600 dark:text-blue-400 hover:underline">View →</button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
