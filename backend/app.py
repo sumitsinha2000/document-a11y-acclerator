@@ -20,7 +20,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-NEON_NEON_NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -28,7 +28,7 @@ db_lock = threading.Lock()
 # === Database Connection ===
 def get_db_connection():
     try:
-        conn = psycopg2.connect(NEON_NEON_NEON_DATABASE_URL, cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
@@ -111,7 +111,6 @@ def save_scan_to_db(scan_id, filename, scan_results, batch_id=None, is_update=Fa
         else:
             # === INSERT NEW SCAN (always new record, even same filename) ===
             try:
-                unique_id = f"scan_{uuid.uuid4().hex}"
                 query = '''
                     INSERT INTO scans (id, filename, scan_results, batch_id, status, upload_date, created_at)
                     VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
@@ -121,10 +120,10 @@ def save_scan_to_db(scan_id, filename, scan_results, batch_id=None, is_update=Fa
                         created_at = NOW()
                 '''
                 status = 'completed'
-                c.execute(query, (unique_id, filename, json.dumps(formatted_results), batch_id, status))
+                c.execute(query, (scan_id, filename, json.dumps(formatted_results), batch_id, status))
                 conn.commit()
-                print(f"[Backend] ✅ Inserted new scan record: {unique_id} ({filename})")
-                return unique_id
+                print(f"[Backend] ✅ Inserted new scan record: {scan_id} ({filename})")
+                return scan_id
 
             except Exception as e:
                 conn.rollback()
