@@ -313,12 +313,17 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                 typeof scan.scan_results === "string" ? JSON.parse(scan.scan_results) : scan.scan_results || {}
 
               const results = scanResults.results || scanResults
-              const totalIssues = Object.values(results).reduce((sum, issues) => {
-                return sum + (Array.isArray(issues) ? issues.length : 0)
-              }, 0)
+              const summary = scanResults.summary || {}
+
+              // Calculate total issues from results if summary is missing or incorrect
+              const totalIssues =
+                summary.totalIssues ||
+                Object.values(results).reduce((sum, issues) => {
+                  return sum + (Array.isArray(issues) ? issues.length : 0)
+                }, 0)
 
               const displayStatus =
-                scan.status === "fixed" ? "fixed" : scan.status === "completed" ? "completed" : "updated"
+                scan.status === "fixed" ? "fixed" : scan.status === "completed" ? "completed" : scan.status
 
               return (
                 <div
@@ -341,7 +346,9 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                           d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
                         />
                       </svg>
-                      <h3 className="font-semibold text-gray-900 dark:text-white truncate">{scan.filename}</h3>
+                      <h3 className="font-semibold text-gray-900 dark:text-white" title={scan.filename}>
+                        {scan.filename}
+                      </h3>
                     </div>
                     <div className="flex items-center gap-2">
                       <span

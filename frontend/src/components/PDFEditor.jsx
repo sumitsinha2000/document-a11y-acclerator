@@ -354,16 +354,14 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
     )
   }
 
-  // Filter to only show medium severity (fixable) issues
   const fixableIssues = [...(fixes?.semiAutomated || []), ...(fixes?.manual || [])].filter(
-    (fix) => fix.severity === "medium" || !fix.severity,
+    (fix) => fix.severity === "medium" || (!fix.severity && fix.action),
   )
 
   const remainingFixes = fixableIssues.filter((fix) => !appliedFixes.some((applied) => applied.type === fix.type))
 
   console.log("[v0] PDFEditor - Fixable issues count:", fixableIssues.length)
   console.log("[v0] PDFEditor - Applied fixes count:", appliedFixes.length)
-
   console.log("[v0] PDFEditor - Remaining fixes count:", remainingFixes.length)
 
   return (
@@ -379,6 +377,7 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
             <button
               onClick={onClose}
               className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              title="Close editor"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -450,7 +449,6 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
               </div>
             )}
 
-            {/* Fix List - Only showing fixable (medium severity) issues */}
             <div className="flex-1 overflow-auto p-4 border-b border-gray-200 dark:border-gray-700">
               <h4 className="font-semibold text-gray-900 dark:text-white mb-3">
                 Fixable Issues ({remainingFixes.length})

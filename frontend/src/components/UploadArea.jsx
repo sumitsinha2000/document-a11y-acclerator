@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import axios from "axios"
 // import "./UploadArea.css"
 
@@ -9,7 +9,25 @@ export default function UploadArea({ onScanComplete }) {
   const [isScanning, setIsScanning] = useState(false)
   const [error, setError] = useState(null)
   const [uploadProgress, setUploadProgress] = useState([])
+  const [srAnnouncement, setSrAnnouncement] = useState("")
   const fileInputRef = useRef(null)
+  const uploadAreaRef = useRef(null)
+
+  useEffect(() => {
+    if (uploadProgress.length > 0) {
+      const completed = uploadProgress.filter((p) => p.status === "complete").length
+      const failed = uploadProgress.filter((p) => p.status === "error").length
+      const scanning = uploadProgress.filter((p) => p.status === "scanning").length
+
+      if (scanning > 0) {
+        setSrAnnouncement(`Scanning ${scanning} of ${uploadProgress.length} files`)
+      } else if (completed === uploadProgress.length) {
+        setSrAnnouncement(`All ${completed} files scanned successfully`)
+      } else if (completed + failed === uploadProgress.length) {
+        setSrAnnouncement(`Scan complete. ${completed} succeeded, ${failed} failed`)
+      }
+    }
+  }, [uploadProgress])
 
   const handleDragOver = (e) => {
     e.preventDefault()
@@ -47,16 +65,22 @@ export default function UploadArea({ onScanComplete }) {
 
     if (pdfFiles.length === 0) {
       setError("Please upload at least one PDF file")
+      setSrAnnouncement("Error: Please upload at least one PDF file")
       return
     }
 
     if (pdfFiles.length < files.length) {
-      setError(`${files.length - pdfFiles.length} non-PDF file(s) were skipped`)
+      const skippedCount = files.length - pdfFiles.length
+      setError(`${skippedCount} non-PDF file(s) were skipped`)
+      setSrAnnouncement(
+        `Warning: ${skippedCount} non-PDF files were skipped. ${pdfFiles.length} PDF files will be scanned.`,
+      )
     } else {
       setError(null)
     }
 
     setIsScanning(true)
+    setSrAnnouncement(`Starting scan of ${pdfFiles.length} PDF ${pdfFiles.length === 1 ? "file" : "files"}`)
 
     const initialProgress = pdfFiles.map((file) => ({
       name: file.name,
@@ -97,13 +121,18 @@ export default function UploadArea({ onScanComplete }) {
 
         setTimeout(() => {
           setUploadProgress([])
+          if (uploadAreaRef.current) {
+            uploadAreaRef.current.focus()
+          }
         }, 2000)
 
         onScanComplete(scanResults)
         return
       } catch (err) {
         console.error("[v0] Batch scan error:", err)
-        setError("Batch scan failed: " + (err.response?.data?.error || err.message))
+        const errorMsg = "Batch scan failed: " + (err.response?.data?.error || err.message)
+        setError(errorMsg)
+        setSrAnnouncement(`Error: ${errorMsg}`)
         setUploadProgress((prev) => prev.map((item) => ({ ...item, status: "error", progress: 0 })))
         setIsScanning(false)
         return
@@ -165,22 +194,32 @@ export default function UploadArea({ onScanComplete }) {
 
     setTimeout(() => {
       setUploadProgress([])
+      if (uploadAreaRef.current) {
+        uploadAreaRef.current.focus()
+      }
     }, 2000)
 
     if (scanResults.length > 0) {
       onScanComplete(scanResults)
     } else {
-      setError("All file scans failed. Please check the console for details and ensure the backend is running.")
+      const errorMsg = "All file scans failed. Please check the console for details and ensure the backend is running."
+      setError(errorMsg)
+      setSrAnnouncement(`Error: ${errorMsg}`)
     }
   }
 
   return (
     <div className="w-full max-w-7xl mx-auto">
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {srAnnouncement}
+      </div>
+
       <div className="flex flex-col lg:flex-row gap-6 min-h-[60vh] items-center justify-center">
         {/* Upload Area - Left Side */}
         <div className="flex-1 lg:max-w-2xl">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-colors">
             <div
+              ref={uploadAreaRef}
               className={`relative border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-800 ${
                 isDragging
                   ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
@@ -198,8 +237,10 @@ export default function UploadArea({ onScanComplete }) {
                   handleClick()
                 }
               }}
-              aria-label="Upload PDF documents. Drag and drop files here or press Enter to browse"
+              aria-label="Upload PDF documents for accessibility scanning. Drag and drop files here or press Enter or Space to browse files. Multiple files can be selected."
               aria-busy={isScanning}
+              aria-disabled={isScanning}
+              aria-describedby="upload-instructions"
             >
               {isScanning ? (
                 <div className="space-y-4">
@@ -229,7 +270,7 @@ export default function UploadArea({ onScanComplete }) {
                     />
                   </svg>
                   <h2 className="mt-4 text-lg font-semibold text-gray-900 dark:text-white">Upload PDF Documents</h2>
-                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-400" id="upload-instructions">
                     Drag and drop your PDFs here or click to browse
                   </p>
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">You can select multiple files at once</p>
@@ -241,7 +282,7 @@ export default function UploadArea({ onScanComplete }) {
                     onChange={handleFileInput}
                     className="hidden"
                     disabled={isScanning}
-                    aria-label="Choose PDF files to upload"
+                    aria-label="Choose PDF files to upload for accessibility scanning"
                   />
                 </>
               )}
@@ -252,8 +293,12 @@ export default function UploadArea({ onScanComplete }) {
                 className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg"
                 role="alert"
                 aria-live="assertive"
+                aria-atomic="true"
               >
-                <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
+                <p className="text-sm text-red-800 dark:text-red-200">
+                  <span className="font-semibold">Error: </span>
+                  {error}
+                </p>
               </div>
             )}
 
@@ -376,15 +421,17 @@ export default function UploadArea({ onScanComplete }) {
             <div
               className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 transition-colors sticky top-20"
               role="region"
-              aria-label="Upload progress"
+              aria-label="Upload progress for PDF files"
+              aria-live="polite"
             >
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Upload Status</h3>
-              <div
-                className="space-y-2 max-h-[600px] overflow-y-auto"
-                role="list"
-                aria-live="polite"
-                aria-atomic="false"
-              >
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
+                Upload Status
+                <span className="sr-only">
+                  : {uploadProgress.filter((p) => p.status === "complete").length} of {uploadProgress.length} files
+                  completed
+                </span>
+              </h3>
+              <div className="space-y-2 max-h-[600px] overflow-y-auto" role="list">
                 {uploadProgress.map((item, idx) => (
                   <div
                     key={idx}
@@ -398,7 +445,10 @@ export default function UploadArea({ onScanComplete }) {
                     role="listitem"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
+                      <span
+                        className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate flex-1"
+                        title={item.name}
+                      >
                         {item.name}
                       </span>
                       <span
@@ -410,13 +460,14 @@ export default function UploadArea({ onScanComplete }) {
                               : "bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-100"
                         }`}
                         role="status"
-                        aria-label={`Status: ${item.status}`}
+                        aria-label={`${item.name} status: ${item.status}`}
                       >
                         {item.status}
                       </span>
                     </div>
                     {item.error && (
                       <p className="mt-1 text-xs text-red-600 dark:text-red-400 break-words" role="alert">
+                        <span className="font-semibold">Error: </span>
                         {item.error}
                       </p>
                     )}
