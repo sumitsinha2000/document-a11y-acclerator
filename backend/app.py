@@ -20,7 +20,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -232,6 +232,63 @@ def get_scans():
         fetch=True
     )
     return jsonify({"scans": scans})
+
+
+# === Added missing /api/history endpoint for History page
+@app.route("/api/history", methods=["GET"])
+def get_history():
+    """Get all scans with full details for history page"""
+    try:
+        print("[Backend] Fetching history...")
+        
+        # Get all scans ordered by most recent first
+        query = """
+            SELECT id, filename, scan_results, status, upload_date, created_at, batch_id
+            FROM scans 
+            ORDER BY COALESCE(upload_date, created_at) DESC
+        """
+        scans = execute_query(query, fetch=True)
+        
+        if not scans:
+            print("[Backend] No scans found in history")
+            return jsonify({"scans": []})
+        
+        # Format each scan with proper issue counts
+        formatted_scans = []
+        for scan in scans:
+            scan_dict = dict(scan)
+            
+            # Parse scan_results
+            scan_results = scan_dict.get('scan_results', {})
+            if isinstance(scan_results, str):
+                scan_results = json.loads(scan_results)
+            
+            results = scan_results.get('results', scan_results)
+            summary = scan_results.get('summary', {})
+            
+            # Calculate issue count if not in summary
+            if not summary or 'totalIssues' not in summary:
+                total_issues = sum(len(v) if isinstance(v, list) else 0 for v in results.values())
+            else:
+                total_issues = summary.get('totalIssues', 0)
+            
+            formatted_scans.append({
+                'id': scan_dict['id'],
+                'filename': scan_dict['filename'],
+                'uploadDate': scan_dict.get('upload_date') or scan_dict.get('created_at'),
+                'status': scan_dict.get('status', 'completed'),
+                'issueCount': total_issues,
+                'batchId': scan_dict.get('batch_id')
+            })
+        
+        print(f"[Backend] ✓ Returning {len(formatted_scans)} scans in history")
+        return jsonify({"scans": formatted_scans})
+        
+    except Exception as e:
+        print(f"[Backend] Error fetching history: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 # === Apply Fixes ===
