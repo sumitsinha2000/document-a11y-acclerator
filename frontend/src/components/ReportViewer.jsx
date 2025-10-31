@@ -497,20 +497,20 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
           <FixHistory key={`fix-history-${refreshKey}`} scanId={reportData.scanId} onRefresh={refreshScanData} />
         </div>
 
+        <div id="issues" className="mb-6" key={`issues-${refreshKey}`}>
+          <IssuesList
+            results={reportData.results}
+            selectedCategory={selectedCategory}
+            onCategorySelect={setSelectedCategory}
+          />
+        </div>
+
         <div id="fixes" className="mb-6" key={`fixes-${refreshKey}`}>
           <FixSuggestions
             scanId={reportData.scanId}
             fixes={reportData.fixes}
             filename={reportData.fileName || reportData.filename}
             onRefresh={refreshScanData}
-          />
-        </div>
-
-        <div id="issues" className="mb-6" key={`issues-${refreshKey}`}>
-          <IssuesList
-            results={reportData.results}
-            selectedCategory={selectedCategory}
-            onCategorySelect={setSelectedCategory}
           />
         </div>
 

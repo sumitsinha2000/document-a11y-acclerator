@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from "react"
 import axios from "axios"
+import jsPDF from "jspdf"
+import "jspdf-autotable"
 
 export default function ExportDropdown({ scanId, filename }) {
   const [isOpen, setIsOpen] = useState(false)
@@ -46,6 +48,8 @@ export default function ExportDropdown({ scanId, filename }) {
         const html = generateHTMLReport(data, filename)
         const dataBlob = new Blob([html], { type: "text/html" })
         downloadFile(dataBlob, `accessibility-report-${scanId}.html`)
+      } else if (format === "pdf") {
+        generatePDFReport(data, filename, scanId)
       }
     } catch (error) {
       console.error(`Error exporting ${format}:`, error)
@@ -60,6 +64,154 @@ export default function ExportDropdown({ scanId, filename }) {
     link.download = filename
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  const generatePDFReport = (data, filename, scanId) => {
+    const doc = new jsPDF()
+    const summary = data.summary || {}
+    const results = data.results || {}
+
+    // Set document properties
+    doc.setProperties({
+      title: `Accessibility Report - ${filename}`,
+      subject: "Document Accessibility Compliance Report",
+      author: "Document Accessibility Accelerator",
+      keywords: "accessibility, compliance, WCAG",
+      creator: "Document Accessibility Accelerator",
+    })
+
+    // Header with gradient effect (simulated with colored rectangle)
+    doc.setFillColor(102, 126, 234)
+    doc.rect(0, 0, 210, 45, "F")
+
+    // Title
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(24)
+    doc.setFont("helvetica", "bold")
+    doc.text("Accessibility Compliance Report", 105, 20, { align: "center" })
+
+    // Document name
+    doc.setFontSize(12)
+    doc.setFont("helvetica", "normal")
+    doc.text(`Document: ${filename}`, 105, 30, { align: "center" })
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 105, 37, { align: "center" })
+
+    // Reset text color for body
+    doc.setTextColor(0, 0, 0)
+
+    // Summary section
+    let yPos = 55
+    doc.setFontSize(16)
+    doc.setFont("helvetica", "bold")
+    doc.text("Summary", 14, yPos)
+
+    yPos += 10
+    doc.setFontSize(11)
+    doc.setFont("helvetica", "normal")
+
+    // Summary boxes
+    const summaryData = [
+      ["Compliance Score", `${summary.complianceScore || 0}%`],
+      ["Total Issues", `${summary.totalIssues || 0}`],
+      ["High Severity Issues", `${summary.highSeverity || 0}`],
+    ]
+
+    doc.autoTable({
+      startY: yPos,
+      head: [["Metric", "Value"]],
+      body: summaryData,
+      theme: "grid",
+      headStyles: { fillColor: [102, 126, 234], textColor: 255, fontStyle: "bold" },
+      styles: { fontSize: 10, cellPadding: 5 },
+      columnStyles: {
+        0: { fontStyle: "bold", cellWidth: 100 },
+        1: { halign: "center", cellWidth: 80 },
+      },
+    })
+
+    yPos = doc.lastAutoTable.finalY + 15
+
+    // Issues by category
+    Object.entries(results).forEach(([category, issues]) => {
+      if (Array.isArray(issues) && issues.length > 0) {
+        // Check if we need a new page
+        if (yPos > 250) {
+          doc.addPage()
+          yPos = 20
+        }
+
+        // Category header
+        doc.setFontSize(14)
+        doc.setFont("helvetica", "bold")
+        doc.setTextColor(102, 126, 234)
+        doc.text(category.replace(/([A-Z])/g, " $1").trim(), 14, yPos)
+        doc.setTextColor(0, 0, 0)
+
+        yPos += 8
+
+        // Issues table
+        const issuesData = issues.map((issue) => {
+          const pages = issue.pages ? issue.pages.join(", ") : issue.page || "N/A"
+          return [
+            issue.severity || "Medium",
+            issue.description || issue.title || "Issue",
+            pages,
+            issue.recommendation || "N/A",
+          ]
+        })
+
+        doc.autoTable({
+          startY: yPos,
+          head: [["Severity", "Description", "Pages", "Recommendation"]],
+          body: issuesData,
+          theme: "striped",
+          headStyles: { fillColor: [102, 126, 234], textColor: 255, fontStyle: "bold" },
+          styles: { fontSize: 9, cellPadding: 4 },
+          columnStyles: {
+            0: { cellWidth: 25, fontStyle: "bold" },
+            1: { cellWidth: 60 },
+            2: { cellWidth: 30 },
+            3: { cellWidth: 65 },
+          },
+          didDrawCell: (data) => {
+            // Color code severity
+            if (data.column.index === 0 && data.section === "body") {
+              const severity = data.cell.raw.toLowerCase()
+              let color = [255, 193, 7] // medium - yellow
+              if (severity === "critical") color = [220, 53, 69]
+              else if (severity === "high") color = [253, 126, 20]
+              else if (severity === "low") color = [40, 167, 69]
+
+              doc.setFillColor(...color)
+              doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F")
+              doc.setTextColor(severity === "medium" ? 0 : 255)
+              doc.setFontSize(9)
+              doc.setFont("helvetica", "bold")
+              doc.text(data.cell.raw, data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2, {
+                align: "center",
+                baseline: "middle",
+              })
+              doc.setTextColor(0, 0, 0)
+            }
+          },
+        })
+
+        yPos = doc.lastAutoTable.finalY + 12
+      }
+    })
+
+    // Footer on last page
+    const pageCount = doc.internal.getNumberOfPages()
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i)
+      doc.setFontSize(8)
+      doc.setTextColor(128, 128, 128)
+      doc.text(`Page ${i} of ${pageCount}`, 105, 285, { align: "center" })
+      doc.text("Generated by Document Accessibility Accelerator", 105, 290, { align: "center" })
+    }
+
+    // Save the PDF
+    doc.save(`accessibility-report-${scanId}.pdf`)
   }
 
   const generateHTMLReport = (data, filename) => {
@@ -284,6 +436,14 @@ export default function ExportDropdown({ scanId, filename }) {
           >
             <span className="text-lg">🌐</span>
             <span className="text-sm text-gray-700 dark:text-gray-300">Export as HTML</span>
+          </button>
+
+          <button
+            onClick={() => handleExport("pdf")}
+            className="w-full px-4 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+          >
+            <span className="text-lg">📕</span>
+            <span className="text-sm text-gray-700 dark:text-gray-300">Export as PDF</span>
           </button>
         </div>
       )}

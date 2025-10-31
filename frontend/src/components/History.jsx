@@ -317,6 +317,9 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                 return sum + (Array.isArray(issues) ? issues.length : 0)
               }, 0)
 
+              const displayStatus =
+                scan.status === "fixed" ? "fixed" : scan.status === "completed" ? "completed" : "updated"
+
               return (
                 <div
                   key={scan.id}
@@ -343,12 +346,14 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                     <div className="flex items-center gap-2">
                       <span
                         className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          scan.status === "fixed"
+                          displayStatus === "fixed"
                             ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
-                            : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                            : displayStatus === "completed"
+                              ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                              : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
                         }`}
                       >
-                        {scan.status}
+                        {displayStatus}
                       </span>
                       <button
                         onClick={(e) => handleDeleteScan(scan.id, scan.filename, e)}

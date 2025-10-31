@@ -48,6 +48,8 @@
     "embla-carousel-react": "8.5.1",
     "input-otp": "1.4.1",
     "jiti": "latest",
+    "jspdf": "latest",
+    "jspdf-autotable": "latest",
     "less": "latest",
     "lightningcss": "latest",
     "lucide-react": "^0.454.0",

@@ -129,10 +129,6 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
     }
   }
 
-  const handleDownload = () => {
-    window.open(`/api/download-fixed/${scanId}`, "_blank")
-  }
-
   const renderFixForm = () => {
     if (!selectedFix) {
       return (
@@ -358,12 +354,15 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
     )
   }
 
-  const allFixes = [...(fixes?.semiAutomated || []), ...(fixes?.manual || [])]
+  // Filter to only show medium severity (fixable) issues
+  const fixableIssues = [...(fixes?.semiAutomated || []), ...(fixes?.manual || [])].filter(
+    (fix) => fix.severity === "medium" || !fix.severity,
+  )
 
-  console.log("[v0] PDFEditor - All fixes count:", allFixes.length)
+  const remainingFixes = fixableIssues.filter((fix) => !appliedFixes.some((applied) => applied.type === fix.type))
+
+  console.log("[v0] PDFEditor - Fixable issues count:", fixableIssues.length)
   console.log("[v0] PDFEditor - Applied fixes count:", appliedFixes.length)
-
-  const remainingFixes = allFixes.filter((fix) => !appliedFixes.some((applied) => applied.type === fix.type))
 
   console.log("[v0] PDFEditor - Remaining fixes count:", remainingFixes.length)
 
@@ -377,20 +376,6 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
             <p className="text-sm text-gray-600 dark:text-gray-400">{filename}</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleDownload}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
-              Download PDF
-            </button>
             <button
               onClick={onClose}
               className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -407,12 +392,16 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
           {/* PDF Viewer */}
           <div className="flex-1 overflow-auto bg-gray-100 dark:bg-gray-900 p-4">
             <div className="flex flex-col items-center">
-              {pdfUrl && (
+              {pdfUrl ? (
                 <div style={{ position: "relative" }} ref={pageRef}>
                   <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess} className="shadow-lg">
                     <Page pageNumber={pageNumber} width={600} onLoadSuccess={onPageLoadSuccess} />
                   </Document>
                   {renderHighlight()}
+                </div>
+              ) : (
+                <div className="text-center text-gray-500 dark:text-gray-400 py-8">
+                  <p>Loading PDF preview...</p>
                 </div>
               )}
 
@@ -461,17 +450,17 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
               </div>
             )}
 
-            {/* Fix List */}
+            {/* Fix List - Only showing fixable (medium severity) issues */}
             <div className="flex-1 overflow-auto p-4 border-b border-gray-200 dark:border-gray-700">
               <h4 className="font-semibold text-gray-900 dark:text-white mb-3">
-                Available Fixes ({remainingFixes.length})
+                Fixable Issues ({remainingFixes.length})
               </h4>
               <div className="space-y-2">
                 {remainingFixes.length === 0 ? (
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     {appliedFixes.length > 0
-                      ? "All fixes have been applied!"
-                      : "No manual or semi-automated fixes available"}
+                      ? "All fixable issues have been addressed!"
+                      : "No fixable manual issues available"}
                   </p>
                 ) : (
                   remainingFixes.map((fix, index) => (
@@ -495,19 +484,6 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
                         </span>
                       </div>
                       <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                        {fix.severity && (
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded mr-2 ${
-                              fix.severity === "high"
-                                ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
-                                : fix.severity === "medium"
-                                  ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300"
-                                  : "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
-                            }`}
-                          >
-                            {fix.severity}
-                          </span>
-                        )}
                         {fix.estimatedTime && `${fix.estimatedTime} min`}
                       </div>
                     </button>
@@ -540,12 +516,6 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
                 >
                   {loading ? "Applying..." : "Apply Fix"}
                 </button>
-              )}
-
-              {selectedFix && (
-                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                  Successfully applied: {appliedFixes.map((f) => f.action || f.title).join(", ") || "None"}
-                </div>
               )}
             </div>
           </div>

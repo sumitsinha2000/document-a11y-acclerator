@@ -20,10 +20,12 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
+UPLOAD_FOLDER = "uploads"
+FIXED_FOLDER = "fixed"
 
 # === Database Connection ===
 def get_db_connection():
@@ -163,7 +165,7 @@ def scan_pdf():
         return jsonify({"error": "Only PDF files supported"}), 400
 
     scan_id = f"scan_{uuid.uuid4().hex}"
-    upload_dir = Path("uploads")
+    upload_dir = Path(UPLOAD_FOLDER)
     upload_dir.mkdir(exist_ok=True)
     
     # Ensure .pdf extension
@@ -286,46 +288,55 @@ def apply_fixes(scan_id):
 @app.route("/api/apply-semi-automated-fixes/<scan_id>", methods=["POST"])
 def apply_semi_automated_fixes(scan_id):
     try:
+        data = request.get_json()
+        fixes = data.get("fixes", [])
+        
         print(f"[Backend] ========== APPLY SEMI-AUTOMATED FIXES ==========")
         print(f"[Backend] Scan ID: {scan_id}")
         
-        data = request.get_json()
-        fixes = data.get("fixes", [])
-        filename = data.get("filename", "document.pdf")
-        
-        # Ensure filename has .pdf extension
-        if not filename.lower().endswith('.pdf'):
-            filename = f"{filename}.pdf"
-        
-        print(f"[Backend] Filename: {filename}")
-        print(f"[Backend] Fixes to apply: {len(fixes)}")
-        
-        # Get scan data from database
+        # Get scan data
         scan_data = get_scan_by_id(scan_id)
         if not scan_data:
             return jsonify({"error": "Scan not found"}), 404
         
-        # Create progress tracker
-        progress_id = create_progress_tracker(scan_id)
-        tracker = get_progress_tracker(scan_id)  # Use scan_id instead of progress_id
+        original_filename = scan_data.get('filename', 'document.pdf')
+        print(f"[Backend] Filename: {original_filename}")
+        print(f"[Backend] Fixes to apply: {len(fixes)}")
         
-        # Initialize engine and apply fixes
+        # Initialize engine
         engine = AutoFixEngine()
         
-        # Use the correct method name
-        result = engine.apply_semi_automated_fixes(scan_id, scan_data, tracker)
+        # Apply fixes
+        result = engine.apply_semi_automated_fixes(scan_id, scan_data, fixes)
         
         if result.get('success'):
-            # Update existing scan record (don't create new one)
-            save_scan_to_db(scan_id, filename, result, is_update=True)
+            # Preserve original filename with "fixed_" prefix
+            base_name = original_filename.rsplit('.', 1)[0]
+            extension = original_filename.rsplit('.', 1)[1] if '.' in original_filename else 'pdf'
+            fixed_filename = f"fixed_{base_name}.{extension}"
             
-            # Save fix history (don't delete existing history)
-            save_fix_history(scan_id, scan_data['filename'], result.get('fixesApplied', []), result.get('fixedFile'))
+            # Update scan with "fixed" status
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute('''
+                UPDATE scans 
+                SET status = 'fixed', 
+                    filename = %s,
+                    upload_date = NOW()
+                WHERE id = %s
+            ''', (fixed_filename, scan_id))
+            conn.commit()
+            c.close()
+            conn.close()
+            
+            # Save fix history
+            save_fix_history(scan_id, original_filename, result.get('fixesApplied', []), result.get('fixedFile'))
             
             return jsonify({
                 "status": "success",
                 "fixedFile": result.get('fixedFile'),
-                "summary": result
+                "summary": result,
+                "filename": fixed_filename
             })
         else:
             return jsonify({
@@ -343,8 +354,8 @@ def apply_semi_automated_fixes(scan_id):
 # === Download File ===
 @app.route("/api/download/<path:scan_id>", methods=["GET"])
 def download_file(scan_id):
-    uploads_dir = Path("uploads")
-    fixed_dir = Path("fixed")
+    uploads_dir = Path(UPLOAD_FOLDER)
+    fixed_dir = Path(FIXED_FOLDER)
 
     file_path = None
     for folder in [fixed_dir, uploads_dir]:
@@ -441,12 +452,12 @@ def get_fix_history(scan_id):
         
         fixes = execute_query(
             """
-            SELECT id, scan_id as "scanId", original_file as "originalFile",
-                   fixed_file as "fixedFile", fixes_applied as "fixesApplied",
-                   success_count as "successCount", timestamp
+            SELECT id, scan_id as "scanId", original_filename as "originalFile",
+                   fixed_filename as "fixedFile", fixes_applied as "fixesApplied",
+                   applied_at as "timestamp"
             FROM fix_history 
             WHERE scan_id = %s 
-            ORDER BY timestamp DESC
+            ORDER BY applied_at DESC
             """,
             (scan_id,),
             fetch=True
@@ -555,8 +566,8 @@ def delete_scan(scan_id):
             return jsonify({"error": "Scan not found"}), 404
         
         # Delete physical files
-        uploads_dir = Path("uploads")
-        fixed_dir = Path("fixed")
+        uploads_dir = Path(UPLOAD_FOLDER)
+        fixed_dir = Path(FIXED_FOLDER)
         deleted_files = 0
         
         for folder in [uploads_dir, fixed_dir]:
@@ -588,36 +599,47 @@ def delete_scan(scan_id):
 
 
 # === Save Fix History ===
-def save_fix_history(scan_id, original_file, fixes_applied, fixed_file):
-    """Save fix history without deleting existing records"""
+def save_fix_history(scan_id, original_filename, fixes_applied, fixed_file_path):
+    """Save fix history with proper filename preservation"""
+    conn = None
+    c = None
     try:
-        # Ensure filenames have .pdf extension
-        if not original_file.lower().endswith('.pdf'):
-            original_file = f"{original_file}.pdf"
+        conn = get_db_connection()
+        c = conn.cursor()
         
-        if fixed_file:
-            base_name = original_file.rsplit('.pdf', 1)[0]
-            fixed_file = f"{base_name}_fixed.pdf"
+        # Extract just the filename from the path if it's a full path
+        if fixed_file_path and '/' in fixed_file_path:
+            fixed_filename = fixed_file_path.split('/')[-1]
+        elif fixed_file_path and '\\' in fixed_file_path:
+            fixed_filename = fixed_file_path.split('\\')[-1]
+        else:
+            fixed_filename = fixed_file_path
         
-        query = """
-            INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count, timestamp)
-            VALUES (%s, %s, %s, %s, %s, NOW())
-        """
+        # Preserve original filename with "fixed_" prefix
+        if original_filename:
+            base_name = original_filename.rsplit('.', 1)[0]
+            extension = original_filename.rsplit('.', 1)[1] if '.' in original_filename else 'pdf'
+            fixed_filename = f"fixed_{base_name}.{extension}"
         
-        import json
-        execute_query(
-            query,
-            (scan_id, original_file, fixed_file, json.dumps(fixes_applied), len(fixes_applied)),
-            fetch=False
-        )
+        query = '''
+            INSERT INTO fix_history (scan_id, original_filename, fixed_filename, fixes_applied, applied_at)
+            VALUES (%s, %s, %s, %s, NOW())
+        '''
+        c.execute(query, (scan_id, original_filename, fixed_filename, json.dumps(fixes_applied)))
+        conn.commit()
         
-        print(f"[Backend] ✓ Saved fix history for scan: {scan_id}")
+        print(f"[Backend] ✓ Fix history saved: {original_filename} -> {fixed_filename}")
         return True
     except Exception as e:
-        print(f"[Backend] ✗ Error saving fix history: {e}")
+        print(f"[Backend] ERROR saving fix history: {e}")
         import traceback
         traceback.print_exc()
         return False
+    finally:
+        if c:
+            c.close()
+        if conn:
+            conn.close()
 
 
 # === Get Scan by ID ===
@@ -699,9 +721,9 @@ def download_fix_history_file(scan_id):
     try:
         # Get the latest fix history for this scan
         query = """
-            SELECT fixed_file FROM fix_history 
+            SELECT fixed_filename FROM fix_history 
             WHERE scan_id = %s 
-            ORDER BY timestamp DESC 
+            ORDER BY applied_at DESC 
             LIMIT 1
         """
         result = execute_query(query, (scan_id,), fetch=True)
@@ -709,8 +731,8 @@ def download_fix_history_file(scan_id):
         if not result or len(result) == 0:
             return jsonify({"error": "No fix history found"}), 404
         
-        fixed_filename = result[0]['fixed_file']
-        fixed_dir = Path("fixed")
+        fixed_filename = result[0]['fixed_filename']
+        fixed_dir = Path(FIXED_FOLDER)
         
         # Try multiple file path strategies
         file_path = None
@@ -740,6 +762,48 @@ def download_fix_history_file(scan_id):
         print(f"[Backend] Error downloading fix history file: {e}")
         import traceback
         traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# === Download Fixed File ===
+@app.route("/api/download-fixed/<scan_id>", methods=["GET"])
+def download_fixed_file(scan_id):
+    """Download the fixed PDF file"""
+    try:
+        # Get fix history to find the fixed file
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('''
+            SELECT fixed_filename, original_filename 
+            FROM fix_history 
+            WHERE scan_id = %s 
+            ORDER BY applied_at DESC 
+            LIMIT 1
+        ''', (scan_id,))
+        result = c.fetchone()
+        c.close()
+        conn.close()
+        
+        if not result:
+            return jsonify({"error": "No fixed file found"}), 404
+        
+        fixed_filename = result[0]
+        original_filename = result[1]
+        
+        # Construct file path
+        file_path = os.path.join(FIXED_FOLDER, fixed_filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({"error": "Fixed file not found on disk"}), 404
+        
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=fixed_filename,
+            mimetype='application/pdf'
+        )
+    except Exception as e:
+        print(f"[Backend] ERROR downloading fixed file: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
