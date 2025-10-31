@@ -20,7 +20,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-NEON_DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -30,7 +30,7 @@ FIXED_FOLDER = "fixed"
 # === Database Connection ===
 def get_db_connection():
     try:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(NEON_DATABASE_URL, cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
@@ -371,96 +371,102 @@ def download_file(scan_id):
 
 # === Progress Tracker ===
 @app.route("/api/progress/<scan_id>", methods=["GET"])
-def get_progress(scan_id):
-    progress = get_progress_tracker(scan_id)
-    return jsonify(progress)
-
-
-# === History Component ===
-@app.route("/api/history", methods=["GET", "OPTIONS"])
-def get_history():
-    """Get all scans and batches for history view"""
-    if request.method == "OPTIONS":
-        return "", 200
-    
+def get_fix_progress(scan_id):
+    """Get real-time progress of fix application"""
     try:
-        scans = execute_query(
-            """
-            SELECT id, filename, upload_date as "uploadDate", status, scan_results
-            FROM scans 
-            ORDER BY upload_date DESC
-            """,
-            fetch=True
-        )
+        tracker = get_progress_tracker(scan_id)
+        if not tracker:
+            return jsonify({
+                "error": "No progress tracking found for this scan",
+                "scanId": scan_id
+            }), 404
         
-        for scan in scans:
-            scan_data = scan.get('scan_results', {})
-            if isinstance(scan_data, str):
-                scan_data = json.loads(scan_data)
-            
-            summary = scan_data.get('summary', {})
-            scan['summary'] = {
-                'totalIssues': summary.get('total_issues', 0),
-                'critical': summary.get('critical', 0),
-                'error': summary.get('error', 0),
-                'warning': summary.get('warning', 0)
-            }
-            # Remove scan_results from response to keep it clean
-            del scan['scan_results']
+        progress = tracker.get_progress()
+        return jsonify(progress), 200
         
-        # Get all batches (if batch table exists)
-        batches = []
-        try:
-            batches = execute_query(
-                """
-                SELECT id as "batchId", name, upload_date as "uploadDate", 
-                       status, file_count as "fileCount", total_issues as "totalIssues"
-                FROM batches 
-                ORDER BY upload_date DESC
-                """,
-                fetch=True
-            )
-        except Exception as e:
-            print(f"[Backend] No batches table or error: {e}")
-        
-        return jsonify({
-            "scans": scans,
-            "batches": batches
-        })
     except Exception as e:
-        print(f"[Backend] Error fetching history: {e}")
+        print(f"[Backend] Error getting fix progress: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
-# === Fix History ===
-@app.route("/api/fix-history/<scan_id>", methods=["GET", "OPTIONS"])
-def get_fix_history(scan_id):
-    """Get fix history for a specific scan"""
-    if request.method == "OPTIONS":
-        return "", 200
-    
+# === Serve PDF File for Preview ===
+@app.route("/api/pdf-file/<scan_id>", methods=["GET"])
+def serve_pdf_file(scan_id):
+    """Serve PDF file for preview in PDF Editor"""
     try:
-        print(f"[Backend] Fetching fix history for scan: {scan_id}")
-        
-        fixes = execute_query(
-            """
-            SELECT id, scan_id as "scanId", original_filename as "originalFile",
-                   fixed_filename as "fixedFile", fixes_applied as "fixesApplied",
-                   applied_at as "timestamp"
-            FROM fix_history 
-            WHERE scan_id = %s 
-            ORDER BY applied_at DESC
-            """,
-            (scan_id,),
-            fetch=True
+        uploads_dir = Path(UPLOAD_FOLDER)
+        fixed_dir = Path(FIXED_FOLDER)
+
+        # Try multiple file path strategies
+        file_path = None
+        for folder in [fixed_dir, uploads_dir]:
+            for ext in ['', '.pdf']:
+                path = folder / f"{scan_id}{ext}"
+                if path.exists():
+                    file_path = path
+                    break
+            if file_path:
+                break
+
+        if not file_path:
+            print(f"[Backend] PDF file not found for scan: {scan_id}")
+            return jsonify({"error": "PDF file not found"}), 404
+
+        return send_file(
+            file_path,
+            mimetype="application/pdf",
+            as_attachment=False  # Serve inline for preview
         )
-        
-        print(f"[Backend] Found {len(fixes)} fixes for scan {scan_id}")
-        return jsonify({"fixes": fixes})
     except Exception as e:
-        print(f"[Backend] Error fetching fix history: {e}")
+        print(f"[Backend] Error serving PDF file: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# === Export Scan ===
+@app.route("/api/export/<scan_id>", methods=["GET"])
+def export_scan(scan_id):
+    """Export scan data for report generation"""
+    try:
+        print(f"[Backend] Exporting scan data for: {scan_id}")
+        
+        # Get scan data
+        scan_data = get_scan_by_id(scan_id)
+        if not scan_data:
+            return jsonify({"error": "Scan not found"}), 404
+        
+        # Parse scan_results
+        scan_results = scan_data.get('scan_results', {})
+        if isinstance(scan_results, str):
+            scan_results = json.loads(scan_results)
+        
+        results = scan_results.get('results', scan_results)
+        summary = scan_results.get('summary', {})
+        
+        # Ensure summary has all required fields
+        if not summary or 'totalIssues' not in summary:
+            total_issues = sum(len(v) if isinstance(v, list) else 0 for v in results.values())
+            summary = {
+                'totalIssues': total_issues,
+                'highSeverity': len([i for issues in results.values() if isinstance(issues, list) for i in issues if isinstance(i, dict) and i.get('severity') in ['high', 'critical']]),
+                'complianceScore': max(0, 100 - total_issues * 2)
+            }
+        
+        export_data = {
+            'scanId': scan_data['id'],
+            'filename': scan_data['filename'],
+            'uploadDate': scan_data.get('upload_date', scan_data.get('created_at')),
+            'status': scan_data.get('status', 'completed'),
+            'summary': summary,
+            'results': results
+        }
+        
+        print(f"[Backend] ✓ Export data prepared for: {scan_id}")
+        return jsonify(export_data)
+        
+    except Exception as e:
+        print(f"[Backend] Error exporting scan: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -682,134 +688,6 @@ def get_scan_by_id(scan_id):
         import traceback
         traceback.print_exc()
         return None
-
-
-@app.route("/api/fix-progress/<scan_id>", methods=["GET"])
-def get_fix_progress(scan_id):
-    """Get real-time progress of fix application"""
-    try:
-        from fix_progress_tracker import get_progress_tracker
-        
-        tracker = get_progress_tracker(scan_id)
-        if not tracker:
-            return jsonify({
-                "error": "No progress tracking found for this scan",
-                "scanId": scan_id
-            }), 404
-        
-        progress = tracker.get_progress()
-        return jsonify(progress), 200
-        
-    except Exception as e:
-        print(f"[Backend] Error getting fix progress: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-# === Download File ===
-@app.route("/api/download/<path:scan_id>", methods=["GET"])
-def download_file(scan_id):
-    uploads_dir = Path(UPLOAD_FOLDER)
-    fixed_dir = Path(FIXED_FOLDER)
-
-    file_path = None
-    for folder in [fixed_dir, uploads_dir]:
-        path = folder / f"{scan_id}.pdf"
-        if path.exists():
-            file_path = path
-            break
-
-    if not file_path:
-        return jsonify({"error": "File not found"}), 404
-
-    return send_file(
-        file_path,
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=f"{scan_id}.pdf"
-    )
-
-
-# === Serve PDF File for Preview ===
-@app.route("/api/pdf-file/<scan_id>", methods=["GET"])
-def serve_pdf_file(scan_id):
-    """Serve PDF file for preview in PDF Editor"""
-    try:
-        uploads_dir = Path(UPLOAD_FOLDER)
-        fixed_dir = Path(FIXED_FOLDER)
-
-        # Try multiple file path strategies
-        file_path = None
-        for folder in [fixed_dir, uploads_dir]:
-            for ext in ['', '.pdf']:
-                path = folder / f"{scan_id}{ext}"
-                if path.exists():
-                    file_path = path
-                    break
-            if file_path:
-                break
-
-        if not file_path:
-            print(f"[Backend] PDF file not found for scan: {scan_id}")
-            return jsonify({"error": "PDF file not found"}), 404
-
-        return send_file(
-            file_path,
-            mimetype="application/pdf",
-            as_attachment=False  # Serve inline for preview
-        )
-    except Exception as e:
-        print(f"[Backend] Error serving PDF file: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-# === Export Scan ===
-@app.route("/api/export/<scan_id>", methods=["GET"])
-def export_scan(scan_id):
-    """Export scan data for report generation"""
-    try:
-        print(f"[Backend] Exporting scan data for: {scan_id}")
-        
-        # Get scan data
-        scan_data = get_scan_by_id(scan_id)
-        if not scan_data:
-            return jsonify({"error": "Scan not found"}), 404
-        
-        # Parse scan_results
-        scan_results = scan_data.get('scan_results', {})
-        if isinstance(scan_results, str):
-            scan_results = json.loads(scan_results)
-        
-        results = scan_results.get('results', scan_results)
-        summary = scan_results.get('summary', {})
-        
-        # Ensure summary has all required fields
-        if not summary or 'totalIssues' not in summary:
-            total_issues = sum(len(v) if isinstance(v, list) else 0 for v in results.values())
-            summary = {
-                'totalIssues': total_issues,
-                'highSeverity': len([i for issues in results.values() if isinstance(issues, list) for i in issues if isinstance(i, dict) and i.get('severity') in ['high', 'critical']]),
-                'complianceScore': max(0, 100 - total_issues * 2)
-            }
-        
-        export_data = {
-            'scanId': scan_data['id'],
-            'filename': scan_data['filename'],
-            'uploadDate': scan_data.get('upload_date', scan_data.get('created_at')),
-            'status': scan_data.get('status', 'completed'),
-            'summary': summary,
-            'results': results
-        }
-        
-        print(f"[Backend] ✓ Export data prepared for: {scan_id}")
-        return jsonify(export_data)
-        
-    except Exception as e:
-        print(f"[Backend] Error exporting scan: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     print("[Backend] 🚀 Starting Flask server...")
