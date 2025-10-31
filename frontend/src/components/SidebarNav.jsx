@@ -10,7 +10,7 @@ export default function SidebarNav({ isOpen = true }) {
     { id: "stats", label: "Issue Statistics", icon: "📈" },
     { id: "issues", label: "Issues List", icon: "📋" },
     { id: "fixes", label: "Fix Suggestions", icon: "🔧" },
-    { id: "export", label: "Export Options", icon: "⬇" },
+    // { id: "export", label: "Export Options", icon: "⬇" },
   ]
 
   useEffect(() => {

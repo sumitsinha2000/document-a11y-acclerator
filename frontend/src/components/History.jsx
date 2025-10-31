@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { API_ENDPOINTS } from "../config/api"
 
 export default function History({ onSelectScan, onSelectBatch, onBack }) {
   const [batches, setBatches] = useState([])
@@ -18,7 +17,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
   const fetchHistory = async () => {
     try {
       console.log("[v0] Fetching history from /api/history")
-      const response = await fetch(API_ENDPOINTS.history)
+      const response = await fetch("/api/history")
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
@@ -53,7 +52,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
       setDeletingBatch(batchId)
       console.log("[v0] Deleting batch:", batchId)
 
-      const response = await fetch(`${API_ENDPOINTS.batchDetails(batchId)}`, {
+      const response = await fetch(`/api/batch/${batchId}`, {
         method: "DELETE",
       })
 

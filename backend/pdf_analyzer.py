@@ -5,7 +5,7 @@ Enhanced with PDF-Extract-Kit integration
 """
 
 import json
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import PyPDF2
 import pdfplumber
 from pathlib import Path
@@ -56,6 +56,11 @@ class PDFAccessibilityAnalyzer:
             "pdfuaIssues": [],
             "pdfaIssues": [],
         }
+
+        self._validator_active = False
+        self._wcag_score: Optional[int] = None
+        self._pdfua_score: Optional[int] = None
+        self._wcag_levels: Dict[str, bool] = {}
         
         self.pdf_extract_kit = None
         if PDF_EXTRACT_KIT_AVAILABLE:
@@ -347,29 +352,45 @@ class PDFAccessibilityAnalyzer:
             "recommendation": "Add descriptive alt text to all images",
         })
 
-    def calculate_compliance_score(self) -> int:
-        """Calculate overall accessibility compliance score (0-100)"""
+    @staticmethod
+    def _average_scores(scores: List[Optional[float]]) -> Optional[int]:
+        """Average compliance scores, ignoring missing values."""
+        valid = [float(s) for s in scores if isinstance(s, (int, float))]
+        if not valid:
+            return None
+        return max(0, min(100, int(round(sum(valid) / len(valid)))))
+
+    @staticmethod
+    def _severity_based_score(issue_buckets: Dict[str, List[Dict[str, Any]]]) -> int:
+        """Fallback compliance score based on issue severity."""
         try:
-            total_issues = sum(len(v) for v in self.issues.values())
-            
+            total_issues = sum(len(v) for v in issue_buckets.values())
             if total_issues == 0:
                 return 100
-            
+
             high_severity = sum(
                 len([i for i in v if isinstance(i, dict) and i.get("severity") == "high"])
-                for v in self.issues.values()
+                for v in issue_buckets.values()
             )
             medium_severity = sum(
                 len([i for i in v if isinstance(i, dict) and i.get("severity") == "medium"])
-                for v in self.issues.values()
+                for v in issue_buckets.values()
             )
             low_severity = total_issues - high_severity - medium_severity
 
             score = 100 - (high_severity * 15) - (medium_severity * 5) - (low_severity * 2)
             return max(0, min(100, score))
         except Exception as e:
-            print(f"[Analyzer] Error calculating score: {e}")
+            print(f"[Analyzer] Error calculating severity score: {e}")
             return 50
+
+    def calculate_compliance_score(self) -> int:
+        """Calculate overall accessibility compliance score (0-100)."""
+        if self._validator_active:
+            averaged = self._average_scores([self._wcag_score, self._pdfua_score])
+            if averaged is not None:
+                return averaged
+        return self._severity_based_score(self.issues)
 
     def get_summary(self) -> Dict[str, Any]:
         """Get summary statistics of the analysis"""
@@ -400,7 +421,7 @@ class PDFAccessibilityAnalyzer:
             }
 
     @staticmethod
-    def calculate_summary(results: Dict[str, List]) -> Dict[str, Any]:
+    def calculate_summary(results: Dict[str, List], verapdf_status: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Calculate summary statistics from analysis results.
         Used when loading historical scans from database.
@@ -424,12 +445,15 @@ class PDFAccessibilityAnalyzer:
             )
             low_severity = total_issues - high_severity - medium_severity
 
-            # Calculate compliance score
-            if total_issues == 0:
-                compliance_score = 100
-            else:
-                compliance_score = 100 - (high_severity * 15) - (medium_severity * 5) - (low_severity * 2)
-                compliance_score = max(0, min(100, compliance_score))
+            compliance_score = None
+            if verapdf_status:
+                compliance_score = PDFAccessibilityAnalyzer._average_scores([
+                    verapdf_status.get('wcagCompliance'),
+                    verapdf_status.get('pdfuaCompliance')
+                ])
+
+            if compliance_score is None:
+                compliance_score = PDFAccessibilityAnalyzer._severity_based_score(results)
 
             return {
                 "totalIssues": total_issues,
@@ -456,6 +480,8 @@ class PDFAccessibilityAnalyzer:
             validation_results = validator.validate()
             
             print(f"[Analyzer] Validation complete. Results keys: {list(validation_results.keys())}")
+
+            self._validator_active = True
             
             # Merge WCAG issues
             if validation_results.get("wcagIssues"):
@@ -477,6 +503,10 @@ class PDFAccessibilityAnalyzer:
             wcag_score = validation_results.get('wcagScore', 0)
             pdfua_score = validation_results.get('pdfuaScore', 0)
             wcag_compliance = validation_results.get('wcagCompliance', {})
+
+            self._wcag_score = wcag_score
+            self._pdfua_score = pdfua_score
+            self._wcag_levels = wcag_compliance or {}
             
             print(f"[Analyzer] ========== COMPLIANCE SCORES ==========")
             print(f"[Analyzer] WCAG 2.1 Compliance Score: {wcag_score}%")
@@ -493,6 +523,30 @@ class PDFAccessibilityAnalyzer:
             import traceback
             traceback.print_exc()
             print(f"[Analyzer] ==========================================")
+
+    def get_verapdf_status(self) -> Optional[Dict[str, Any]]:
+        """
+        Return the most recent veraPDF-style compliance status if validation ran.
+        """
+        if not getattr(self, 'wcag_validator_available', False):
+            return None
+        if not self._validator_active:
+            return None
+
+        wcag_issues = len(self.issues.get('wcagIssues', []))
+        pdfua_issues = len(self.issues.get('pdfuaIssues', []))
+
+        status: Dict[str, Any] = {
+            'isActive': True,
+            'wcagCompliance': max(0, min(100, int(self._wcag_score))) if self._wcag_score is not None else None,
+            'pdfuaCompliance': max(0, min(100, int(self._pdfua_score))) if self._pdfua_score is not None else None,
+            'totalVeraPDFIssues': wcag_issues + pdfua_issues,
+        }
+
+        if self._wcag_levels:
+            status['wcagLevels'] = self._wcag_levels
+
+        return status
 
     def _analyze_with_pdfa_validator(self, pdf_path: str):
         """Analyze PDF using PDF/A validator based on veraPDF library approach"""

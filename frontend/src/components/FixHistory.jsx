@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react"
 import axios from "axios"
-import { API_ENDPOINTS } from "../config/api"
 
 const safeRenderFix = (fix) => {
   // If it's already a string, return it
@@ -32,7 +31,7 @@ const safeRenderFix = (fix) => {
   return "Unknown fix"
 }
 
-export default function FixHistory({ scanId }) {
+export default function FixHistory({ scanId, refreshToken }) {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -40,12 +39,12 @@ export default function FixHistory({ scanId }) {
 
   useEffect(() => {
     fetchFixHistory()
-  }, [scanId])
+  }, [scanId, refreshToken])
 
   const fetchFixHistory = async () => {
     try {
       setLoading(true)
-      const response = await axios.get(API_ENDPOINTS.fixHistory(scanId))
+      const response = await axios.get(`/api/fix-history/${scanId}`)
       setHistory(response.data.history || [])
       setError(null)
     } catch (err) {
@@ -58,14 +57,19 @@ export default function FixHistory({ scanId }) {
 
   const handleDownload = async (filename) => {
     try {
-      const response = await axios.get(API_ENDPOINTS.downloadFixed(filename), {
+      const response = await axios.get(`/api/download-fixed/${filename}`, {
         responseType: "blob",
       })
 
-      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const downloadName = filename.endsWith(".pdf") ? filename : `${filename}.pdf`
+      const blob = new Blob([response.data], {
+        type: response.headers["content-type"] || "application/pdf",
+      })
+
+      const url = window.URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
-      link.setAttribute("download", filename)
+      link.setAttribute("download", downloadName)
       document.body.appendChild(link)
       link.click()
       link.remove()

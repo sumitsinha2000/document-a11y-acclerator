@@ -99,13 +99,124 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
   }
 
-  const refreshScanData = async (newScanResults, newFixes) => {
+  const normalizeRefreshPayload = (primary = undefined, secondary = undefined) => {
+    const normalized = {
+      results: undefined,
+      summary: undefined,
+      fixes: undefined,
+      verapdfStatus: undefined,
+    }
+
+    if (secondary !== undefined) {
+      normalized.results = primary
+      normalized.fixes = secondary
+      return normalized
+    }
+
+    if (primary === undefined) {
+      return normalized
+    }
+
+    if (primary && typeof primary === "object" && !Array.isArray(primary)) {
+      if (
+        primary.results ||
+        primary.summary ||
+        primary.fixes ||
+        primary.newResults ||
+        primary.newSummary ||
+        primary.newFixes ||
+        primary.newScanResults ||
+        primary.verapdfStatus ||
+        primary.newVerapdfStatus
+      ) {
+        normalized.results = primary.results || primary.newResults || primary.newScanResults
+        normalized.summary = primary.summary || primary.newSummary
+        normalized.fixes = primary.fixes || primary.newFixes
+        normalized.verapdfStatus = primary.verapdfStatus || primary.newVerapdfStatus
+        return normalized
+      }
+
+      if ("totalIssues" in primary || "complianceScore" in primary) {
+        normalized.summary = primary
+        return normalized
+      }
+    }
+
+    normalized.results = primary
+    return normalized
+  }
+
+  const deriveIssueCounts = (results) => {
+    const baseCounts = {
+      totalIssues: 0,
+      highSeverity: 0,
+      mediumSeverity: 0,
+      lowSeverity: 0,
+      criticalIssues: 0,
+      wcagIssues: 0,
+      pdfuaIssues: 0,
+    }
+
+    if (!results || typeof results !== "object") {
+      return baseCounts
+    }
+
+    const allIssues = []
+    Object.values(results).forEach((value) => {
+      if (Array.isArray(value)) {
+        value.forEach((issue) => {
+          if (issue !== null && issue !== undefined) {
+            allIssues.push(issue)
+          }
+        })
+      }
+    })
+
+    const normalizeSeverity = (severityValue) => {
+      if (!severityValue) return "low"
+      const normalized = String(severityValue).toLowerCase()
+      if (["critical", "severe"].includes(normalized)) return "critical"
+      if (["high", "error"].includes(normalized)) return "high"
+      if (["medium", "warning"].includes(normalized)) return "medium"
+      return "low"
+    }
+
+    allIssues.forEach((issue) => {
+      baseCounts.totalIssues += 1
+      const severity = normalizeSeverity(issue?.severity)
+      if (severity === "critical") {
+        baseCounts.criticalIssues += 1
+        baseCounts.highSeverity += 1
+      } else if (severity === "high") {
+        baseCounts.highSeverity += 1
+      } else if (severity === "medium") {
+        baseCounts.mediumSeverity += 1
+      } else {
+        baseCounts.lowSeverity += 1
+      }
+    })
+
+    baseCounts.wcagIssues = Array.isArray(results.wcagIssues) ? results.wcagIssues.length : 0
+    baseCounts.pdfuaIssues = Array.isArray(results.pdfuaIssues) ? results.pdfuaIssues.length : 0
+
+    return baseCounts
+  }
+
+  const refreshScanData = async (updates, legacyFixes) => {
     if (isRefreshing) {
       console.log("[v0] ReportViewer - Already refreshing, skipping duplicate call")
       return
     }
 
     setIsRefreshing(true)
+
+    const {
+      results: providedResults,
+      summary: providedSummary,
+      fixes: providedFixes,
+      verapdfStatus: providedVerapdfStatus,
+    } =
+      normalizeRefreshPayload(updates, legacyFixes)
 
     try {
       await new Promise((resolve) => setTimeout(resolve, 300))
@@ -124,32 +235,50 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
 
     console.log("[v0] ReportViewer - Starting refresh for scanId:", scanId)
-    console.log("[v0] ReportViewer - New scan results provided:", newScanResults)
-    console.log("[v0] ReportViewer - New fixes provided:", newFixes)
+    console.log("[v0] ReportViewer - New scan results provided:", providedResults)
+    console.log("[v0] ReportViewer - New summary provided:", providedSummary)
+    console.log("[v0] ReportViewer - New fixes provided:", providedFixes)
     console.log("[v0] ReportViewer - Current reportData before refresh:", reportData)
 
-    if (newScanResults && newFixes) {
+    const hasProvidedData = providedResults || providedSummary || providedFixes
+
+    if (hasProvidedData) {
       console.log("[v0] ReportViewer - Using provided data directly (no fetch needed)")
 
-      const actualResults = newScanResults.results || newScanResults
-      const actualSummary = newScanResults.summary || {
-        totalIssues: (actualResults.wcagIssues?.length || 0) + (actualResults.pdfuaIssues?.length || 0),
-        wcagIssues: actualResults.wcagIssues?.length || 0,
-        pdfuaIssues: actualResults.pdfuaIssues?.length || 0,
-        criticalIssues: actualResults.wcagIssues?.filter((i) => i.severity === "critical").length || 0,
+      const actualResults = providedResults || providedSummary?.results || reportData?.results || {}
+      const previousSummary = reportData?.summary || {}
+      const mergedSummary = {
+        totalIssues: 0,
+        highSeverity: 0,
+        complianceScore: 0,
+        wcagIssues: 0,
+        pdfuaIssues: 0,
+        criticalIssues: 0,
+        ...previousSummary,
+        ...(providedSummary && typeof providedSummary === "object" ? providedSummary : {}),
       }
+      const derivedCounts = deriveIssueCounts(actualResults)
+      mergedSummary.totalIssues = derivedCounts.totalIssues
+      mergedSummary.highSeverity = derivedCounts.highSeverity
+      mergedSummary.wcagIssues = derivedCounts.wcagIssues
+      mergedSummary.pdfuaIssues = derivedCounts.pdfuaIssues
+      mergedSummary.mediumSeverity = derivedCounts.mediumSeverity
+      mergedSummary.lowSeverity = derivedCounts.lowSeverity
+      mergedSummary.criticalIssues = derivedCounts.criticalIssues
 
       const newData = {
         ...reportData,
-        summary: actualSummary,
+        summary: mergedSummary,
         results: actualResults,
-        fixes: newFixes,
+        fixes: providedFixes || reportData?.fixes || { automated: [], semiAutomated: [], manual: [], estimatedTime: 0 },
+        verapdfStatus:
+          providedVerapdfStatus ?? providedSummary?.verapdfStatus ?? providedSummary?.verapdf_status ?? reportData?.verapdfStatus,
       }
 
       console.log("[v0] ReportViewer - New data structure created:", newData)
-      console.log("[v0] ReportViewer - New summary:", actualSummary)
+      console.log("[v0] ReportViewer - New summary:", mergedSummary)
       console.log("[v0] ReportViewer - New results:", actualResults)
-      console.log("[v0] ReportViewer - New fixes:", newFixes)
+      console.log("[v0] ReportViewer - New fixes:", newData.fixes)
 
       setReportData(newData)
       console.log("[v0] ReportViewer - setReportData called with new data")
@@ -189,10 +318,33 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         console.log("[v0] ReportViewer - New fixes:", response.data.fixes)
         console.log("[v0] ReportViewer - New results:", response.data.results)
 
+        const fetchedResults = response.data.results || {}
+        const fetchedSummary = response.data.summary || {}
+        const previousSummary = reportData?.summary || {}
+        const mergedSummary = {
+          totalIssues: 0,
+          highSeverity: 0,
+          complianceScore: 0,
+          wcagIssues: 0,
+          pdfuaIssues: 0,
+          criticalIssues: 0,
+          ...previousSummary,
+          ...(typeof fetchedSummary === "object" ? fetchedSummary : {}),
+        }
+        const derivedCounts = deriveIssueCounts(fetchedResults)
+        mergedSummary.totalIssues = derivedCounts.totalIssues
+        mergedSummary.highSeverity = derivedCounts.highSeverity
+        mergedSummary.wcagIssues = derivedCounts.wcagIssues
+        mergedSummary.pdfuaIssues = derivedCounts.pdfuaIssues
+        mergedSummary.mediumSeverity = derivedCounts.mediumSeverity
+        mergedSummary.lowSeverity = derivedCounts.lowSeverity
+        mergedSummary.criticalIssues = derivedCounts.criticalIssues
+
         const newData = {
+          ...reportData,
           ...response.data,
-          summary: response.data.summary || { totalIssues: 0, highSeverity: 0, complianceScore: 0 },
-          results: response.data.results || {},
+          summary: mergedSummary,
+          results: fetchedResults,
           fixes: response.data.fixes || { automated: [], semiAutomated: [], manual: [], estimatedTime: 0 },
         }
 
@@ -265,16 +417,20 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         console.log("[v0] AI fixes applied successfully:", response.data)
 
         // Refresh the scan data with new results
-        if (response.data.newResults && response.data.newSummary) {
-          await refreshScanData(response.data.newResults, response.data.newSummary)
+        if (response.data.newResults || response.data.newSummary || response.data.newFixes) {
+          await refreshScanData({
+            results: response.data.newResults,
+            summary: response.data.newSummary,
+            fixes: response.data.newFixes,
+          })
         } else {
           await refreshScanData()
         }
 
         alert(
           `AI fixes applied successfully!\n\n` +
-            `Fixes applied: ${response.data.successCount || 0}\n` +
-            `New compliance score: ${response.data.newSummary?.complianceScore || 0}%`,
+          `Fixes applied: ${response.data.successCount || 0}\n` +
+          `New compliance score: ${response.data.newSummary?.complianceScore || 0}%`,
         )
       } else {
         throw new Error(response.data.error || "Failed to apply AI fixes")
@@ -400,11 +556,10 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                   <button
                     key={index}
                     ref={(el) => (tabRefs.current[index] = el)}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 ${
-                      selectedFileIndex === index
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 ${selectedFileIndex === index
                         ? "bg-blue-600 text-white shadow-sm"
                         : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:border-blue-400"
-                    }`}
+                      }`}
                     onClick={() => setSelectedFileIndex(index)}
                     aria-label={`View report for ${scan.fileName || scan.filename}`}
                     aria-current={selectedFileIndex === index ? "page" : undefined}
@@ -413,11 +568,10 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                     <span className="font-medium">{scan.fileName || scan.filename}</span>
                     {scan.summary && (
                       <span
-                        className={`px-1.5 py-0.5 rounded text-xs font-semibold ${
-                          scan.summary.complianceScore >= 70
+                        className={`px-1.5 py-0.5 rounded text-xs font-semibold ${scan.summary.complianceScore >= 70
                             ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                             : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                        }`}
+                          }`}
                       >
                         {scan.summary.complianceScore}%
                       </span>
@@ -467,10 +621,10 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
             <StatCard
               label="Compliance Score"
               value={`${summary.complianceScore}%`}
-              change={summary.complianceScore >= 70 ? 20 : -10}
+              context="First scan — no prior baseline"
             />
-            <StatCard label="Total Issues" value={summary.totalIssues} change={-5} />
-            <StatCard label="High Severity" value={summary.highSeverity} change={-3} />
+            <StatCard label="Total Issues" value={summary.totalIssues} />
+            <StatCard label="High Severity" value={summary.highSeverity} />
           </div>
 
           {verapdfStatus.isActive && (
@@ -531,7 +685,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         </div>
 
         <div className="mb-6">
-          <FixHistory scanId={reportData.scanId} onRefresh={refreshScanData} />
+          <FixHistory scanId={reportData.scanId} refreshToken={refreshKey} />
         </div>
 
         <div id="stats" className="mb-6" key={`stats-${refreshKey}`}>
@@ -564,7 +718,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                             d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
                           />
                         </svg>
-                        {issueType === "wcagIssues" ? "WCAG" : "PDF/A"}
+                        {issueType === "wcagIssues" ? "WCAG" : "PDF/UA"}
                       </button>
                       <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
                         <div className="p-2 space-y-1">

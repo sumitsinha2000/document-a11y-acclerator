@@ -7,18 +7,39 @@ import FixSuggestions from "./FixSuggestions" // Ensure this path is correct
 const ScanResults = ({ scanId, filename }) => {
   const [summary, setSummary] = useState(null)
   const [results, setResults] = useState(null)
+  const [fixes, setFixes] = useState(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   const handleRefresh = useCallback(
-    async (newSummary, newResults) => {
+    async (updates, legacyResults) => {
       console.log("[v0] ScanResults - handleRefresh called")
-      console.log("[v0] ScanResults - newSummary:", newSummary)
-      console.log("[v0] ScanResults - newResults:", newResults)
+      console.log("[v0] ScanResults - updates:", updates)
+      console.log("[v0] ScanResults - legacyResults:", legacyResults)
 
-      if (newSummary && newResults) {
+      let providedSummary
+      let providedResults
+      let providedFixes
+
+      if (legacyResults !== undefined) {
+        providedSummary = updates
+        providedResults = legacyResults
+      } else if (updates && typeof updates === "object" && !Array.isArray(updates)) {
+        providedSummary = updates.summary ?? updates.newSummary
+        providedResults = updates.results ?? updates.newResults ?? updates.newScanResults
+        providedFixes = updates.fixes ?? updates.newFixes
+      }
+
+      if (providedSummary || providedResults || providedFixes) {
         console.log("[v0] ScanResults - Using provided data directly")
-        setSummary(newSummary)
-        setResults(newResults)
+        if (providedSummary !== undefined) setSummary(providedSummary)
+        if (providedResults !== undefined) {
+          if (typeof providedResults === "object" && !Array.isArray(providedResults)) {
+            setResults(providedResults)
+          } else {
+            setResults(providedResults)
+          }
+        }
+        if (providedFixes !== undefined) setFixes(providedFixes)
         return
       }
 
@@ -31,6 +52,7 @@ const ScanResults = ({ scanId, filename }) => {
         if (response.data.success) {
           setSummary(response.data.summary)
           setResults(response.data.results)
+          setFixes(response.data.fixes || null)
           console.log("[v0] ScanResults - State updated with fresh data")
         } else {
           console.error("[v0] ScanResults - Failed to fetch fresh data:", response.data.message)
@@ -47,7 +69,7 @@ const ScanResults = ({ scanId, filename }) => {
   return (
     <div>
       {/* Fix Suggestions Section */}
-      {results?.fixes && (
+      {fixes && (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-gray-700">
           {isRefreshing && (
             <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
@@ -70,7 +92,7 @@ const ScanResults = ({ scanId, filename }) => {
               </p>
             </div>
           )}
-          <FixSuggestions scanId={scanId} fixes={results.fixes} filename={filename} onRefresh={handleRefresh} />
+          <FixSuggestions scanId={scanId} fixes={fixes} filename={filename} onRefresh={handleRefresh} />
         </div>
       )}
     </div>
