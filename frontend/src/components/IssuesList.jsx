@@ -98,25 +98,46 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
           </div>
 
           <div className="space-y-4">
-            {results[selectedCategory].map((issue, idx) => (
-              <div key={idx} className={`p-4 rounded-lg border-l-4 ${getSeverityStyles(issue.severity)}`}>
-                <div className="flex items-start gap-3 mb-2">
-                  <span className="px-2 py-1 rounded text-xs font-bold uppercase">{issue.severity}</span>
-                  <span className="font-semibold flex-1">{issue.description}</span>
-                </div>
-                {issue.page && <p className="text-sm opacity-75 ml-16">Page: {issue.page}</p>}
-                {issue.pages && <p className="text-sm opacity-75 ml-16">Pages: {issue.pages.join(", ")}</p>}
-                {issue.count && <p className="text-sm opacity-75 ml-16">Count: {issue.count}</p>}
-                {issue.recommendation && (
-                  <div className="mt-3 ml-16 p-3 bg-blue-50 dark:bg-blue-900/20 rounded border-l-2 border-blue-500">
-                    <p className="text-sm">
-                      <strong className="text-blue-700 dark:text-blue-300">Recommendation:</strong>{" "}
-                      <span className="text-gray-700 dark:text-gray-300">{issue.recommendation}</span>
-                    </p>
+            {results[selectedCategory].map((issue, idx) => {
+              const description =
+                issue.description ||
+                issue.message ||
+                issue.title ||
+                (issue.clause ? `Checkpoint: ${issue.clause}` : "Issue details unavailable")
+
+              return (
+                <div key={idx} className={`p-4 rounded-lg border-l-4 ${getSeverityStyles(issue.severity)}`}>
+                  <div className="flex items-start gap-3 mb-2">
+                    <span className="px-2 py-1 rounded text-xs font-bold uppercase">{issue.severity}</span>
+                    <span className="font-semibold flex-1">{description}</span>
                   </div>
-                )}
-              </div>
-            ))}
+                  {issue.clause && (
+                    <p className="text-sm opacity-75 ml-16">
+                      <strong>Clause:</strong> {issue.clause}
+                    </p>
+                  )}
+                  {issue.page && <p className="text-sm opacity-75 ml-16">Page: {issue.page}</p>}
+                  {issue.pages && <p className="text-sm opacity-75 ml-16">Pages: {issue.pages.join(", ")}</p>}
+                  {issue.count && <p className="text-sm opacity-75 ml-16">Count: {issue.count}</p>}
+                  {issue.remediation && !issue.recommendation && (
+                    <div className="mt-3 ml-16 p-3 bg-blue-50 dark:bg-blue-900/20 rounded border-l-2 border-blue-500">
+                      <p className="text-sm">
+                        <strong className="text-blue-700 dark:text-blue-300">Remediation:</strong>{" "}
+                        <span className="text-gray-700 dark:text-gray-300">{issue.remediation}</span>
+                      </p>
+                    </div>
+                  )}
+                  {issue.recommendation && (
+                    <div className="mt-3 ml-16 p-3 bg-blue-50 dark:bg-blue-900/20 rounded border-l-2 border-blue-500">
+                      <p className="text-sm">
+                        <strong className="text-blue-700 dark:text-blue-300">Recommendation:</strong>{" "}
+                        <span className="text-gray-700 dark:text-gray-300">{issue.recommendation}</span>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

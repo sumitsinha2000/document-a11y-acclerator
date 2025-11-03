@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import ReportViewer from "./ReportViewer"
 import { ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Info } from "lucide-react"
@@ -22,6 +22,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   const [batchData, setBatchData] = useState(null)
   const [scansState, setScansState] = useState(scans || [])
   const { showSuccess, showError, showWarning, showInfo, confirm } = useNotification()
+  const fetchedScanIdsRef = useRef(new Set())
 
   useEffect(() => {
     const fetchBatchData = async () => {
@@ -49,6 +50,83 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       setScansState(scans)
     }
   }, [scans])
+
+  useEffect(() => {
+    if (!Array.isArray(scansState) || scansState.length === 0) return
+
+    const missingDetails = scansState.filter((scan) => {
+      const scanId = scan.scanId || scan.id
+      if (!scanId) return false
+      if (fetchedScanIdsRef.current.has(scanId)) return false
+      const issues = scan.results || {}
+      return !issues || Object.keys(issues).length === 0
+    })
+
+    if (missingDetails.length === 0) {
+      return
+    }
+
+    let cancelled = false
+    const fetchDetails = async () => {
+      try {
+        const responses = await Promise.all(
+          missingDetails.map((scan) => {
+            const scanId = scan.scanId || scan.id
+            return axios.get(`/api/scan/${scanId}`)
+          }),
+        )
+
+        if (cancelled) return
+
+        const enrichedById = responses.reduce((acc, response, index) => {
+          const data = response?.data
+          const original = missingDetails[index]
+          const scanId = original.scanId || original.id
+          if (scanId && data?.results && Object.keys(data.results).length > 0) {
+            acc[scanId] = {
+              ...original,
+              ...data,
+              results: data.results,
+              summary: data.summary || original.summary,
+            }
+          }
+          return acc
+        }, {})
+
+        if (Object.keys(enrichedById).length === 0) {
+          return
+        }
+
+        setScansState((prev) =>
+          prev.map((scan) => {
+            const scanId = scan.scanId || scan.id
+            if (scanId && enrichedById[scanId]) {
+              return {
+                ...scan,
+                ...enrichedById[scanId],
+              }
+            }
+            return scan
+          }),
+        )
+      } catch (error) {
+        console.error("[v0] Error enriching scan data with full results:", error)
+      }
+    }
+
+    missingDetails.forEach((scan) => {
+      const scanId = scan.scanId || scan.id
+      if (scanId) {
+        fetchedScanIdsRef.current.add(scanId)
+      }
+    })
+
+    fetchDetails()
+
+    return () => {
+      cancelled = true
+    }
+  }, [scansState])
 
   const aggregateIssuesByCategory = () => {
     const categories = {

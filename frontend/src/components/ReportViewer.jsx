@@ -624,7 +624,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
             <IssuesList
               results={reportData.results}
               selectedCategory={selectedCategory}
-              onCategorySelect={setSelectedCategory}
+              onSelectCategory={setSelectedCategory}
             />
           </div>
 

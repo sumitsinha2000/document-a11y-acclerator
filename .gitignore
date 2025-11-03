@@ -32,3 +32,6 @@ next-env.d.ts
 
 # Uploads
 /backend/uploads
+
+# pdf_extract_kit
+pdf_extract_kit
