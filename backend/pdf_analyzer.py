@@ -5,7 +5,7 @@ Enhanced with PDF-Extract-Kit integration
 """
 
 import json
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import PyPDF2
 import pdfplumber
 from pathlib import Path
@@ -400,13 +400,14 @@ class PDFAccessibilityAnalyzer:
             }
 
     @staticmethod
-    def calculate_summary(results: Dict[str, List]) -> Dict[str, Any]:
+    def calculate_summary(results: Dict[str, List], verapdf_status: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Calculate summary statistics from analysis results.
         Used when loading historical scans from database.
         
         Args:
             results: Dictionary of accessibility issues by category
+            verapdf_status: Optional veraPDF-style compliance data
             
         Returns:
             Summary statistics including total issues, severity counts, and compliance score
@@ -431,12 +432,18 @@ class PDFAccessibilityAnalyzer:
                 compliance_score = 100 - (high_severity * 15) - (medium_severity * 5) - (low_severity * 2)
                 compliance_score = max(0, min(100, compliance_score))
 
-            return {
+            summary = {
                 "totalIssues": total_issues,
                 "highSeverity": high_severity,
                 "mediumSeverity": medium_severity,
                 "complianceScore": compliance_score,
             }
+
+            if isinstance(verapdf_status, dict):
+                summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+                summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+
+            return summary
         except Exception as e:
             print(f"[Analyzer] Error calculating summary from results: {e}")
             return {

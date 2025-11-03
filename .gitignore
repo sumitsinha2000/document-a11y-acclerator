@@ -30,8 +30,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Uploads
+# Uploads & related files
 /backend/uploads
-
-# pdf_extract_kit
+/backend/fixed
 pdf_extract_kit

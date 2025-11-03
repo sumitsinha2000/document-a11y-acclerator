@@ -61,6 +61,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setApplyingTraditional(true)
     setShowProgressStepper(true)
     setCurrentFixType("Traditional Automated Fixes")
+    setFixedFile(null)
 
     try {
       const response = await axios.post(API_ENDPOINTS.applyFixes(scanId), {
@@ -81,6 +82,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setApplyingAI(true)
     setShowProgressStepper(true)
     setCurrentFixType("AI-Powered Automated Fixes")
+    setFixedFile(null)
 
     try {
       const response = await axios.post(API_ENDPOINTS.applyFixes(scanId), {
@@ -101,6 +103,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setApplyingTraditionalSemi(true)
     setShowProgressStepper(true)
     setCurrentFixType("Traditional Semi-Automated Fixes")
+    setFixedFile(null)
 
     try {
       const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
@@ -121,6 +124,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setApplyingAISemi(true)
     setShowProgressStepper(true)
     setCurrentFixType("AI-Powered Semi-Automated Fixes")
+    setFixedFile(null)
 
     try {
       const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
@@ -137,15 +141,27 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
-  const handleFixApplied = async (appliedFix, newSummary, newResults) => {
+  const handleFixApplied = async (
+    appliedFix,
+    newSummary,
+    newResults,
+    newVerapdfStatus = null,
+    newFixSuggestions = null,
+  ) => {
     console.log("[v0] FixSuggestions - Fix applied in editor:", appliedFix)
     console.log("[v0] FixSuggestions - New summary received:", newSummary)
     console.log("[v0] FixSuggestions - New results received:", newResults)
 
+    setFixedFile({
+      filename: filename || `${scanId}.pdf`,
+      message: "Manual fix applied successfully! The PDF has been updated with your changes.",
+      summary: newSummary,
+    })
+
     if (onRefresh) {
       console.log("[v0] FixSuggestions - Calling onRefresh with new data...")
       try {
-        await onRefresh(newSummary, newResults)
+        await onRefresh(newSummary, newResults, newVerapdfStatus, newFixSuggestions)
         console.log("[v0] FixSuggestions - onRefresh completed successfully")
       } catch (error) {
         console.error("[v0] FixSuggestions - Error during refresh:", error)
@@ -171,8 +187,13 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   }
 
   const handleDownloadFixed = async () => {
+    if (!fixedFile?.filename) {
+      showAlert(setAlertModal)("Download unavailable", "No fixed file is available yet. Apply a fix first.")
+      return
+    }
+
     try {
-      const response = await axios.get(`/api/download-fixed-file/${scanId}`, {
+      const response = await axios.get(API_ENDPOINTS.downloadFixed(fixedFile.filename), {
         responseType: "blob",
       })
       const url = window.URL.createObjectURL(new Blob([response.data]))
@@ -193,16 +214,52 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setShowProgressStepper(false)
 
     if (success) {
+      const updatedFileName = newScanData?.fixedFile || filename || `${scanId}.pdf`
+      const complianceScore = newScanData?.summary?.complianceScore
+      const messageSuffix =
+        typeof complianceScore === "number"
+          ? ` New compliance score: ${Math.round(complianceScore)}%.`
+          : ""
+
+      setFixedFile({
+        filename: updatedFileName,
+        message: `${currentFixType} applied successfully!${messageSuffix}`,
+        summary: newScanData?.summary,
+      })
+
       console.log("[v0] FixSuggestions - Fixes applied successfully, triggering refresh")
 
       await new Promise((resolve) => setTimeout(resolve, 1500))
 
-      if (onRefresh) {
+      if (onRefresh && newScanData) {
         try {
           console.log("[v0] FixSuggestions - Calling onRefresh...")
-          await onRefresh()
+          await onRefresh(
+            newScanData?.summary,
+            newScanData?.results || newScanData?.scanResults?.results,
+            newScanData?.verapdfStatus,
+            newScanData?.suggestions,
+          )
           console.log("[v0] FixSuggestions - Refresh completed successfully")
 
+          showAlert(setAlertModal)(
+            `${currentFixType} Applied`,
+            `${currentFixType} applied successfully! The report has been updated with the latest data.`,
+            "success",
+          )
+        } catch (refreshError) {
+          console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
+          showAlert(setAlertModal)(
+            `${currentFixType} Applied`,
+            `${currentFixType} applied successfully, but failed to refresh the report automatically. Please click the Refresh button to see the latest data.`,
+            "warning",
+          )
+        }
+      } else if (onRefresh) {
+        try {
+          console.log("[v0] FixSuggestions - Calling onRefresh without new data...")
+          await onRefresh()
+          console.log("[v0] FixSuggestions - Refresh completed successfully")
           showAlert(setAlertModal)(
             `${currentFixType} Applied`,
             `${currentFixType} applied successfully! The report has been updated with the latest data.`,
@@ -226,6 +283,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       }
     } else {
       console.error("[v0] FixSuggestions - Fix application failed")
+      setFixedFile(null)
       showAlert(setAlertModal)(
         "Fix Application Failed",
         "The fix process encountered errors. Please review the error details and try again.",
@@ -546,6 +604,11 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             <div>
               <p className="text-sm font-medium text-green-800 dark:text-green-200">Fixes Applied Successfully!</p>
               <p className="text-xs text-green-600 dark:text-green-400 mt-1">{fixedFile.message}</p>
+              {typeof fixedFile?.summary?.complianceScore === "number" && (
+                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                  Updated compliance score: {Math.round(fixedFile.summary.complianceScore)}%
+                </p>
+              )}
             </div>
             <button
               onClick={handleDownloadFixed}

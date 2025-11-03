@@ -8,6 +8,8 @@ import pdfplumber
 from datetime import datetime
 import re
 from pdfa_fix_engine import PDFAFixEngine  # Import the class instead of the function
+from pdf_analyzer import PDFAccessibilityAnalyzer
+from fix_suggestions import generate_fix_suggestions
 from pdf_structure_standards import (
     STANDARD_STRUCTURE_TYPES,
     COMMON_ROLEMAP_MAPPINGS,
@@ -63,6 +65,72 @@ class AutoFixEngine:
             except Exception as e:
                 print(f"[AutoFixEngine] Could not initialize AI engine: {e}")
                 self.ai_engine = None
+
+    def _build_verapdf_status(self, results, analyzer=None):
+        """Mirror backend.app.build_verapdf_status without circular import."""
+        status = {
+            "isActive": False,
+            "wcagCompliance": None,
+            "pdfuaCompliance": None,
+            "totalVeraPDFIssues": 0,
+        }
+
+        if analyzer and hasattr(analyzer, "get_verapdf_status"):
+            try:
+                computed = analyzer.get_verapdf_status()
+                if computed:
+                    return computed
+            except Exception as e:
+                print(f"[AutoFixEngine] Warning: analyzer.get_verapdf_status failed: {e}")
+
+        if not isinstance(results, dict):
+            return status
+
+        wcag_issues = len(results.get("wcagIssues", []))
+        pdfua_issues = len(results.get("pdfuaIssues", []))
+        total = wcag_issues + pdfua_issues
+        status["totalVeraPDFIssues"] = total
+
+        if total == 0:
+            status["isActive"] = True
+            status["wcagCompliance"] = 100
+            status["pdfuaCompliance"] = 100
+            return status
+
+        if wcag_issues or pdfua_issues:
+            status["isActive"] = True
+            status["wcagCompliance"] = (
+                max(0, 100 - wcag_issues * 10) if wcag_issues or pdfua_issues else 100
+            )
+            status["pdfuaCompliance"] = (
+                max(0, 100 - pdfua_issues * 10) if pdfua_issues or wcag_issues else 100
+            )
+
+        return status
+
+    def _analyze_fixed_pdf(self, pdf_path):
+        """Re-run accessibility analysis on the updated PDF."""
+        analyzer = PDFAccessibilityAnalyzer()
+        results = analyzer.analyze(str(pdf_path))
+        verapdf_status = self._build_verapdf_status(results, analyzer)
+
+        try:
+            summary = analyzer.calculate_summary(results, verapdf_status)
+        except TypeError:
+            summary = PDFAccessibilityAnalyzer.calculate_summary(results)
+
+        if isinstance(summary, dict) and verapdf_status:
+            summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+            summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+
+        suggestions = generate_fix_suggestions(results)
+
+        return {
+            "results": results,
+            "summary": summary,
+            "verapdfStatus": verapdf_status,
+            "suggestions": suggestions,
+        }
     
     def generate_fixes(self, scan_results):
         """Generate fix suggestions based on scan results"""
@@ -574,15 +642,17 @@ class AutoFixEngine:
                 with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
                     meta['dc:title'] = title
                     print(f"[AutoFixEngine] ✓ Set XMP dc:title: {title}")
-                    
-                    # Always set PDF/UA identifier
-                    meta['pdfuaid:part'] = '1'
-                    print("[AutoFixEngine] ✓ Set PDF/UA-1 identifier")
                 
                 fixes_applied.append({
                     'type': 'addTitle',
                     'description': f'Set document title and metadata: {title}',
                     'success': True
+                })
+                fixes_applied.append({
+                    'type': 'pdfuaNotice',
+                    'description': 'PDF/UA identifier not asserted - manual tagging and validation required.',
+                    'success': False,
+                    'warning': True
                 })
                 if tracker:
                     tracker.complete_step(step_id, f"Set title: {title}")
@@ -602,30 +672,46 @@ class AutoFixEngine:
             if tracker:
                 tracker.start_step(step_id)
             
-            try:
-                if not hasattr(pdf.Root, 'MarkInfo'):
-                    pdf.Root.MarkInfo = pdf.make_indirect(Dictionary(
-                        Marked=True,
-                        Suspects=False
-                    ))
-                    print("[AutoFixEngine] ✓ Created MarkInfo dictionary")
-                else:
-                    # Always set to ensure compliance
-                    pdf.Root.MarkInfo['/Marked'] = True
-                    pdf.Root.MarkInfo['/Suspects'] = False
-                    print("[AutoFixEngine] ✓ Updated MarkInfo dictionary")
-                
+            can_tag = (
+                hasattr(pdf.Root, 'StructTreeRoot')
+                and hasattr(pdf.Root.StructTreeRoot, 'K')
+                and isinstance(pdf.Root.StructTreeRoot.K, Array)
+                and len(pdf.Root.StructTreeRoot.K) > 0
+            )
+
+            if can_tag:
+                try:
+                    if not hasattr(pdf.Root, 'MarkInfo'):
+                        pdf.Root.MarkInfo = pdf.make_indirect(Dictionary(
+                            Marked=True,
+                            Suspects=False
+                        ))
+                        print("[AutoFixEngine] ✓ Created MarkInfo dictionary")
+                    else:
+                        pdf.Root.MarkInfo['/Marked'] = True
+                        pdf.Root.MarkInfo['/Suspects'] = False
+                        print("[AutoFixEngine] ✓ Updated MarkInfo dictionary")
+                    
+                    fixes_applied.append({
+                        'type': 'markTagged',
+                        'description': 'Confirmed document remains tagged',
+                        'success': True
+                    })
+                    if tracker:
+                        tracker.complete_step(step_id, "Document confirmed as tagged")
+                except Exception as e:
+                    print(f"[AutoFixEngine] ✗ Error updating MarkInfo: {e}")
+                    if tracker:
+                        tracker.fail_step(step_id, str(e))
+            else:
+                if tracker:
+                    tracker.skip_step(step_id, "No valid structure tree detected; leaving document untagged")
                 fixes_applied.append({
                     'type': 'markTagged',
-                    'description': 'Marked document as tagged',
-                    'success': True
+                    'description': 'Skipped automatic tagging - manual tagging required for PDF/UA compliance.',
+                    'success': False,
+                    'warning': True
                 })
-                if tracker:
-                    tracker.complete_step(step_id, "Document marked as tagged")
-            except Exception as e:
-                print(f"[AutoFixEngine] ✗ Error setting MarkInfo: {e}")
-                if tracker:
-                    tracker.fail_step(step_id, str(e))
             
             step_id = tracker.add_step(
                 "Configure Viewer Preferences",
@@ -668,97 +754,53 @@ class AutoFixEngine:
             if tracker:
                 tracker.start_step(step_id)
             
-            try:
-                struct_fixed = False
-                if not hasattr(pdf.Root, 'StructTreeRoot'):
-                    role_map = pdf.make_indirect(Dictionary())
-                    
-                    # Add all common mappings from standards
-                    for custom_type, standard_type in COMMON_ROLEMAP_MAPPINGS.items():
-                        role_map[Name(custom_type)] = Name(standard_type)
-                    
-                    print(f"[AutoFixEngine] Created RoleMap with {len(COMMON_ROLEMAP_MAPPINGS)} mappings")
-                    
-                    # Create ParentTree
-                    parent_tree = pdf.make_indirect(Dictionary(Nums=Array([])))
-                    
-                    # Create StructTreeRoot
-                    struct_tree_root = pdf.make_indirect(Dictionary(
-                        Type=Name('/StructTreeRoot'),
-                        K=Array([]),
-                        RoleMap=role_map,
-                        ParentTree=parent_tree
-                    ))
-                    pdf.Root.StructTreeRoot = struct_tree_root
-                    
-                    # Create Document element
-                    doc_element = pdf.make_indirect(Dictionary(
-                        Type=Name('/StructElem'),
-                        S=Name('/Document'),
-                        P=pdf.Root.StructTreeRoot,
-                        K=Array([]),
-                        Lang=String('en-US')
-                    ))
-                    
-                    pdf.Root.StructTreeRoot.K.append(doc_element)
-                    struct_fixed = True
-                    print("[AutoFixEngine] ✓ Created comprehensive structure tree with full RoleMap")
-                else:
-                    # Structure tree exists, enhance RoleMap
+            structure_modified = False
+            if hasattr(pdf.Root, 'StructTreeRoot'):
+                try:
                     if not hasattr(pdf.Root.StructTreeRoot, 'RoleMap'):
                         role_map = pdf.make_indirect(Dictionary())
                         for custom_type, standard_type in COMMON_ROLEMAP_MAPPINGS.items():
                             role_map[Name(custom_type)] = Name(standard_type)
                         pdf.Root.StructTreeRoot.RoleMap = role_map
-                        struct_fixed = True
-                        print(f"[AutoFixEngine] ✓ Added comprehensive RoleMap with {len(COMMON_ROLEMAP_MAPPINGS)} mappings")
+                        structure_modified = True
+                        print(f"[AutoFixEngine] ✓ Added RoleMap with {len(COMMON_ROLEMAP_MAPPINGS)} mappings")
                     else:
-                        # Add missing mappings to existing RoleMap
                         role_map = pdf.Root.StructTreeRoot.RoleMap
                         added_count = 0
                         for custom_type, standard_type in COMMON_ROLEMAP_MAPPINGS.items():
                             if Name(custom_type) not in role_map:
                                 role_map[Name(custom_type)] = Name(standard_type)
                                 added_count += 1
-                        
                         if added_count > 0:
-                            struct_fixed = True
+                            structure_modified = True
                             print(f"[AutoFixEngine] ✓ Added {added_count} missing RoleMap mappings")
-                    
-                    # Check if structure tree has children
-                    if not hasattr(pdf.Root.StructTreeRoot, 'K') or len(pdf.Root.StructTreeRoot.K) == 0:
-                        doc_element = pdf.make_indirect(Dictionary(
-                            Type=Name('/StructElem'),
-                            S=Name('/Document'),
-                            P=pdf.Root.StructTreeRoot,
-                            K=Array([]),
-                            Lang=String('en-US')
-                        ))
-                        
-                        if not hasattr(pdf.Root.StructTreeRoot, 'K'):
-                            pdf.Root.StructTreeRoot.K = Array([])
-                        
-                        pdf.Root.StructTreeRoot.K.append(doc_element)
-                        struct_fixed = True
-                        print("[AutoFixEngine] ✓ Added Document element to structure tree")
-                
-                if struct_fixed:
-                    fixes_applied.append({
-                        'type': 'createStructureTree',
-                        'description': 'Created or enhanced structure tree with comprehensive RoleMap',
-                        'success': True
-                    })
+
+                    if structure_modified:
+                        fixes_applied.append({
+                            'type': 'createStructureTree',
+                            'description': 'Enhanced existing structure RoleMap mappings',
+                            'success': True
+                        })
+                        if tracker:
+                            tracker.complete_step(step_id, "Structure RoleMap enhanced")
+                    else:
+                        if tracker:
+                            tracker.skip_step(step_id, "Structure tree already contains standard RoleMap mappings")
+                except Exception as e:
+                    print(f"[AutoFixEngine] ✗ Error enhancing structure tree: {e}")
                     if tracker:
-                        tracker.complete_step(step_id, f"Structure tree created with {len(COMMON_ROLEMAP_MAPPINGS)} RoleMap mappings")
-                else:
-                    if tracker:
-                        tracker.skip_step(step_id, "Structure tree already exists")
-            except Exception as e:
-                print(f"[AutoFixEngine] ✗ Error creating structure tree: {e}")
+                        tracker.fail_step(step_id, str(e))
+                    import traceback
+                    traceback.print_exc()
+            else:
                 if tracker:
-                    tracker.fail_step(step_id, str(e))
-                import traceback
-                traceback.print_exc()
+                    tracker.skip_step(step_id, "No structure tree detected; automatic creation disabled to prevent invalid tagging")
+                fixes_applied.append({
+                    'type': 'createStructureTree',
+                    'description': 'Automatic structure tree creation skipped - document still requires manual tagging.',
+                    'success': False,
+                    'warning': True
+                })
             
             step_id = tracker.add_step(
                 "Add PDF/A Compliance",
@@ -824,7 +866,32 @@ class AutoFixEngine:
             
             if tracker:
                 tracker.complete_step(step_id, f"PDF saved ({os.path.getsize(pdf_path)} bytes)")
-            
+
+            rescan_data = {}
+            rescan_step_id = None
+            if tracker:
+                rescan_step_id = tracker.add_step(
+                    "Re-scan Fixed PDF",
+                    "Analyzing updated accessibility compliance",
+                    "pending"
+                )
+                tracker.start_step(rescan_step_id)
+
+            try:
+                rescan_data = self._analyze_fixed_pdf(pdf_path)
+                rescan_data["fixedFile"] = os.path.basename(pdf_path)
+                if tracker and rescan_step_id:
+                    tracker.complete_step(
+                        rescan_step_id,
+                        "Re-scan completed",
+                        result_data=rescan_data
+                    )
+            except Exception as e:
+                print(f"[AutoFixEngine] ✗ Error during re-scan: {e}")
+                if tracker and rescan_step_id:
+                    tracker.fail_step(rescan_step_id, str(e))
+                rescan_data = {}
+
             print(f"[AutoFixEngine] ========== FIXES COMPLETE ==========")
             print(f"[AutoFixEngine] Total fixes applied: {len(fixes_applied)}")
             
@@ -833,7 +900,11 @@ class AutoFixEngine:
                 'fixedFile': os.path.basename(pdf_path),
                 'fixesApplied': fixes_applied,
                 'successCount': len(fixes_applied),
-                'message': f'Successfully applied {len(fixes_applied)} automated fixes'
+                'message': f'Successfully applied {len(fixes_applied)} automated fixes',
+                'scanResults': rescan_data,
+                'summary': rescan_data.get('summary'),
+                'verapdfStatus': rescan_data.get('verapdfStatus'),
+                'suggestions': rescan_data.get('suggestions', [])
             }
             
         except Exception as e:

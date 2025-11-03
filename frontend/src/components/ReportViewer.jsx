@@ -60,8 +60,11 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
   }, [selectedFileIndex])
 
-  const fetchReportDetails = async (scanId) => {
+  const fetchReportDetails = async (scanId, { showSpinner = true } = {}) => {
     try {
+      if (showSpinner) {
+        setLoading(true)
+      }
       console.log("[v0] Fetching report details for:", scanId)
       const response = await axios.get(`/api/scan/${scanId}`)
       console.log("[v0] Received report data:", response.data)
@@ -72,7 +75,9 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     } catch (error) {
       console.error("[v0] Error fetching report:", error)
     } finally {
-      setLoading(false)
+      if (showSpinner) {
+        setLoading(false)
+      }
     }
   }
 
@@ -103,17 +108,42 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
   }
 
-  const handleRefresh = async () => {
+  const handleRefresh = async (
+    updatedSummary = null,
+    updatedResults = null,
+    updatedVerapdfStatus = null,
+    updatedFixes = null,
+  ) => {
     setIsRefreshing(true)
     try {
       const currentScan = scans[selectedFileIndex]
-      if (currentScan?.id) {
-        console.log("[v0] ReportViewer - Refreshing data for scan:", currentScan.id)
-        await fetchReportDetails(currentScan.id)
+      const targetScanId =
+        currentScan?.scanId || currentScan?.id || reportData?.scanId || reportData?.id
 
+      if (updatedSummary || updatedResults || updatedVerapdfStatus || updatedFixes) {
+        setReportData((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            summary: updatedSummary || prev.summary,
+            results: updatedResults || prev.results,
+            verapdfStatus:
+              updatedVerapdfStatus !== null && updatedVerapdfStatus !== undefined
+                ? updatedVerapdfStatus
+                : prev.verapdfStatus,
+            fixes: updatedFixes || prev.fixes,
+          }
+        })
         setRefreshKey((prev) => prev + 1)
+      }
 
+      if (targetScanId) {
+        console.log("[v0] ReportViewer - Refreshing data for scan:", targetScanId)
+        await fetchReportDetails(targetScanId, { showSpinner: false })
+        setRefreshKey((prev) => prev + 1)
         showSuccess("Report refreshed successfully")
+      } else {
+        console.warn("[v0] ReportViewer - No scan ID available for refresh")
       }
     } catch (error) {
       console.error("[v0] ReportViewer - Error refreshing:", error)

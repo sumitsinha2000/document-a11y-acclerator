@@ -236,6 +236,27 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
                         </p>
                       )}
 
+                      {step.name === "Re-scan Fixed PDF" && step.resultData?.summary && (
+                        <div className="mt-3 inline-flex flex-wrap gap-2">
+                          {typeof step.resultData.summary.complianceScore === "number" && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200">
+                              <span role="img" aria-hidden="true">
+                                📊
+                              </span>
+                              Compliance: {Math.round(step.resultData.summary.complianceScore)}%
+                            </span>
+                          )}
+                          {typeof step.resultData.summary.highSeverity === "number" && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200">
+                              <span role="img" aria-hidden="true">
+                                ⚠️
+                              </span>
+                              High severity issues: {step.resultData.summary.highSeverity}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       {/* Error Message */}
                       {step.error && (
                         <div className="mt-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1">

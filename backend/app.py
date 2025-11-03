@@ -550,6 +550,7 @@ def get_history():
 # === Apply Fixes ===
 @app.route("/api/apply-fixes/<scan_id>", methods=["POST"])
 def apply_fixes(scan_id):
+    tracker = None
     try:
         data = request.get_json()
         fixes = data.get("fixes", [])
@@ -573,18 +574,25 @@ def apply_fixes(scan_id):
 
         # Get initial scan results for before state
         initial_scan_results = scan_data.get("scan_results", {})
+        if isinstance(initial_scan_results, str):
+            try:
+                initial_scan_results = json.loads(initial_scan_results)
+            except json.JSONDecodeError:
+                initial_scan_results = {}
         issues_before = initial_scan_results.get("results", {})
         compliance_before = initial_scan_results.get("summary", {}).get(
             "complianceScore", 0
         )
 
-        progress_id = create_progress_tracker(scan_id)
-        tracker = get_progress_tracker(scan_id)
+        tracker = create_progress_tracker(scan_id)
 
         engine = AutoFixEngine()
         result = engine.apply_automated_fixes(scan_id, scan_data, tracker)
 
         if result.get("success"):
+            if tracker:
+                tracker.complete_all()
+
             fixes_applied = result.get("fixesApplied", [])
             if not fixes_applied and result.get("fixedIssues"):
                 fixes_applied = [
@@ -600,11 +608,25 @@ def apply_fixes(scan_id):
                 ]
 
             # Get after state
-            issues_after = result.get("scanResults", {}).get("results", {})
-            compliance_after = (
-                result.get("scanResults", {})
-                .get("summary", {})
-                .get("complianceScore", compliance_before)
+            scan_results_after = result.get("scanResults", {}) or {}
+            issues_after = scan_results_after.get("results", {})
+            summary_after = scan_results_after.get("summary", {}) or {}
+            compliance_after = summary_after.get("complianceScore", compliance_before)
+
+            formatted_results = {
+                "results": issues_after,
+                "summary": summary_after,
+                "verapdfStatus": scan_results_after.get("verapdfStatus"),
+                "fixes": result.get("suggestions", []),
+            }
+
+            save_scan_to_db(
+                scan_id,
+                original_filename,
+                formatted_results,
+                batch_id=scan_data.get("batch_id"),
+                group_id=scan_data.get("group_id"),
+                is_update=True,
             )
 
             save_success = save_fix_history(
@@ -636,12 +658,15 @@ def apply_fixes(scan_id):
                 {
                     "status": "success",
                     "fixedFile": result.get("fixedFile"),
-                    "summary": result,
+                    "scanResults": scan_results_after,
+                    "summary": summary_after,
                     "fixesApplied": fixes_applied,
                     "historyRecorded": save_success,
                 }
             )
         else:
+            if tracker:
+                tracker.fail_all(result.get("error", "Unknown error"))
             return jsonify(
                 {"status": "error", "error": result.get("error", "Unknown error")}
             ), 500
@@ -651,12 +676,15 @@ def apply_fixes(scan_id):
         import traceback
 
         traceback.print_exc()
+        if tracker:
+            tracker.fail_all(str(e))
         return jsonify({"error": str(e)}), 500
 
 
 # === Apply Semi-Automated Fixes ===
 @app.route("/api/apply-semi-automated-fixes/<scan_id>", methods=["POST"])
 def apply_semi_automated_fixes(scan_id):
+    tracker = None
     try:
         data = request.get_json()
         fixes = data.get("fixes", [])
@@ -677,15 +705,25 @@ def apply_semi_automated_fixes(scan_id):
 
         # Get initial state
         initial_scan_results = scan_data.get("scan_results", {})
+        if isinstance(initial_scan_results, str):
+            try:
+                initial_scan_results = json.loads(initial_scan_results)
+            except json.JSONDecodeError:
+                initial_scan_results = {}
         issues_before = initial_scan_results.get("results", {})
         compliance_before = initial_scan_results.get("summary", {}).get(
             "complianceScore", 0
         )
 
+        tracker = create_progress_tracker(scan_id)
+
         engine = AutoFixEngine()
-        result = engine.apply_semi_automated_fixes(scan_id, scan_data, fixes)
+        result = engine.apply_semi_automated_fixes(scan_id, scan_data, tracker)
 
         if result.get("success"):
+            if tracker:
+                tracker.complete_all()
+
             fixes_applied = result.get("fixesApplied", [])
             if not fixes_applied and fixes:
                 fixes_applied = [
@@ -701,11 +739,25 @@ def apply_semi_automated_fixes(scan_id):
                 ]
 
             # Get after state
-            issues_after = result.get("scanResults", {}).get("results", {})
-            compliance_after = (
-                result.get("scanResults", {})
-                .get("summary", {})
-                .get("complianceScore", compliance_before)
+            scan_results_after = result.get("scanResults", {}) or {}
+            issues_after = scan_results_after.get("results", {})
+            summary_after = scan_results_after.get("summary", {}) or {}
+            compliance_after = summary_after.get("complianceScore", compliance_before)
+
+            formatted_results = {
+                "results": issues_after,
+                "summary": summary_after,
+                "verapdfStatus": scan_results_after.get("verapdfStatus"),
+                "fixes": result.get("suggestions", []),
+            }
+
+            save_scan_to_db(
+                scan_id,
+                original_filename,
+                formatted_results,
+                batch_id=scan_data.get("batch_id"),
+                group_id=scan_data.get("group_id"),
+                is_update=True,
             )
 
             save_success = save_fix_history(
@@ -738,18 +790,162 @@ def apply_semi_automated_fixes(scan_id):
                 {
                     "status": "success",
                     "fixedFile": result.get("fixedFile"),
-                    "summary": result,
+                    "scanResults": scan_results_after,
+                    "summary": summary_after,
                     "fixesApplied": fixes_applied,
                     "historyRecorded": save_success,
                 }
             )
         else:
+            if tracker:
+                tracker.fail_all(result.get("error", "Unknown error"))
             return jsonify(
                 {"status": "error", "error": result.get("error", "Unknown error")}
             ), 500
 
     except Exception as e:
         print(f"[Backend] ERROR in apply_semi_automated_fixes: {e}")
+        import traceback
+
+        traceback.print_exc()
+        if tracker:
+            tracker.fail_all(str(e))
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/apply-manual-fix/<scan_id>", methods=["POST"])
+def apply_manual_fix(scan_id):
+    try:
+        data = request.get_json() or {}
+        fix_type = data.get("fixType")
+        fix_data = data.get("fixData", {})
+        page = data.get("page", 1)
+
+        if not fix_type:
+            return jsonify({"error": "fixType is required"}), 400
+
+        scan_data = get_scan_by_id(scan_id)
+        if not scan_data:
+            return jsonify({"error": "Scan not found"}), 404
+
+        original_filename = scan_data.get("filename")
+        if not original_filename:
+            return jsonify({"error": "Scan filename not found"}), 400
+
+        raw_scan_results = scan_data.get("scan_results", {})
+        if isinstance(raw_scan_results, str):
+            try:
+                raw_scan_results = json.loads(raw_scan_results)
+            except json.JSONDecodeError:
+                raw_scan_results = {}
+
+        issues_before = {}
+        compliance_before = 0
+        if isinstance(raw_scan_results, dict):
+            issues_before = raw_scan_results.get("results", {}) or {}
+            compliance_before = (
+                raw_scan_results.get("summary", {}).get("complianceScore", 0)
+            )
+
+        pdf_path = Path(UPLOAD_FOLDER) / f"{scan_id}.pdf"
+        if not pdf_path.exists():
+            possible_paths = [
+                Path(UPLOAD_FOLDER) / scan_id,
+                Path(UPLOAD_FOLDER) / f"{scan_id.replace('.pdf', '')}.pdf",
+            ]
+            if original_filename:
+                possible_paths.append(Path(UPLOAD_FOLDER) / original_filename)
+            if scan_data.get("file_path"):
+                possible_paths.append(Path(scan_data["file_path"]))
+
+            for candidate in possible_paths:
+                if candidate and candidate.exists():
+                    pdf_path = candidate
+                    break
+
+        if not pdf_path.exists():
+            return jsonify({"error": "PDF file not found"}), 404
+
+        engine = AutoFixEngine()
+        fix_result = engine.apply_manual_fix(str(pdf_path), fix_type, fix_data, page)
+
+        if not fix_result.get("success"):
+            return jsonify(
+                {"error": fix_result.get("error", "Failed to apply manual fix")}
+            ), 500
+
+        rescan_data = engine._analyze_fixed_pdf(str(pdf_path))
+        summary = rescan_data.get("summary", {}) or {}
+        results = rescan_data.get("results", {}) or {}
+        verapdf_status = rescan_data.get("verapdfStatus")
+        suggestions = rescan_data.get("suggestions", [])
+
+        formatted_results = {
+            "results": results,
+            "summary": summary,
+            "verapdfStatus": verapdf_status,
+            "fixes": suggestions,
+        }
+
+        save_scan_to_db(
+            scan_id,
+            original_filename,
+            formatted_results,
+            batch_id=scan_data.get("batch_id"),
+            group_id=scan_data.get("group_id"),
+            is_update=True,
+        )
+
+        fixes_applied = [
+            {
+                "type": "manual",
+                "issueType": fix_type,
+                "description": fix_result.get(
+                    "description", "Manual fix applied successfully"
+                ),
+                "page": page,
+                "timestamp": datetime.now().isoformat(),
+                "metadata": fix_data,
+            }
+        ]
+
+        save_fix_history(
+            scan_id=scan_id,
+            original_filename=original_filename,
+            fixed_filename=pdf_path.name,
+            fixes_applied=fixes_applied,
+            fix_type="manual",
+            issues_before=issues_before,
+            issues_after=results,
+            compliance_before=compliance_before,
+            compliance_after=summary.get("complianceScore", compliance_before),
+            fix_suggestions=suggestions,
+            fix_metadata={
+                "page": page,
+                "manual": True,
+            },
+        )
+
+        update_scan_status(scan_id)
+
+        return jsonify(
+            {
+                "success": True,
+                "message": fix_result.get(
+                    "message", "Manual fix applied successfully"
+                ),
+                "fixedFile": pdf_path.name,
+                "summary": summary,
+                "results": results,
+                "scanResults": formatted_results,
+                "fixesApplied": fixes_applied,
+                "verapdfStatus": verapdf_status,
+                "fixSuggestions": suggestions,
+            }
+        )
+
+    except Exception as e:
+        print(f"[Backend] ERROR in apply_manual_fix: {e}")
         import traceback
 
         traceback.print_exc()

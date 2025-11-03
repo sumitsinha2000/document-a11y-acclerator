@@ -109,7 +109,13 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
       if (onFixApplied) {
         console.log("[v0] PDFEditor - Calling onFixApplied callback with new data...")
         await new Promise((resolve) => setTimeout(resolve, 300))
-        await onFixApplied(selectedFix, response.data.summary, response.data.results)
+        await onFixApplied(
+          selectedFix,
+          response.data.summary,
+          response.data.results,
+          response.data.verapdfStatus,
+          response.data.fixSuggestions,
+        )
         console.log("[v0] PDFEditor - onFixApplied callback completed")
       } else {
         console.warn("[v0] PDFEditor - No onFixApplied callback provided")
