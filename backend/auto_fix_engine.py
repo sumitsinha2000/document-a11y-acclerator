@@ -474,8 +474,7 @@ class AutoFixEngine:
         
         return fixes
     
-    # COMPLETELY REWRITTEN with veraPDF-inspired approach
-        def apply_automated_fixes(self, scan_id, scan_data, tracker=None):
+    def apply_automated_fixes(self, scan_id, scan_data, tracker=None):
         """
         Apply automated fixes to a PDF with progress tracking
         ENHANCED with comprehensive structure type handling and progress updates
@@ -485,21 +484,23 @@ class AutoFixEngine:
         upload_dir = Path("uploads")
         pdf_path = upload_dir / f"{scan_id}.pdf"
 
-        if not pdf_path.exists():
-            possible_names = [
-                upload_dir / scan_id,
-                upload_dir / f"{scan_id.replace('.pdf', '')}.pdf",
-                upload_dir / scan_data.get("filename", ""),  # Try original uploaded filename
-                Path(scan_data.get("file_path", "")) if scan_data.get("file_path") else None
-            ]
+        try:
+            if not pdf_path.exists():
+                possible_names = [
+                    upload_dir / scan_id,
+                    upload_dir / f"{scan_id.replace('.pdf', '')}.pdf",
+                    upload_dir / scan_data.get("filename", ""),
+                    Path(scan_data.get("file_path", "")) if scan_data.get("file_path") else None
+                ]
 
-            for alt_path in possible_names:
-                        if alt_path and alt_path.exists():
-                            pdf_path = alt_path
-                            print(f"[AutoFixEngine] Found existing PDF file: {pdf_path}")
-                            break
-            else:
+                for alt_path in possible_names:
+                    if alt_path and alt_path.exists():
+                        pdf_path = alt_path
+                        print(f"[AutoFixEngine] Found existing PDF file: {pdf_path}")
+                        break
+                else:
                     raise FileNotFoundError(f"PDF not found for scan ID: {scan_id} in uploads/")
+            
             print(f"[AutoFixEngine] File size: {os.path.getsize(pdf_path)} bytes")
             
             step_id = tracker.add_step(
@@ -1066,6 +1067,4 @@ class AutoFixEngine:
                 'success': False,
                 'error': str(e),
                 'description': f"Failed to apply {fix_type}: {str(e)}"
-            }
-type}: {str(e)}"
             }
