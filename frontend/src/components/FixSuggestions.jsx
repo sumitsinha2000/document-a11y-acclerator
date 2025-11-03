@@ -189,37 +189,47 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   }
 
   const handleProgressComplete = async (success, newScanData) => {
+    console.log("[v0] FixSuggestions - Progress complete:", { success, hasNewData: !!newScanData })
     setShowProgressStepper(false)
 
     if (success) {
       console.log("[v0] FixSuggestions - Fixes applied successfully, triggering refresh")
 
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      await new Promise((resolve) => setTimeout(resolve, 1500))
 
       if (onRefresh) {
         try {
-          // Call with no parameters - let ReportViewer fetch completely fresh data
+          console.log("[v0] FixSuggestions - Calling onRefresh...")
           await onRefresh()
           console.log("[v0] FixSuggestions - Refresh completed successfully")
 
           showAlert(setAlertModal)(
             `${currentFixType} Applied`,
-            `${currentFixType} applied successfully! The report has been updated.`,
+            `${currentFixType} applied successfully! The report has been updated with the latest data.`,
+            "success",
           )
         } catch (refreshError) {
           console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
           showAlert(setAlertModal)(
             `${currentFixType} Applied`,
-            `${currentFixType} applied, but failed to refresh the report. Please click the Refresh button manually.`,
+            `${currentFixType} applied successfully, but failed to refresh the report automatically. Please click the Refresh button to see the latest data.`,
+            "warning",
           )
         }
       } else {
-        showAlert(setAlertModal)(`${currentFixType} Applied`, `${currentFixType} applied successfully!`)
+        console.warn("[v0] FixSuggestions - No onRefresh callback provided")
+        showAlert(setAlertModal)(
+          `${currentFixType} Applied`,
+          `${currentFixType} applied successfully! Please refresh the page to see the latest data.`,
+          "success",
+        )
       }
     } else {
+      console.error("[v0] FixSuggestions - Fix application failed")
       showAlert(setAlertModal)(
-        `${currentFixType} Error`,
-        `${currentFixType} encountered errors. Please check the details.`,
+        "Fix Application Failed",
+        "The fix process encountered errors. Please review the error details and try again.",
+        "error",
       )
     }
   }

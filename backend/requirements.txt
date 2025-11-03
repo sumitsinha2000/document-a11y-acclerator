@@ -26,5 +26,4 @@ python-dotenv==1.0.0
 # - PDF/UA (ISO 14289-1) validation
 # - Section 508 compliance verification
 # - Detailed accessibility issue reporting with clause references
-
 sambanova>=1.0.0

@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import axios from "axios"
 import ReportViewer from "./ReportViewer"
 import { ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Info } from "lucide-react"
+import { useNotification } from "../contexts/NotificationContext"
 
 export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdate }) {
   const [fixing, setFixing] = useState(false)
@@ -18,6 +19,36 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   const [fixingIndividual, setFixingIndividual] = useState({})
   const [expandedCategories, setExpandedCategories] = useState({})
   const [itemsPerPage, setItemsPerPage] = useState(10)
+  const [batchData, setBatchData] = useState(null)
+  const [scansState, setScansState] = useState(scans || [])
+  const { showSuccess, showError, showWarning, showInfo, confirm } = useNotification()
+
+  useEffect(() => {
+    const fetchBatchData = async () => {
+      try {
+        console.log("[v0] Fetching batch details:", batchId)
+        const response = await axios.get(`/api/batch/${batchId}`)
+        setBatchData(response.data)
+        setScansState(response.data.scans || [])
+        console.log("[v0] Batch data loaded:", response.data)
+      } catch (error) {
+        console.error("[v0] Error fetching batch data:", error)
+        showError(`Failed to load batch details: ${error.message}`)
+      }
+    }
+
+    if (batchId && (!scans || scans.length === 0)) {
+      fetchBatchData()
+    } else if (scans && scans.length > 0) {
+      setScansState(scans)
+    }
+  }, [batchId, scans])
+
+  useEffect(() => {
+    if (scans && scans.length > 0) {
+      setScansState(scans)
+    }
+  }, [scans])
 
   const aggregateIssuesByCategory = () => {
     const categories = {
@@ -32,7 +63,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       readingOrderIssues: { label: "Reading Order Issues", severity: "low", issues: [], icon: Info },
     }
 
-    scans.forEach((scan) => {
+    scansState.forEach((scan) => {
       const results = scan.results || {}
       Object.keys(categories).forEach((key) => {
         if (results[key] && Array.isArray(results[key])) {
@@ -60,7 +91,15 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   const handleFixIndividual = async (scanId, filename) => {
     console.log("[v0] handleFixIndividual called:", { scanId, filename, batchId })
 
-    if (!confirm(`Apply automated fixes to ${filename}?`)) {
+    const confirmed = await confirm({
+      title: "Apply Automated Fixes",
+      message: `Are you sure you want to apply automated fixes to ${filename}?`,
+      confirmText: "Apply Fixes",
+      cancelText: "Cancel",
+      type: "info",
+    })
+
+    if (!confirmed) {
       return
     }
 
@@ -72,25 +111,33 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       console.log("[v0] Fix response:", response.data)
 
       if (response.data.success) {
-        alert(`Successfully applied ${response.data.successCount} fixes to ${filename}`)
+        showSuccess(`Successfully applied ${response.data.successCount} fixes to ${filename}`)
         if (onBatchUpdate) {
           await onBatchUpdate(batchId)
         }
       } else {
-        alert(`Failed to fix ${filename}: ${response.data.error || "Unknown error"}`)
+        showError(`Failed to fix ${filename}: ${response.data.error || "Unknown error"}`)
       }
     } catch (error) {
       console.error("[v0] Error fixing file:", error)
-      alert("Failed to fix file: " + (error.response?.data?.error || error.message))
+      showError(`Failed to fix file: ${error.response?.data?.error || error.message}`)
     } finally {
       setFixingIndividual((prev) => ({ ...prev, [scanId]: false }))
     }
   }
 
   const handleFixAll = async () => {
-    console.log("[v0] handleFixAll called:", { batchId, scanCount: scans.length })
+    console.log("[v0] handleFixAll called:", { batchId, scanCount: scansState.length })
 
-    if (!confirm(`Apply automated fixes to all ${scans.length} files in this batch?`)) {
+    const confirmed = await confirm({
+      title: "Fix All Files",
+      message: `Apply automated fixes to all ${scansState.length} files in this batch?`,
+      confirmText: "Fix All",
+      cancelText: "Cancel",
+      type: "warning",
+    })
+
+    if (!confirmed) {
       return
     }
 
@@ -102,14 +149,14 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       console.log("[v0] Fix all response:", response.data)
 
       setFixResults(response.data)
-      alert(`Successfully fixed ${response.data.successCount} out of ${response.data.totalFiles} files`)
+      showSuccess(`Successfully fixed ${response.data.successCount} out of ${response.data.totalFiles} files`, 6000)
 
       if (onBatchUpdate) {
         await onBatchUpdate(batchId)
       }
     } catch (error) {
       console.error("[v0] Error fixing batch:", error)
-      alert("Failed to fix batch: " + (error.response?.data?.error || error.message))
+      showError(`Failed to fix batch: ${error.response?.data?.error || error.message}`)
     } finally {
       setFixing(false)
     }
@@ -130,30 +177,39 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       link.click()
       link.remove()
       window.URL.revokeObjectURL(url)
+
+      showSuccess("Batch exported successfully")
     } catch (error) {
       console.error("Error exporting batch:", error)
       const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message
-      alert(`Failed to export batch: ${errorMessage}`)
+      showError(`Failed to export batch: ${errorMessage}`)
     } finally {
       setExporting(false)
     }
   }
 
   const handleViewDetails = async (scan) => {
-    console.log("[v0] handleViewDetails called:", { scanId: scan.scanId, filename: scan.filename })
+    const scanId = scan.scanId || scan.id
+    console.log("[v0] handleViewDetails called:", { scanId, filename: scan.filename })
+
+    if (!scanId) {
+      console.error("[v0] No scan ID found:", scan)
+      showError("Error: Scan ID is missing")
+      return
+    }
 
     try {
-      console.log("[v0] Calling API:", `/api/scan/${scan.scanId}`)
-      const response = await axios.get(`/api/scan/${scan.scanId}`)
+      console.log("[v0] Calling API:", `/api/scan/${scanId}`)
+      const response = await axios.get(`/api/scan/${scanId}`)
       console.log("[v0] Scan details loaded:", response.data)
       setSelectedScan(response.data)
     } catch (error) {
       console.error("[v0] Error loading scan details:", error)
-      alert("Failed to load details: " + (error.response?.data?.error || error.message))
+      showError(`Failed to load details: ${error.response?.data?.error || error.message}`)
     }
   }
 
-  const filteredAndSortedScans = scans
+  const filteredAndSortedScans = scansState
     .filter((scan) => {
       const matchesSearch = scan.filename.toLowerCase().includes(searchTerm.toLowerCase())
       const summary = scan.summary || {}
@@ -188,13 +244,38 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
     }
   }
 
-  const totalIssues = scans.reduce((sum, scan) => sum + (scan.summary?.totalIssues || 0), 0)
-  const avgCompliance = Math.round(
-    scans.reduce((sum, scan) => sum + (scan.summary?.complianceScore || 0), 0) / scans.length,
-  )
-  const highSeverity = scans.reduce((sum, scan) => sum + (scan.summary?.highSeverity || 0), 0)
+  const totalIssues = scansState.reduce((sum, scan) => {
+    const summary = scan.summary || {}
+    return sum + (summary.totalIssues || 0)
+  }, 0)
+
+  const avgCompliance =
+    scansState.length > 0
+      ? Math.round(
+          scansState.reduce((sum, scan) => {
+            const summary = scan.summary || {}
+            return sum + (summary.complianceScore || 0)
+          }, 0) / scansState.length,
+        )
+      : 0
+
+  const highSeverity = scansState.reduce((sum, scan) => {
+    const summary = scan.summary || {}
+    return sum + (summary.highSeverity || 0)
+  }, 0)
 
   const issueCategories = aggregateIssuesByCategory()
+
+  if (!scansState || scansState.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-slate-600 dark:text-slate-400 text-lg">Loading batch data...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (selectedScan) {
     return (
@@ -203,26 +284,26 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <button
               onClick={() => setSelectedScan(null)}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 mb-2"
+              className="text-base font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-2 mb-3 transition-colors"
             >
               ← Back to Batch
             </button>
-            <h2 className="font-semibold text-gray-900 dark:text-white">Batch Files</h2>
-            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{scans.length} files</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Batch Files</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{scansState.length} files</p>
           </div>
           <div className="p-2">
-            {scans.map((scan) => (
+            {scansState.map((scan) => (
               <button
                 key={scan.scanId}
                 onClick={() => handleViewDetails(scan)}
                 className={`w-full text-left px-3 py-2 rounded-md text-sm mb-1 transition-colors ${
                   selectedScan.scanId === scan.scanId
-                    ? "bg-blue-100 dark:bg-blue-900/30 text-blue-900 dark:text-blue-100"
+                    ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-100"
                     : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
                 }`}
               >
-                <div className="font-medium truncate">{scan.filename}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{scan.scanId?.slice(0, 30)}...</div>
+                <div className="font-semibold truncate text-base">{scan.filename}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">{scan.scanId?.slice(0, 30)}...</div>
               </button>
             ))}
           </div>
@@ -236,19 +317,45 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header - Full Width */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 ">
+      <div className="bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 rounded-xl py-8 px-8">
         <div className="flex items-center justify-between">
           <div>
             <button
               onClick={onBack}
-              className="mb-2 text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+              className="mb-4 text-base text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-2 font-semibold transition-colors"
             >
-              ← Back to Upload
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Back to Upload
             </button>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Batch Report</h1>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{scans.length} files uploaded</p>
+            {scansState[0]?.groupName && (
+              <div className="flex items-center gap-2 mb-3">
+                <svg
+                  className="w-6 h-6 text-indigo-600 dark:text-indigo-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                  />
+                </svg>
+                <span className="text-indigo-700 dark:text-indigo-300 font-bold text-xl tracking-wide">
+                  {scansState[0].groupName}
+                </span>
+              </div>
+            )}
+            <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-3 tracking-tight">
+              {batchData?.batchName || "Batch Report"}
+            </h1>
+            <p className="text-base text-slate-600 dark:text-slate-300 font-medium">
+              {scansState.length} files uploaded
+            </p>
           </div>
           <div className="flex gap-3">
             <button
@@ -257,8 +364,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                   await onBatchUpdate(batchId)
                 }
               }}
-              className="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
-              title="Refresh batch data"
+              className="px-6 py-3.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-2 font-semibold text-base shadow-sm border border-slate-200 dark:border-slate-600"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -273,11 +379,11 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
             <button
               onClick={handleFixAll}
               disabled={fixing}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg"
             >
               {fixing ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   Fixing...
                 </>
               ) : (
@@ -292,11 +398,11 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
             <button
               onClick={handleExportBatch}
               disabled={exporting}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg"
             >
               {exporting ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   Exporting...
                 </>
               ) : (
@@ -317,30 +423,36 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 p-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[4fr_320px] gap-4 py-8 px-0">
         {/* Left Column - Main Content */}
         <div className="space-y-6">
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
-              <div className="text-sm font-medium text-gray-600 dark:text-gray-400">Avg Compliance</div>
-              <div className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{avgCompliance}%</div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-7 border border-gray-200 dark:border-gray-700">
+              <div className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-3">
+                Avg Compliance
+              </div>
+              <div className="text-4xl font-bold text-slate-900 dark:text-white">{avgCompliance}%</div>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
-              <div className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Issues</div>
-              <div className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{totalIssues}</div>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-7 border border-gray-200 dark:border-gray-700">
+              <div className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-3">
+                Total Issues
+              </div>
+              <div className="text-4xl font-bold text-slate-900 dark:text-white">{totalIssues}</div>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
-              <div className="text-sm font-medium text-gray-600 dark:text-gray-400">High Severity</div>
-              <div className="text-3xl font-bold text-red-600 dark:text-red-400 mt-2">{highSeverity}</div>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-7 border border-gray-200 dark:border-gray-700">
+              <div className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-3">
+                High Severity
+              </div>
+              <div className="text-4xl font-bold text-red-600 dark:text-red-400">{highSeverity}</div>
             </div>
           </div>
 
           {/* Fix Results */}
           {fixResults && (
-            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-              <h3 className="font-semibold text-green-900 dark:text-green-100 mb-2">Fix Results</h3>
-              <p className="text-sm text-green-800 dark:text-green-200">
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-emerald-900 dark:text-emerald-100 mb-2">Fix Results</h3>
+              <p className="text-base text-emerald-800 dark:text-emerald-200">
                 Successfully fixed {fixResults.successCount} out of {fixResults.totalFiles} files
               </p>
             </div>
@@ -349,20 +461,20 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
           {/* Table Controls */}
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-700 dark:text-gray-300">Show</span>
+              <span className="text-base font-semibold text-gray-700 dark:text-gray-300">Show</span>
               <select
                 value={itemsPerPage}
                 onChange={(e) => {
                   setItemsPerPage(Number(e.target.value))
                   setCurrentPage(1)
                 }}
-                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-base font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value={10}>10</option>
                 <option value={25}>25</option>
                 <option value={50}>50</option>
               </select>
-              <span className="text-sm text-gray-700 dark:text-gray-300">entries</span>
+              <span className="text-base font-semibold text-gray-700 dark:text-gray-300">entries</span>
             </div>
 
             <div className="flex items-center gap-3">
@@ -375,10 +487,10 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                     setCurrentPage(1)
                   }}
                   placeholder="Search..."
-                  className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="pl-11 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-300 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
                 />
                 <svg
-                  className="absolute left-3 top-2.5 w-4 h-4 text-gray-400"
+                  className="absolute left-3 top-3.5 w-5 h-5 text-gray-400"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -395,9 +507,9 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
               <button
                 onClick={handleExportBatch}
                 disabled={exporting}
-                className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 text-sm font-medium flex items-center gap-2"
+                className="px-6 py-3 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 text-base font-semibold flex items-center gap-2 shadow-sm"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -411,20 +523,20 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
           </div>
 
           {/* Files Table */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-700/50">
                   <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className="px-6 py-3 text-left">
+                    <th className="px-7 py-5">
                       <div className="flex items-center gap-2">
                         <input type="checkbox" className="w-4 h-4 rounded border-gray-300" />
                         <button
                           onClick={() => handleSort("filename")}
-                          className="flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white uppercase tracking-wider"
+                          className="flex items-center gap-1 text-sm font-bold text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white uppercase tracking-wider"
                         >
                           Filename
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -435,13 +547,13 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                         </button>
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left">
+                    <th className="px-7 py-5 text-left">
                       <button
                         onClick={() => handleSort("complianceScore")}
-                        className="flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white uppercase tracking-wider"
+                        className="flex items-center gap-1 text-sm font-bold text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white uppercase tracking-wider"
                       >
                         Compliance
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -451,13 +563,13 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                         </svg>
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left">
+                    <th className="px-7 py-5 text-left">
                       <button
                         onClick={() => handleSort("totalIssues")}
-                        className="flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white uppercase tracking-wider"
+                        className="flex items-center gap-1 text-sm font-bold text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white uppercase tracking-wider"
                       >
                         Total Issues
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -467,13 +579,13 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                         </svg>
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left">
+                    <th className="px-7 py-5 text-left">
                       <button
                         onClick={() => handleSort("highSeverity")}
-                        className="flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white uppercase tracking-wider"
+                        className="flex items-center gap-1 text-sm font-bold text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white uppercase tracking-wider"
                       >
                         High Severity
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -483,67 +595,75 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                         </svg>
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-7 py-5 text-left text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-7 py-5 text-left text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                       Action
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                   {paginatedScans.map((scan, idx) => {
-                    const summary = scan.summary || {}
-                    const fixResult = fixResults?.results?.find((r) => r.scanId === scan.scanId)
+                    const summary = scan.summary || {
+                      complianceScore: 0,
+                      totalIssues: 0,
+                      highSeverity: 0,
+                    }
+                    const fixResult = fixResults?.results?.find((r) => r.scanId === (scan.scanId || scan.id))
 
                     return (
                       <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                        <td className="px-6 py-4">
+                        <td className="px-7 py-5">
                           <div className="flex items-center gap-3">
                             <input type="checkbox" className="w-4 h-4 rounded border-gray-300" />
                             <div>
-                              <div className="text-sm font-medium text-gray-900 dark:text-white">{scan.filename}</div>
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                {scan.scanId?.slice(0, 30)}...
+                              <div className="text-base font-semibold text-gray-900 dark:text-white">
+                                {scan.filename}
+                              </div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                                {(scan.scanId || scan.id)?.slice(0, 30)}...
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">
-                            {summary.complianceScore || 0}%
+                        <td className="px-7 py-5">
+                          <span className="text-base font-semibold text-gray-900 dark:text-white">
+                            {summary.complianceScore}%
                           </span>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="text-sm text-gray-900 dark:text-white">{summary.totalIssues || 0}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-sm text-red-600 dark:text-red-400 font-medium">
-                            {summary.highSeverity || 0}
+                        <td className="px-7 py-5">
+                          <span className="text-base font-medium text-gray-900 dark:text-white">
+                            {summary.totalIssues}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-7 py-5">
+                          <span className="text-base text-red-600 dark:text-red-400 font-bold">
+                            {summary.highSeverity}
+                          </span>
+                        </td>
+                        <td className="px-7 py-5">
                           {fixResult ? (
                             fixResult.success ? (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                              <span className="inline-flex items-center px-3.5 py-2 rounded-full text-sm font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
                                 Fixed
                               </span>
                             ) : (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                              <span className="inline-flex items-center px-3.5 py-2 rounded-full text-sm font-semibold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
                                 Failed
                               </span>
                             )
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                            <span className="inline-flex items-center px-3.5 py-2 rounded-full text-sm font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
                               Pending
                             </span>
                           )}
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-7 py-5">
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => handleViewDetails(scan)}
-                              className="px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                              className="px-5 py-2.5 text-base font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
                               title="View Details"
                             >
                               View Details
@@ -551,7 +671,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                             <button
                               onClick={() => handleFixIndividual(scan.scanId, scan.filename)}
                               disabled={fixingIndividual[scan.scanId]}
-                              className="px-3 py-1.5 text-xs font-medium text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="px-5 py-2.5 text-base font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               title="Fix Issues"
                             >
                               {fixingIndividual[scan.scanId] ? "Fixing..." : "Fix Issues"}
@@ -567,8 +687,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-700/50">
-                <div className="text-sm text-gray-700 dark:text-gray-300">
+              <div className="px-7 py-5 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-700/50">
+                <div className="text-base font-medium text-gray-700 dark:text-gray-300">
                   Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
                   {Math.min(currentPage * itemsPerPage, filteredAndSortedScans.length)} of{" "}
                   {filteredAndSortedScans.length} entries
@@ -577,17 +697,17 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                   <button
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-gray-700 dark:text-gray-300"
+                    className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-base font-semibold text-gray-700 dark:text-gray-300"
                   >
                     Previous
                   </button>
-                  <span className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                  <span className="px-6 py-3 text-base font-medium text-gray-700 dark:text-gray-300">
                     Page {currentPage} of {totalPages}
                   </span>
                   <button
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-gray-700 dark:text-gray-300"
+                    className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-base font-semibold text-gray-700 dark:text-gray-300"
                   >
                     Next
                   </button>
@@ -597,21 +717,21 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
           </div>
         </div>
 
-        <div className="lg:sticky lg:top-6 h-fit">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="h-fit">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden  h-full">
             {/* Header */}
             <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Issues Overview</h2>
-                <span className="px-3 py-1 rounded-full text-sm font-medium bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Issues Overview</h2>
+                <span className="px-3.5 py-1.5 rounded-full text-base font-bold bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400">
                   {totalIssues} total
                 </span>
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Across all {scans.length} files</p>
+              <p className="text-base text-gray-600 dark:text-gray-400 mt-1.5">Across all {scansState.length} files</p>
             </div>
 
             {/* Issue Categories */}
-            <div className="divide-y divide-gray-100 dark:divide-gray-700/50 max-h-[calc(100vh-12rem)] overflow-y-auto">
+            <div className="divide-y divide-gray-100 dark:divide-gray-700/50 max-h-[calc(100vh-12rem)] h-full overflow-y-auto">
               {Object.entries(issueCategories).map(([key, category]) => {
                 if (category.issues.length === 0) return null
 
@@ -654,13 +774,13 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                         </div>
                         <Icon className={`w-5 h-5 ${styles.icon}`} />
                         <div className="text-left">
-                          <h3 className="font-medium text-gray-900 dark:text-white text-sm">{category.label}</h3>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 capitalize mt-0.5">
+                          <h3 className="font-semibold text-gray-900 dark:text-white text-base">{category.label}</h3>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 capitalize mt-0.5">
                             {category.severity} severity
                           </p>
                         </div>
                       </div>
-                      <span className={`px-3 py-1 rounded-full text-sm font-semibold ${styles.badge}`}>
+                      <span className={`px-3.5 py-1.5 rounded-full text-base font-bold ${styles.badge}`}>
                         {category.issues.length}
                       </span>
                     </button>
@@ -676,27 +796,27 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-2">
-                                  <span className="font-medium text-gray-900 dark:text-white text-sm truncate">
+                                  <span className="font-semibold text-gray-900 dark:text-white text-base truncate">
                                     {issue.filename}
                                   </span>
                                   {issue.page && (
-                                    <span className="flex-shrink-0 text-xs px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-medium">
+                                    <span className="flex-shrink-0 text-sm px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-semibold">
                                       Page {issue.page}
                                     </span>
                                   )}
                                 </div>
                                 {issue.description && (
-                                  <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                                  <p className="text-base text-gray-600 dark:text-gray-400 leading-relaxed">
                                     {issue.description}
                                   </p>
                                 )}
                               </div>
                               <button
                                 onClick={() => {
-                                  const scan = scans.find((s) => s.scanId === issue.scanId)
+                                  const scan = scansState.find((s) => s.scanId === issue.scanId)
                                   if (scan) handleViewDetails(scan)
                                 }}
-                                className="flex-shrink-0 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium hover:underline transition-colors"
+                                className="flex-shrink-0 text-base text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold hover:underline transition-colors"
                               >
                                 View
                               </button>
@@ -705,7 +825,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                         ))}
                         {category.issues.length > 10 && (
                           <div className="text-center pt-2">
-                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                            <p className="text-base text-gray-600 dark:text-gray-400 font-medium">
                               + {category.issues.length - 10} more issues
                             </p>
                           </div>
@@ -719,9 +839,9 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
               {/* Empty State */}
               {Object.values(issueCategories).every((cat) => cat.issues.length === 0) && (
                 <div className="px-6 py-12 text-center">
-                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-4">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/20 mb-4">
                     <svg
-                      className="w-8 h-8 text-green-600 dark:text-green-400"
+                      className="w-8 h-8 text-emerald-600 dark:text-emerald-400"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -729,8 +849,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Issues Found</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No Issues Found</h3>
+                  <p className="text-base text-gray-600 dark:text-gray-400">
                     All files are fully compliant with accessibility standards.
                   </p>
                 </div>

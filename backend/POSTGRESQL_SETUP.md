@@ -3,14 +3,12 @@
 ## Installation
 
 ### macOS
-
 \`\`\`bash
 brew install postgresql@15
 brew services start postgresql@15
 \`\`\`
 
 ### Ubuntu/Debian
-
 \`\`\`bash
 sudo apt update
 sudo apt install postgresql postgresql-contrib
@@ -18,48 +16,41 @@ sudo systemctl start postgresql
 \`\`\`
 
 ### Windows
-
-Download and install from: <https://www.postgresql.org/download/windows/>
+Download and install from: https://www.postgresql.org/download/windows/
 
 ## Database Setup
 
 1. Create the database:
+\`\`\`bash
+createdb accessibility_scans
+\`\`\`
 
-    \`\`\`bash
-    createdb accessibility_scans
-    \`\`\`
-
-    Or using psql:
-
-    \`\`\`bash
-    psql postgres
-    CREATE DATABASE accessibility_scans;
-    \q
-    \`\`\`
+Or using psql:
+\`\`\`bash
+psql postgres
+CREATE DATABASE accessibility_scans;
+\q
+\`\`\`
 
 2. Set the DATABASE_URL environment variable:
+\`\`\`bash
+export DATABASE_URL="postgresql://localhost/accessibility_scans"
+\`\`\`
 
-    \`\`\`bash
-    export DATABASE_URL="postgresql://localhost/accessibility_scans"
-    \`\`\`
-
-    Or for a remote database:
-
-    \`\`\`bash
-    export DATABASE_URL="postgresql://username:password@host:port/database"
-    \`\`\`
+Or for a remote database:
+\`\`\`bash
+export DATABASE_URL="postgresql://username:password@host:port/database"
+\`\`\`
 
 3. Install Python dependencies:
-
-    \`\`\`bash
-    pip install -r requirements.txt
-    \`\`\`
+\`\`\`bash
+pip install -r requirements.txt
+\`\`\`
 
 4. Run the backend:
-
-    \`\`\`bash
-    python app.py
-    \`\`\`
+\`\`\`bash
+python app.py
+\`\`\`
 
 The database tables will be created automatically on first run.
 
@@ -68,7 +59,6 @@ The database tables will be created automatically on first run.
 The application creates three tables:
 
 ### scans
-
 - id (TEXT PRIMARY KEY)
 - filename (TEXT)
 - upload_date (TIMESTAMP)
@@ -77,7 +67,6 @@ The application creates three tables:
 - batch_id (TEXT)
 
 ### fix_history
-
 - id (SERIAL PRIMARY KEY)
 - scan_id (TEXT)
 - original_file (TEXT)
@@ -87,7 +76,6 @@ The application creates three tables:
 - timestamp (TIMESTAMP)
 
 ### batches
-
 - id (TEXT PRIMARY KEY)
 - name (TEXT)
 - upload_date (TIMESTAMP)
@@ -99,16 +87,12 @@ The application creates three tables:
 ## Troubleshooting
 
 ### Connection Issues
-
 If you get connection errors, check:
-
 1. PostgreSQL is running: `pg_isready`
 2. DATABASE_URL is set correctly
 3. Database exists: `psql -l`
 
 ### Permission Issues
-
 Grant permissions if needed:
-
 \`\`\`sql
 GRANT ALL PRIVILEGES ON DATABASE accessibility_scans TO your_username;

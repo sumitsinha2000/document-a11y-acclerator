@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import axios from "axios"
 import { API_ENDPOINTS } from "../config/api"
+import { useNotification } from "../contexts/NotificationContext"
 
 const safeRenderFix = (fix) => {
   // If it's already a string, return it
@@ -18,6 +19,7 @@ const safeRenderFix = (fix) => {
     if (fix.description) return fix.description
     if (fix.type) return fix.type
     if (fix.category) return fix.category
+    if (fix.issueType) return fix.issueType
 
     // If it has a 'type' property from manual fixes
     if (fix.type && fix.data) {
@@ -33,10 +35,12 @@ const safeRenderFix = (fix) => {
 }
 
 export default function FixHistory({ scanId, onRefresh }) {
+  const { showError } = useNotification()
+
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [isCollapsed, setIsCollapsed] = useState(true)
+  const [isCollapsed, setIsCollapsed] = useState(false)
 
   useEffect(() => {
     fetchFixHistory()
@@ -45,6 +49,8 @@ export default function FixHistory({ scanId, onRefresh }) {
   const fetchFixHistory = async () => {
     try {
       setLoading(true)
+      console.log("[v0] Fetching fix history for scan:", scanId)
+
       const timestamp = Date.now()
       const response = await axios.get(API_ENDPOINTS.fixHistory(scanId), {
         headers: {
@@ -57,10 +63,23 @@ export default function FixHistory({ scanId, onRefresh }) {
           _: Math.random(),
         },
       })
-      setHistory(response.data.history || [])
+
+      console.log("[v0] Fix history response:", response.data)
+
+      const transformedHistory = (response.data.history || []).map((item) => ({
+        id: item.id,
+        timestamp: item.appliedAt,
+        fixedFile: item.fixedFilename,
+        originalFile: item.originalFilename,
+        fixesApplied: item.fixesApplied || [],
+        successCount: Array.isArray(item.fixesApplied) ? item.fixesApplied.length : 0,
+      }))
+
+      console.log("[v0] Transformed fix history:", transformedHistory)
+      setHistory(transformedHistory)
       setError(null)
     } catch (err) {
-      console.error("Error fetching fix history:", err)
+      console.error("[v0] Error fetching fix history:", err)
       setError("Failed to load fix history")
     } finally {
       setLoading(false)
@@ -82,49 +101,90 @@ export default function FixHistory({ scanId, onRefresh }) {
       link.remove()
       window.URL.revokeObjectURL(url)
     } catch (error) {
-      console.error("Error downloading file:", error)
-      alert("Failed to download file")
+      console.error("[v0] Error downloading file:", error)
+      showError("Failed to download file")
     }
   }
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-3">Fix History</h3>
-        <div className="text-sm text-gray-500 dark:text-gray-400">Loading history...</div>
+      <div className="p-7">
+        <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Fix History</h3>
+        <div className="flex items-center gap-3 text-slate-600 dark:text-slate-400">
+          <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+          <span className="text-base font-medium">Loading fix history...</span>
+        </div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-3">Fix History</h3>
-        <div className="text-sm text-red-600 dark:text-red-400">{error}</div>
+      <div className="p-7">
+        <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Fix History</h3>
+        <div className="flex items-center gap-3 px-5 py-4 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800/30 rounded-lg">
+          <svg
+            className="w-5 h-5 text-yellow-600 dark:text-yellow-500 flex-shrink-0"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path
+              fillRule="evenodd"
+              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+              clipRule="evenodd"
+            />
+          </svg>
+          <span className="text-base font-medium text-yellow-800 dark:text-yellow-300">No fix history available</span>
+        </div>
       </div>
     )
   }
 
   if (history.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-3">Fix History</h3>
-        <div className="text-sm text-gray-500 dark:text-gray-400">No fixes have been applied to this document yet.</div>
+      <div className="p-7">
+        <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Fix History</h3>
+        <div className="flex items-center gap-3 px-5 py-4 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800/30 rounded-lg">
+          <svg
+            className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <span className="text-base font-medium text-blue-800 dark:text-blue-300">No fixes have been applied yet</span>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+    <div className="p-7">
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="w-full flex items-center justify-between text-left mb-3 hover:opacity-80 transition-opacity"
+        className="w-full flex items-center justify-between mb-5 hover:opacity-80 transition-opacity group"
       >
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-          Fix History {history.length > 0 && `(${history.length})`}
+        <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+          Fix History
+          <span className="px-3 py-1.5 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded-full text-base font-bold">
+            {history.length}
+          </span>
         </h3>
         <svg
-          className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isCollapsed ? "" : "rotate-180"}`}
+          className={`w-6 h-6 text-slate-500 dark:text-slate-400 transition-transform ${isCollapsed ? "" : "rotate-180"}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -134,51 +194,66 @@ export default function FixHistory({ scanId, onRefresh }) {
       </button>
 
       {!isCollapsed && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {history.map((item, index) => (
             <div
               key={item.id}
-              className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:border-blue-400 dark:hover:border-blue-600 transition-colors"
+              className="border border-slate-200 dark:border-slate-700 rounded-lg p-5 hover:border-violet-400 dark:hover:border-violet-600 hover:shadow-md transition-all bg-white dark:bg-slate-800"
             >
-              <div className="flex items-start justify-between mb-2">
+              <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="px-3 py-1.5 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded-md text-sm font-bold">
                       Version {history.length - index}
                     </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
                       {new Date(item.timestamp).toLocaleString()}
                     </span>
                   </div>
-                  <div className="text-sm text-gray-700 dark:text-gray-300 mb-1">
-                    <span className="font-medium">{item.successCount}</span> fix(es) applied successfully
+                  <div className="flex items-center gap-2">
+                    <svg
+                      className="w-5 h-5 text-emerald-600 dark:text-emerald-400"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    <span className="text-base font-medium text-slate-700 dark:text-slate-300">
+                      <span className="font-bold">{item.successCount}</span> fix(es) applied successfully
+                    </span>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => handleDownload(item.fixedFile)}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
-                  Download
-                </button>
+                {item.fixedFile && (
+                  <button
+                    onClick={() => handleDownload(item.fixedFile)}
+                    className="flex items-center gap-2 px-4 py-2.5 text-base font-semibold text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-lg transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                      />
+                    </svg>
+                    Download
+                  </button>
+                )}
               </div>
 
               {item.fixesApplied && item.fixesApplied.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700">
-                  <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Applied Fixes:</div>
-                  <div className="flex flex-wrap gap-1">
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-600">
+                  <div className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-3">Applied Fixes:</div>
+                  <div className="flex flex-wrap gap-2">
                     {item.fixesApplied.map((fix, idx) => (
                       <span
                         key={idx}
-                        className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                        className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-semibold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"
                       >
                         {safeRenderFix(fix)}
                       </span>

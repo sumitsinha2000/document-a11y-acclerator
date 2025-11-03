@@ -4,161 +4,127 @@
 
 ### Issue 1: Build Error with Pillow (KeyError: '__version__')
 
-__Error Message:__
-
-\`\`\`bash
+**Error Message:**
+\`\`\`
 Getting requirements to build wheel did not run successfully
 KeyError: '__version__'
 ERROR: Failed to build 'Pillow' when getting requirements to build wheel
 \`\`\`
 
-__Cause:__ Outdated build tools or incompatibility between setuptools and the package being built.
+**Cause:** Outdated build tools or incompatibility between setuptools and the package being built.
 
-#### __Solutions (try in order):__
+**Solutions (try in order):**
 
-##### __Solution 1: Update build tools and use latest Pillow__
-
+**Solution 1: Update build tools and use latest Pillow**
 \`\`\`bash
-
 # Update pip, setuptools, and wheel
-
 python -m pip install --upgrade pip setuptools wheel
 
 # Install Pillow separately first (latest version with pre-built wheels)
-
 pip install Pillow
 
 # Then install remaining requirements
-
 pip install -r requirements.txt
 \`\`\`
 
-##### __Solution 2: Install Pillow from pre-built wheel__
-
+**Solution 2: Install Pillow from pre-built wheel**
 \`\`\`bash
-
 # Update build tools
-
 python -m pip install --upgrade pip setuptools wheel
 
 # Install Pillow with binary wheel (no build required)
-
 pip install --only-binary :all: Pillow
 
 # Then install remaining requirements
-
 pip install -r requirements.txt
 \`\`\`
 
-##### __Solution 3: Use conda for Pillow__
-
+**Solution 3: Use conda for Pillow**
 \`\`\`bash
-
 # If using conda environment
-
 conda install pillow
 
 # Then install remaining requirements with pip
-
 pip install -r requirements.txt
 \`\`\`
 
-##### __Solution 4: Skip Pillow temporarily__
-
+**Solution 4: Skip Pillow temporarily**
 \`\`\`bash
-
 # Install all packages except Pillow
-
 pip install Flask Flask-CORS PyPDF2 pdfplumber pytesseract pdf2image fpdf pikepdf psycopg2-binary python-dotenv
 
 # Try Pillow separately later
-
 pip install Pillow
 \`\`\`
 
 ### Issue 2: psycopg2-binary Installation Fails
 
-__Error Message:__
-
-\`\`\`bash
+**Error Message:**
+\`\`\`
 error: Microsoft Visual C++ 14.0 or greater is required
 \`\`\`
 
-#### __Solution (Windows):__
+**Solution (Windows):**
 
 Option 1: Use the binary package (already in requirements.txt):
-
 \`\`\`bash
 pip install psycopg2-binary
 \`\`\`
 
 Option 2: If you still have issues, install PostgreSQL development libraries or use SQLite instead by setting in `.env`:
-
-\`\`\`md
+\`\`\`
 USE_SQLITE=true
 \`\`\`
 
 ### Issue 3: pytesseract or pdf2image Issues
 
-__Error Message:__
-
-\`\`\`bash
+**Error Message:**
+\`\`\`
 TesseractNotFoundError: tesseract is not installed
 \`\`\`
 
-#### __Solution:__
+**Solution:**
 
 These packages require external binaries:
 
-__Windows:__
-
-1. Download Tesseract from: <https://github.com/UB-Mannheim/tesseract/wiki>
+**Windows:**
+1. Download Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki
 2. Install and add to PATH
-3. Download Poppler from: <https://github.com/oschwartz10612/poppler-windows/releases>
+3. Download Poppler from: https://github.com/oschwartz10612/poppler-windows/releases
 4. Extract and add `bin` folder to PATH
 
-__macOS:__
-
+**macOS:**
 \`\`\`bash
 brew install tesseract poppler
 \`\`\`
 
-__Linux:__
-
+**Linux:**
 \`\`\`bash
 sudo apt-get install tesseract-ocr poppler-utils
 \`\`\`
 
 ### Issue 4: Permission Errors (Linux/macOS)
 
-__Error Message:__
-
-\`\`\`bash
+**Error Message:**
+\`\`\`
 PermissionError: [Errno 13] Permission denied
 \`\`\`
 
-#### __Solution:__
+**Solution:**
 
 Don't use `sudo` with pip. Instead, use a virtual environment:
 
 \`\`\`bash
-
 # Create virtual environment
-
 python -m venv venv
 
 # Activate it
-
-# On Windows
-
+# On Windows:
 venv\Scripts\activate
-
-# On Linux/macOS
-
+# On Linux/macOS:
 source venv/bin/activate
 
 # Install requirements
-
 pip install -r requirements.txt
 \`\`\`
 
@@ -167,56 +133,42 @@ pip install -r requirements.txt
 ### Windows
 
 \`\`\`bash
-
 # 1. Create and activate virtual environment
-
 python -m venv venv
 venv\Scripts\activate
 
 # 2. Update build tools
-
 python -m pip install --upgrade pip setuptools wheel
 
 # 3. Install requirements
-
 pip install -r requirements.txt
 
 # 4. Set up environment variables
-
 copy .env.example .env
-
 # Edit .env with your database credentials
 
 # 5. Run the application
-
 python app.py
 \`\`\`
 
 ### macOS/Linux
 
 \`\`\`bash
-
 # 1. Create and activate virtual environment
-
 python3 -m venv venv
 source venv/bin/activate
 
 # 2. Update build tools
-
 python -m pip install --upgrade pip setuptools wheel
 
 # 3. Install requirements
-
 pip install -r requirements.txt
 
 # 4. Set up environment variables
-
 cp .env.example .env
-
 # Edit .env with your database credentials
 
 # 5. Run the application
-
 python app.py
 \`\`\`
 
@@ -225,17 +177,13 @@ python app.py
 After installation, verify everything is working:
 
 \`\`\`bash
-
 # Check Python version (should be 3.8+)
-
 python --version
 
 # Check installed packages
-
 pip list
 
 # Test imports
-
 python -c "import flask, PyPDF2, pdfplumber, pikepdf; print('All core packages imported successfully')"
 \`\`\`
 
@@ -243,32 +191,28 @@ python -c "import flask, PyPDF2, pdfplumber, pikepdf; print('All core packages i
 
 ### PostgreSQL (Recommended)
 
-1. Install PostgreSQL from <https://www.postgresql.org/download/>
+1. Install PostgreSQL from https://www.postgresql.org/download/
 2. Create a database:
-
-    \`\`\`sql
-    CREATE DATABASE doc_a11y_db;
-    \`\`\`
-
+\`\`\`sql
+CREATE DATABASE doc_a11y_db;
+\`\`\`
 3. Update `.env` with your credentials:
-
-    \`\`\`markdown
-    DB_HOST=localhost
-    DB_PORT=5432
-    DB_NAME=doc_a11y_db
-    DB_USER=your_username
-    DB_PASSWORD=your_password
-    \`\`\`
+\`\`\`
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=doc_a11y_db
+DB_USER=your_username
+DB_PASSWORD=your_password
+\`\`\`
 
 ### SQLite (Fallback)
 
 If you don't want to set up PostgreSQL, use SQLite:
 
 1. Update `.env`:
-
-    \`\`\`markdown
-    USE_SQLITE=true
-    \`\`\`
+\`\`\`
+USE_SQLITE=true
+\`\`\`
 
 The application will automatically create a SQLite database file.
 
@@ -290,18 +234,14 @@ If you continue to experience issues:
 If you're using Conda instead of venv:
 
 \`\`\`bash
-
 # Create conda environment
-
 conda create -n doc-a11y python=3.10
 conda activate doc-a11y
 
 # Update build tools
-
 pip install --upgrade pip setuptools wheel
 
 # Install requirements
-
 pip install -r requirements.txt
 \`\`\`
 
@@ -315,7 +255,6 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # Install system dependencies
-
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     poppler-utils \
@@ -323,13 +262,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install
-
 COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel && \
     pip install -r requirements.txt
 
 # Copy application
-
 COPY . .
 
 EXPOSE 5000
@@ -338,7 +275,6 @@ CMD ["python", "app.py"]
 \`\`\`
 
 Build and run:
-
 \`\`\`bash
 docker build -t doc-a11y-accelerator .
 docker run -p 5000:5000 doc-a11y-accelerator

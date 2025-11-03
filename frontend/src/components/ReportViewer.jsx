@@ -6,11 +6,11 @@ import IssuesList from "./IssuesList"
 import FixSuggestions from "./FixSuggestions"
 import SidebarNav from "./SidebarNav"
 import Breadcrumb from "./Breadcrumb"
-import StatCard from "./StatCard"
 import ExportDropdown from "./ExportDropdown"
 import FixHistory from "./FixHistory"
 import AIFixStrategyModal from "./AIFixStrategyModal"
 import { API_ENDPOINTS } from "../config/api"
+import { useNotification } from "../contexts/NotificationContext"
 
 export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
@@ -29,6 +29,9 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+
+  const { showSuccess, showError, showWarning, showInfo } = useNotification()
 
   useEffect(() => {
     const currentScan = scans[selectedFileIndex]
@@ -100,79 +103,21 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
   }
 
-  const refreshScanData = async () => {
-    if (isRefreshing) {
-      console.log("[v0] ReportViewer - Already refreshing, skipping duplicate call")
-      return
-    }
-
+  const handleRefresh = async () => {
     setIsRefreshing(true)
-    console.log("[v0] ReportViewer - Starting comprehensive data refresh...")
-
     try {
       const currentScan = scans[selectedFileIndex]
-      const scanId = currentScan.scanId || currentScan.id
+      if (currentScan?.id) {
+        console.log("[v0] ReportViewer - Refreshing data for scan:", currentScan.id)
+        await fetchReportDetails(currentScan.id)
 
-      console.log("[v0] ReportViewer - Fetching completely fresh data for scanId:", scanId)
+        setRefreshKey((prev) => prev + 1)
 
-      await new Promise((resolve) => setTimeout(resolve, 3500))
-
-      const timestamp = Date.now()
-      const response = await axios.get(`/api/scan/${scanId}`, {
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          Pragma: "no-cache",
-          Expires: "0",
-        },
-        params: {
-          t: timestamp,
-          _: Math.random(),
-          refresh: "true",
-          bustCache: timestamp,
-        },
-      })
-
-      console.log("[v0] ReportViewer - Received fresh data from backend")
-      console.log("[v0] ReportViewer - New total issues:", response.data.summary?.totalIssues)
-      console.log("[v0] ReportViewer - New compliance score:", response.data.summary?.complianceScore)
-      console.log("[v0] ReportViewer - Applied fixes:", response.data.appliedFixes)
-
-      const results = response.data.results || {}
-      const totalIssues =
-        (results.wcagIssues?.length || 0) +
-        (results.pdfuaIssues?.length || 0) +
-        (results.pdfaIssues?.length || 0) +
-        (results.structureIssues?.length || 0)
-
-      const highSeverity = Object.values(results)
-        .flat()
-        .filter((issue) => issue?.severity === "high" || issue?.severity === "critical").length
-
-      const complianceScore = totalIssues === 0 ? 100 : Math.max(0, Math.round(100 - totalIssues * 2))
-
-      console.log("[v0] ReportViewer - Recalculated stats:", { totalIssues, highSeverity, complianceScore })
-
-      const newData = {
-        ...response.data,
-        summary: {
-          totalIssues,
-          highSeverity,
-          complianceScore,
-          ...response.data.summary,
-        },
-        results: results,
-        fixes: response.data.fixes || { automated: [], semiAutomated: [], manual: [], estimatedTime: 0 },
-        appliedFixes: response.data.appliedFixes || null,
+        showSuccess("Report refreshed successfully")
       }
-
-      setReportData(newData)
-      setRefreshKey((prev) => prev + 1)
-
-      console.log("[v0] ReportViewer - State updated successfully with fresh data")
-      console.log("[v0] ReportViewer - Fix history will auto-refresh via key change")
     } catch (error) {
-      console.error("[v0] ReportViewer - Error refreshing scan data:", error)
-      alert("Failed to refresh data. Please try again.")
+      console.error("[v0] ReportViewer - Error refreshing:", error)
+      showError("Failed to refresh report")
     } finally {
       setIsRefreshing(false)
     }
@@ -203,7 +148,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       }
     } catch (error) {
       console.error("[v0] Error getting AI strategy:", error)
-      alert("Failed to get AI remediation strategy. Please try again.")
+      showError("Failed to get AI remediation strategy. Please try again.")
     } finally {
       setAiLoading(false)
     }
@@ -223,15 +168,14 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         console.log("[v0] AI fixes applied successfully:", response.data)
 
         if (response.data.newResults && response.data.newSummary) {
-          await refreshScanData(response.data.newResults, response.data.newSummary)
+          await handleRefresh(response.data.newResults, response.data.newSummary)
         } else {
-          await refreshScanData()
+          await handleRefresh()
         }
 
-        alert(
-          `AI fixes applied successfully!\n\n` +
-            `Fixes applied: ${response.data.successCount || 0}\n` +
-            `New compliance score: ${response.data.newSummary?.complianceScore || 0}%`,
+        showSuccess(
+          `AI fixes applied successfully! ${response.data.successCount || 0} fixes applied. New compliance score: ${response.data.newSummary?.complianceScore || 0}%`,
+          8000,
         )
       } else {
         throw new Error(response.data.error || "Failed to apply AI fixes")
@@ -239,7 +183,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     } catch (error) {
       console.error("[v0] Error applying AI fixes:", error)
       const errorMessage = error.response?.data?.error || error.message || "Failed to apply AI fixes"
-      alert(`Error: ${errorMessage}`)
+      showError(`Error: ${errorMessage}`)
     } finally {
       setAiDirectFixLoading(false)
     }
@@ -247,7 +191,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
         <div className="text-lg text-gray-600 dark:text-gray-400">Loading report...</div>
       </div>
     )
@@ -255,7 +199,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
   if (!reportData) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
         <div className="text-lg text-red-600 dark:text-red-400">Failed to load report</div>
       </div>
     )
@@ -277,241 +221,421 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const breadcrumbItems = [{ label: "Home", onClick: onBack }, { label: "Report" }]
 
   return (
-    <div className="flex overflow-x-hidden">
+    <div className="flex overflow-x-hidden bg-slate-50 dark:bg-slate-900">
       <SidebarNav isOpen={sidebarOpen} />
 
-      <div
-        className={`flex-1 transition-all duration-300 ${sidebarOpen ? "ml-[240px]" : "ml-0"} p-4 bg-gray-50 dark:bg-gray-900 overflow-x-hidden`}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <Breadcrumb items={breadcrumbItems} />
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleAiDirectFix}
-              disabled={aiDirectFixLoading}
-              className="px-3 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Apply AI-powered fixes directly to the PDF"
-            >
-              {aiDirectFixLoading ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                  <span className="text-sm font-medium">Applying AI Fixes...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                    />
-                  </svg>
-                  <span className="text-sm font-medium">AI Direct Fix</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={() => refreshScanData()}
-              className="px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
-              title="Refresh report data"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-              <span className="text-sm font-medium">Refresh</span>
-            </button>
-            <ExportDropdown scanId={reportData.scanId} filename={reportData.fileName || reportData.filename} />
-          </div>
-        </div>
+      {/* Collapsible batch files sidebar */}
+      {scans.length > 1 && (
+        <div
+          className={`fixed left-[240px] top-0 h-full bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-all duration-300 z-40 ${
+            isSidebarCollapsed ? "w-0" : "w-64"
+          } overflow-hidden`}
+        >
+          <div className="h-full flex flex-col">
+            {/* Sidebar Header */}
+            <div className="px-4 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Batch Files</h2>
+              <span className="text-xs text-slate-500 dark:text-slate-400">{scans.length} files</span>
+            </div>
 
-        {scans.length > 1 && (
-          <div className="mb-4 flex items-center gap-2">
-            <button
-              onClick={() => scrollTabs("left")}
-              disabled={!canScrollLeft}
-              className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
-              aria-label="Scroll tabs left"
-            >
-              ←
-            </button>
-
-            <div className="flex-1 relative min-w-0">
-              <div className="absolute left-0 top-0 bottom-2 w-8 bg-gradient-to-r from-gray-50 dark:from-gray-900 to-transparent pointer-events-none z-10" />
-              <div className="absolute right-0 top-0 bottom-2 w-8 bg-gradient-to-l from-gray-50 dark:from-gray-900 to-transparent pointer-events-none z-10" />
-
-              <div ref={tabContainerRef} className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide scroll-smooth">
-                {scans.map((scan, index) => (
-                  <button
-                    key={index}
-                    ref={(el) => (tabRefs.current[index] = el)}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 ${
-                      selectedFileIndex === index
-                        ? "bg-blue-600 text-white shadow-sm"
-                        : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:border-blue-400"
-                    }`}
-                    onClick={() => setSelectedFileIndex(index)}
-                    aria-label={`View report for ${scan.fileName || scan.filename}`}
-                    aria-current={selectedFileIndex === index ? "page" : undefined}
-                  >
-                    <span className="text-base">📄</span>
-                    <span className="font-medium">{scan.fileName || scan.filename}</span>
-                    {scan.summary && (
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-xs font-semibold ${
-                          scan.summary.complianceScore >= 70
-                            ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                            : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+            {/* Files List */}
+            <div className="flex-1 overflow-y-auto p-2">
+              {scans.map((scan, index) => (
+                <button
+                  key={index}
+                  onClick={() => setSelectedFileIndex(index)}
+                  className={`w-full text-left px-3 py-3 rounded-lg mb-2 transition-all ${
+                    selectedFileIndex === index
+                      ? "bg-violet-50 dark:bg-violet-900/20 border-2 border-violet-500"
+                      : "bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <svg
+                      className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+                        selectedFileIndex === index
+                          ? "text-violet-600 dark:text-violet-400"
+                          : "text-slate-400 dark:text-slate-500"
+                      }`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={`text-sm font-medium truncate ${
+                          selectedFileIndex === index
+                            ? "text-violet-900 dark:text-violet-100"
+                            : "text-slate-700 dark:text-slate-300"
                         }`}
                       >
-                        {scan.summary.complianceScore}%
-                      </span>
-                    )}
-                  </button>
-                ))}
+                        {scan.fileName || scan.filename}
+                      </p>
+                      {scan.summary && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span
+                            className={`text-xs font-semibold ${
+                              scan.summary.complianceScore >= 70
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-rose-600 dark:text-rose-400"
+                            }`}
+                          >
+                            {scan.summary.complianceScore}%
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {scan.summary.totalIssues} issues
+                          </span>
+                        </div>
+                      )}
+                      {/* Status badge */}
+                      {scan.status && (
+                        <span
+                          className={`inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full ${
+                            scan.status === "fixed"
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              : scan.status === "processed"
+                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                : scan.status === "compliant"
+                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                          }`}
+                        >
+                          {scan.status === "fixed"
+                            ? "Fixed"
+                            : scan.status === "processed"
+                              ? "Processed"
+                              : scan.status === "compliant"
+                                ? "Compliant"
+                                : "Unprocessed"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {scans.length > 1 && (
+        <button
+          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          className={`fixed top-20 z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-r-lg p-2 shadow-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-all ${
+            isSidebarCollapsed ? "left-[240px]" : "left-[496px]"
+          }`}
+          aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <svg
+            className={`w-5 h-5 text-slate-600 dark:text-slate-400 transition-transform ${
+              isSidebarCollapsed ? "" : "rotate-180"
+            }`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
+
+      <div
+        className={`flex-1 transition-all duration-300 ${
+          sidebarOpen ? "ml-[240px]" : "ml-0"
+        } ${scans.length > 1 && !isSidebarCollapsed ? "ml-[504px]" : ""} min-h-screen`}
+      >
+        <div className="bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 px-8 py-8">
+          <div className="flex items-center justify-between mb-4">
+            <Breadcrumb items={breadcrumbItems} className="text-slate-600 dark:text-slate-300" />
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleAiDirectFix}
+                disabled={aiDirectFixLoading}
+                className="px-5 py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-base"
+              >
+                {aiDirectFixLoading ? (
+                  <>
+                    <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    <span>Applying...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
+                      />
+                    </svg>
+                    <span>AI Direct Fix</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleRefresh}
+                className="px-5 py-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-2 font-semibold text-base border border-slate-200 dark:border-slate-600"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                <span>Refresh</span>
+              </button>
+              <ExportDropdown scanId={reportData.scanId} filename={reportData.fileName || reportData.filename} />
+            </div>
+          </div>
+
+          <div className="flex items-start justify-between">
+            <div>
+              {reportData.groupName && (
+                <div className="flex items-center gap-2 mb-3">
+                  <svg
+                    className="w-6 h-6 text-violet-600 dark:text-violet-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                    />
+                  </svg>
+                  <span className="text-violet-700 dark:text-violet-300 font-bold text-xl">{reportData.groupName}</span>
+                </div>
+              )}
+              <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-3">
+                {reportData.fileName || reportData.filename}
+              </h1>
+              <div className="flex items-center gap-4 text-base text-slate-600 dark:text-slate-400 font-medium">
+                <span>Scanned on {new Date(reportData.uploadDate || reportData.timestamp).toLocaleDateString()}</span>
+                {reportData.appliedFixes && (
+                  <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    {reportData.appliedFixes.successCount} fixes applied
+                  </span>
+                )}
               </div>
             </div>
 
-            <button
-              onClick={() => scrollTabs("right")}
-              disabled={!canScrollRight}
-              className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
-              aria-label="Scroll tabs right"
-            >
-              →
-            </button>
-          </div>
-        )}
-
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              {reportData.fileName || reportData.filename}
-            </h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Scanned on {new Date(reportData.uploadDate || reportData.timestamp).toLocaleDateString()}
-            </p>
-            {reportData.appliedFixes && (
-              <p className="text-xs text-green-600 dark:text-green-400 font-medium mt-1">
-                ✓ {reportData.appliedFixes.successCount} fixes applied on{" "}
-                {new Date(reportData.appliedFixes.timestamp).toLocaleDateString()}
-              </p>
+            {verapdfStatus.isActive && (
+              <div className="flex items-center gap-2 px-5 py-3 bg-blue-50 dark:bg-blue-500/20 border-2 border-blue-200 dark:border-blue-400/30 rounded-lg">
+                <svg className="w-6 h-6 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-.723-.725 3.066 3.066 0 01-2.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <span className="font-bold text-blue-700 dark:text-blue-300 text-base">veraPDF Validated</span>
+              </div>
             )}
           </div>
-
-          {verapdfStatus.isActive && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-.723-.725 3.066 3.066 0 01-2.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <span className="text-sm font-medium text-blue-700 dark:text-blue-300">veraPDF Validated</span>
-            </div>
-          )}
         </div>
 
-        <div id="overview" className="mb-4" key={`overview-${refreshKey}`}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <StatCard
-              label="Compliance Score"
-              value={`${summary.complianceScore}%`}
-              change={summary.complianceScore >= 70 ? 20 : -10}
-            />
-            <StatCard label="Total Issues" value={summary.totalIssues} change={-5} />
-            <StatCard label="High Severity" value={summary.highSeverity} change={-3} />
+        <div className="p-8 space-y-6">
+          {scans.length > 1 && (
+            <div className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
+              {scans.map((scan, index) => (
+                <button
+                  key={index}
+                  ref={(el) => (tabRefs.current[index] = el)}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 font-medium ${
+                    selectedFileIndex === index
+                      ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-lg"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                  }`}
+                  onClick={() => setSelectedFileIndex(index)}
+                >
+                  <span>📄</span>
+                  <span>{scan.fileName || scan.filename}</span>
+                  {scan.summary && (
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                        scan.summary.complianceScore >= 70
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                          : "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                      }`}
+                    >
+                      {scan.summary.complianceScore}%
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div id="overview" key={`overview-${refreshKey}`}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Compliance Score</p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.complianceScore}%</p>
+                      <span
+                        className={`text-base font-semibold ${summary.complianceScore >= 70 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
+                      >
+                        {summary.complianceScore >= 70 ? "↑ +20%" : "↓ -10%"}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className={`w-16 h-16 rounded-full flex items-center justify-center ${summary.complianceScore >= 70 ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-rose-100 dark:bg-rose-900/30"}`}
+                  >
+                    <svg
+                      className={`w-8 h-8 ${summary.complianceScore >= 70 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                  </div>
+                </div>
+
+                {verapdfStatus.isActive && (
+                  <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
+                    <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
+                      <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                        <path
+                          fillRule="evenodd"
+                          d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                        WCAG {verapdfStatus.wcagCompliance}%
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-full border border-purple-200 dark:border-purple-800">
+                      <svg
+                        className="w-4 h-4 text-purple-600 dark:text-purple-400"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
+                        PDF/UA {verapdfStatus.pdfuaCompliance}%
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Total Issues</p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.totalIssues}</p>
+                      <span className="text-base font-semibold text-amber-600 dark:text-amber-400">↓ -5%</span>
+                    </div>
+                  </div>
+                  <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
+                    <svg
+                      className="w-8 h-8 text-amber-600 dark:text-amber-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                      />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">High Severity</p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.highSeverity}</p>
+                      <span className="text-base font-semibold text-rose-600 dark:text-rose-400">↓ -3%</span>
+                    </div>
+                  </div>
+                  <div className="w-16 h-16 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center">
+                    <svg
+                      className="w-8 h-8 text-rose-600 dark:text-rose-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {verapdfStatus.isActive && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-lg shadow-sm p-4 border border-blue-200 dark:border-blue-800">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-blue-700 dark:text-blue-300">WCAG 2.1 Compliance</p>
-                    <p className="text-2xl font-bold text-blue-900 dark:text-blue-100 mt-1">
-                      {verapdfStatus.wcagCompliance}%
-                    </p>
-                  </div>
-                  <div className="w-12 h-12 bg-blue-200 dark:bg-blue-800 rounded-full flex items-center justify-center">
-                    <svg
-                      className="w-6 h-6 text-blue-600 dark:text-blue-300"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                      />
-                    </svg>
-                  </div>
-                </div>
-              </div>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+            <FixHistory key={`fix-history-${refreshKey}`} scanId={reportData.scanId} onRefresh={handleRefresh} />
+          </div>
 
-              <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 rounded-lg shadow-sm p-4 border border-purple-200 dark:border-purple-800">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300">PDF/UA Compliance</p>
-                    <p className="text-2xl font-bold text-purple-900 dark:text-purple-100 mt-1">
-                      {verapdfStatus.pdfuaCompliance}%
-                    </p>
-                  </div>
-                  <div className="w-12 h-12 bg-purple-200 dark:bg-purple-800 rounded-full flex items-center justify-center">
-                    <svg
-                      className="w-6 h-6 text-purple-600 dark:text-purple-300"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                      />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+          <div id="issues" key={`issues-${refreshKey}`}>
+            <IssuesList
+              results={reportData.results}
+              selectedCategory={selectedCategory}
+              onCategorySelect={setSelectedCategory}
+            />
+          </div>
 
-        <div className="mb-6">
-          <FixHistory key={`fix-history-${refreshKey}`} scanId={reportData.scanId} onRefresh={refreshScanData} />
-        </div>
-
-        <div id="issues" className="mb-6" key={`issues-${refreshKey}`}>
-          <IssuesList
-            results={reportData.results}
-            selectedCategory={selectedCategory}
-            onCategorySelect={setSelectedCategory}
-          />
-        </div>
-
-        <div id="fixes" className="mb-6" key={`fixes-${refreshKey}`}>
-          <FixSuggestions
-            scanId={reportData.scanId}
-            fixes={reportData.fixes}
-            filename={reportData.fileName || reportData.filename}
-            onRefresh={refreshScanData}
-          />
+          <div id="fixes" key={`fixes-${refreshKey}`}>
+            <FixSuggestions
+              scanId={reportData.scanId}
+              fixes={reportData.fixes}
+              filename={reportData.fileName || reportData.filename}
+              onRefresh={handleRefresh}
+            />
+          </div>
         </div>
 
         {showAiModal && (

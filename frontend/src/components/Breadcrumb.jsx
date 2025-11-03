@@ -3,7 +3,7 @@
 export default function Breadcrumb({ items }) {
   return (
     <nav className="mb-4" aria-label="Breadcrumb">
-      <ol className="flex items-center gap-2 text-xs">
+      <ol className="flex items-center gap-2 text-md">
         {items.map((item, index) => (
           <li key={index} className="flex items-center gap-2">
             {item.onClick ? (

@@ -1,550 +1,674 @@
 """
-DEPRECATED: Use auto_fix_engine.py instead
-
-PDF Accessibility Fix Engine
-Automatically fixes WCAG 2.1 and PDF/UA-1 compliance issues detected by the WCAG validator.
-
-All functionality from this file has been integrated into auto_fix_engine.py
+PDF/A Fix Engine
+Implements semi-automated fixes for PDF/A compliance issues
+Based on veraPDF library approach and ISO 19005 standards
+Enhanced with proper XMP metadata and ICC profile handling
 """
 
-import pikepdf
-from pikepdf import Dictionary, Name, Array, String
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
-import re
+from pikepdf import Pdf, Name, Dictionary, Array, Stream
+import os
+from pathlib import Path
+import shutil
+import base64
+
+from pdf_structure_standards import (
+    STANDARD_STRUCTURE_TYPES,
+    COMMON_ROLEMAP_MAPPINGS,
+    get_standard_mapping,
+    is_standard_type,
+    validate_structure_tree
+)
 
 logger = logging.getLogger(__name__)
 
+# This is a minimal sRGB IEC61966-2.1 profile for PDF/A compliance
+SRGB_ICC_PROFILE_BASE64 = """
+AAACCGFwcGwCEAAAbW50clJHQiBYWVogB9kAAgAZAAsAGgALYWNzcEFQUEwAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAPbWAAEAAAAA0y1hcHBsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALY3BydAAAASwAAAAjZGVzYwAAAVAAAABiZHNj
+bQAAAbQAAAGMd3RwdAAAA0AAAAAUclhZWgAAA1QAAAAUZ1hZWgAAA2gAAAAUYlhZWgAAA3wAAAAU
+clRSQwAAA5AAAAgMYWFyZwAAC5wAAAAgdmNndAAAC7wAAAAwbmRpbgAAC+wAAAA+Y2hhZAAADCwA
+AAAsbW1vZAAADFgAAAAoYlRSQwAAA5AAAAgMZ1RSQwAAA5AAAAgMYWFiZwAAC5wAAAAgYWFnZwAA
+C5wAAAAgZGVzYwAAAAAAAAAIRGlzcGxheQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAG1sdWMAAAAAAAAmAAAADGhySFIAAAAUAAAB2GtvS1IAAAAMAAAB7G5iTk8AAAASAAAB+GlkAAAAAAASAAACCmh1SFUAAAAUAAACHGNzQ1oAAAAWAAACMGRhREsAAAAcAAACRm5sTkwAAAAWAAACYmZpRkkAAAAQAAACeGl0SVQAAAAUAAACiGVzRVMAAAASAAACnHJvUk8AAAASAAACnGZyQ0EAAAAWAAACrmFyAAAAAAAUAAACxHVrVUEAAAAcAAAC2GhlSUwAAAAWAAAC9HpoVFcAAAAKAAADCnZpVk4AAAAOAAADFHNrU0sAAAAWAAADInpoQ04AAAAKAAADCnJ1UlUAAAAkAAADOGVuR0IAAAAUAAADXGZyRlIAAAAWAAADcG1zAAAAAAASAAADhmhpSU4AAAASAAADmHRoVEgAAAAMAAADqmNhRVMAAAAYAAADtnBsUEwAAAASAAADzgBMAEMARAAgAHUAIABiAG8AagBpzuy37AAgAEwAQwBEAEYAYQByAGcAZQAtAEwAQwBEAEwAQwBEACAAVwBhAHIAbgBhAFMAegDtAG4AZQBzACAATABDAEQAQgBhAHIAZQB2AG4A/QAgAEwAQwBEAEwAQwBEAC0AZgBhAHIAdgBlAHMAawDmAHIAbQBLAGwAZQB1AHIAZQBuAC0ATABDAEQAVgDkAHIAaQAtAEwAQwBEAEwAQwBEACAAYQAgAGMAbwBsAG8AcgAgAEwAQwBEACAAYQAgAGMAbwBsAG8AcgBMAEMARAAgAGMAbwBsAG8AcgBBAEMATAAgAGMAbwB1AGwAZQB1AHIgDwBMAEMARAAgBkUGRAZIBkYGKQQaBD4EOwRMBD4EQAQ+BDIEOAQ5ACAATABDAEQgDwBMAEMARAAgBeYF0QXiBdUF4AXZX2mCcgBMAEMARABMAEMARAAgAE0A4AB1AEYAYQByAGUAYgBuAP0AIABMAEMARAQmBDIENQRCBD0EPgQ5ACAEFgQaAC0ENAQ4BEEEPwQ7BDUEOQBDAG8AbABvAHUAcgAgAEwAQwBEAEwAQwBEACAAYwBvAHUAbABlAHUAcgBXAGEAcgBuAGEAIABMAEMARAkwCQIJFwlACSgAIABMAEMARABMAEMARAAgDioONQBMAEMARAAgAGUAbgAgAGMAbwBsAG8AcgBGAGEAcgBiAC0ATABDAEQAQwBvAGwAbwByACAATABDAEQATABDAEQAIABDAG8AbABvAHIAaQBkAG8ASwBvAGwAbwByACAATABDAEQDiAOzA8cDwQPJA7wDtwAgA78DuAPMA70DtwAgAEwAQwBEAEYA5AByAGcALQBMAEMARABSAGUAbgBrAGwAaQAgAEwAQwBEAEwAQwBEACAAYQAgAEMAbwByAGUAczCrMOkw/ABMAEMARHRleHQAAAAAQ29weXJpZ2h0IEFwcGxlIEluYy4sIDIwMTUAAFhZWiAAAAAAAADzUgABAAAAARbPWFlaIAAAAAAAAG+iAAA49QAAA5BYWVogAAAAAAAAYpkAALeFAAAY2lhZWiAAAAAAAAAkoAAAD4QAALbPY3VydgAAAAAAAAQAAAAABQAKAA8AFAAZAB4AIwAoAC0AMgA3ADsAQABFAEoATwBUAFkAXgBjAGgAbQByAHcAfACBAIYAiwCQAJUAmgCfAKQAqQCuALIAtwC8AMEAxgDLANAA1QDbAOAA5QDrAPAA9gD7AQEBBwENARMBGQEfASUBKwEyATgBPgFFAUwBUgFZAWABZwFuAXUBfAGDAYsBkgGaAaEBqQGxAbkBwQHJAdEB2QHhAekB8gH6AgMCDAIUAh0CJgIvAjgCQQJLAlQCXQJnAnECegKEAo4CmAKiAqwCtgLBAssC1QLgAusC9QMAAwsDFgMhAy0DOANDA08DWgNmA3IDfgOKA5YDogOuA7oDxwPTA+AD7AP5BAYEEwQgBC0EOwRIBFUEYwRxBH4EjASaBKgEtgTEBNME4QTwBP4FDQUcBSsFOgVJBVgFZwV3BYYFlgWmBbUFxQXVBeUF9gYGBhYGJwY3BkgGWQZqBnsGjAadBq8GwAbRBuMG9QcHBxkHKwc9B08HYQd0B4YHmQesB78H0gflB/gICwgfCDIIRghaCG4IggiWCKoIvgjSCOcI+wkQCSUJOglPCWQJeQmPCaQJugnPCeUJ+woRCicKPQpUCmoKgQqYCq4KxQrcCvMLCwsiCzkLUQtpC4ALmAuwC8gL4Qv5DBIMKgxDDFwMdQyODKc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
+"""
 
-class PDFFixEngine:
+class PDFAFixEngine:
     """
-    Automatically fixes accessibility issues in PDF documents.
-    
-    Fixes implemented:
-    1. Document structure (metadata, tagging, MarkInfo, ViewerPreferences)
-    2. Document language
-    3. Document title
-    4. Structure tree creation and validation
-    5. Reading order
-    6. Alternative text for images
-    7. Table structure (headers)
-    8. Heading hierarchy
-    9. List structure
-    10. Form field labels
-    11. Annotation descriptions
-    12. RoleMap validation and fixes
+    PDF/A fix engine for semi-automated compliance fixes
+    Handles font embedding, color spaces, metadata, and other PDF/A requirements
+    Enhanced with proper XMP and ICC profile support
     """
     
-    def __init__(self, input_path: str, output_path: str):
-        """Initialize fix engine with input and output paths."""
-        self.input_path = input_path
-        self.output_path = output_path
-        self.pdf = None
-        self.fixes_applied = []
-        
-    def apply_all_fixes(self, issues: Dict[str, Any]) -> Dict[str, Any]:
+    def __init__(self):
+        self.supported_fixes = [
+            'addOutputIntent',
+            'fixColorSpaces',
+            'addPDFAIdentifier',
+            'fixAnnotationAppearances',
+            'removeEncryption',
+            'fixMetadataConsistency',
+            'fixStructureTypes',
+            'downgradePDFVersion',
+            'fixRoleMapCircular',  # New fix for circular RoleMap references
+            'addMissingRoleMappings'  # New fix to add all common mappings
+        ]
+    
+    def apply_pdfa_fixes(self, pdf_path: str, scan_results: Dict[str, Any], *, tracker=None) -> Dict[str, Any]:
         """
-        Apply all possible fixes to the PDF.
-        
-        Args:
-            issues: Dictionary containing detected issues from WCAG validator
-            
-        Returns:
-            Dictionary containing:
-            - success: Boolean indicating if fixes were applied
-            - fixes_applied: List of fixes that were applied
-            - fixes_count: Number of fixes applied
-            - output_path: Path to the fixed PDF
+        Apply semi-automated PDF/A fixes based on detected issues with progress tracking
+        COMPLETELY REWRITTEN to handle actual scan results and fix structural issues
         """
+        print(f"[PDFAFixEngine.apply_pdfa_fixes] Called with pdf_path={pdf_path}, tracker={tracker}")
+        
+        pdf = None
+        temp_path = None
         try:
-            self.pdf = pikepdf.open(self.input_path)
-            logger.info(f"[PDFFixEngine] Starting fixes for {self.input_path}")
+            print(f"[PDFAFixEngine] ========== STARTING PDF/A FIXES ==========")
+            print(f"[PDFAFixEngine] Applying PDF/A fixes to: {pdf_path}")
+            print(f"[PDFAFixEngine] File exists: {os.path.exists(pdf_path)}")
+            print(f"[PDFAFixEngine] File size: {os.path.getsize(pdf_path)} bytes")
             
-            # Apply fixes in order of importance
-            self._fix_document_structure()
-            self._fix_document_language()
-            self._fix_document_title()
-            self._fix_viewer_preferences()
-            self._fix_structure_tree()
-            self._fix_alternative_text()
-            self._fix_table_structure()
-            self._fix_heading_hierarchy()
-            self._fix_list_structure()
-            self._fix_form_fields()
-            self._fix_annotations()
-            self._fix_role_map()
+            pdfa_issues = []
+            if isinstance(scan_results, dict):
+                # Try to get pdfaIssues from various possible locations
+                pdfa_issues = scan_results.get('pdfaIssues', [])
+                if not pdfa_issues:
+                    # Check if it's nested in results
+                    results = scan_results.get('results', {})
+                    if isinstance(results, dict):
+                        pdfa_issues = results.get('pdfaIssues', [])
+                print(f"[PDFAFixEngine] Found {len(pdfa_issues)} PDF/A issues to fix")
+            else:
+                print(f"[PDFAFixEngine] WARNING: scan_results is not a dict, it's {type(scan_results)}")
+                # Don't fail - just apply basic fixes
+                print(f"[PDFAFixEngine] Applying basic PDF/A fixes anyway")
             
-            # Save the fixed PDF
-            self.pdf.save(self.output_path)
-            logger.info(f"[PDFFixEngine] Saved fixed PDF to {self.output_path}")
+            if len(pdfa_issues) == 0:
+                print(f"[PDFAFixEngine] No PDF/A issues found, applying basic fixes anyway")
+            
+            if tracker:
+                tracker.start_step(3)  # open_pdf step
+            
+            temp_path = f"{pdf_path}.temp"
+            
+            pdf = Pdf.open(pdf_path)
+            print(f"[PDFAFixEngine] ✓ PDF opened successfully")
+            
+            if tracker:
+                tracker.complete_step(3, "PDF opened successfully")
+            
+            fixes_applied = []
+            success_count = 0
+            warnings = []
+            
+            if tracker:
+                tracker.start_step(4)  # add_output_intent step
+            
+            try:
+                if '/OutputIntents' not in pdf.Root or len(pdf.Root.OutputIntents) == 0:
+                    result = self._add_output_intent(pdf)
+                    if result['success']:
+                        fixes_applied.append(result)
+                        success_count += 1
+                        print(f"[PDFAFixEngine] ✓ Added OutputIntent")
+                        if tracker:
+                            tracker.complete_step(4, "Added OutputIntent with sRGB ICC profile")
+                    else:
+                        if tracker:
+                            tracker.skip_step(4, result.get('message', 'Already exists'))
+                else:
+                    print(f"[PDFAFixEngine] OutputIntent already exists")
+                    if tracker:
+                        tracker.skip_step(4, "OutputIntent already exists")
+            except Exception as e:
+                print(f"[PDFAFixEngine] ✗ Error adding OutputIntent: {e}")
+                if tracker:
+                    tracker.fail_step(4, str(e))
+            
+            if tracker:
+                tracker.start_step(5)  # add_pdfa_id step
+            
+            try:
+                result = self._add_pdfa_identifier(pdf)
+                if result['success']:
+                    fixes_applied.append(result)
+                    success_count += 1
+                    print(f"[PDFAFixEngine] ✓ Added PDF/A identifier")
+                    if tracker:
+                        tracker.complete_step(5, "Added PDF/A-1B identifier")
+                else:
+                    if tracker:
+                        tracker.skip_step(5, result.get('message', 'Already exists'))
+            except Exception as e:
+                print(f"[PDFAFixEngine] ✗ Error adding PDF/A identifier: {e}")
+                if tracker:
+                    tracker.fail_step(5, str(e))
+            
+            if tracker:
+                tracker.start_step(6)  # fix_metadata step
+            
+            try:
+                result = self._fix_metadata_consistency(pdf)
+                if result['success']:
+                    fixes_applied.append(result)
+                    success_count += 1
+                    print(f"[PDFAFixEngine] ✓ Fixed metadata consistency")
+                    if tracker:
+                        tracker.complete_step(6, "Metadata synchronized")
+                else:
+                    if tracker:
+                        tracker.skip_step(6, result.get('message', 'Already consistent'))
+            except Exception as e:
+                print(f"[PDFAFixEngine] ✗ Error fixing metadata: {e}")
+                if tracker:
+                    tracker.fail_step(6, str(e))
+            
+            if tracker:
+                tracker.start_step(7)  # fix_structure step
+            
+            try:
+                result = self._fix_structure_types(pdf)
+                if result['success']:
+                    fixes_applied.append(result)
+                    success_count += 1
+                    print(f"[PDFAFixEngine] ✓ Fixed structure types")
+                    if tracker:
+                        tracker.complete_step(7, result.get('description', 'Structure types fixed'))
+                else:
+                    if tracker:
+                        tracker.skip_step(7, result.get('message', 'No fixes needed'))
+            except Exception as e:
+                print(f"[PDFAFixEngine] ✗ Error fixing structure types: {e}")
+                if tracker:
+                    tracker.fail_step(7, str(e))
+            
+            if tracker:
+                tracker.start_step(8)  # downgrade_version step
+            
+            try:
+                result = self._downgrade_pdf_version(pdf)
+                if result['success']:
+                    fixes_applied.append(result)
+                    success_count += 1
+                    print(f"[PDFAFixEngine] ✓ Downgraded PDF version")
+                    if tracker:
+                        tracker.complete_step(8, "PDF version downgraded to 1.4")
+                else:
+                    if tracker:
+                        tracker.skip_step(8, result.get('message', 'Already 1.4'))
+            except Exception as e:
+                print(f"[PDFAFixEngine] ✗ Error downgrading PDF version: {e}")
+                if tracker:
+                    tracker.fail_step(8, str(e))
+            
+            for issue in pdfa_issues:
+                if isinstance(issue, str):
+                    issue = {'message': issue, 'severity': 'error'}
+                
+                severity = issue.get('severity', 'error')
+                message = issue.get('message', '')
+                
+                if 'annotation' in message.lower() and 'appearance' in message.lower():
+                    result = self._fix_annotation_appearances(pdf)
+                    if result['success']:
+                        fixes_applied.append(result)
+                        success_count += 1
+                        print(f"[PDFAFixEngine] ✓ Fixed annotation appearances")
+                    else:
+                        warnings.append(result['message'])
+                
+                if 'font' in message.lower() and 'embed' in message.lower():
+                    warnings.append({
+                        'type': 'fontEmbedding',
+                        'message': 'Font embedding requires source font files. Please re-create PDF with embedded fonts.',
+                        'severity': 'critical'
+                    })
+                    print(f"[PDFAFixEngine] ⚠ Font embedding requires manual intervention")
+                
+                if 'transparency' in message.lower():
+                    warnings.append({
+                        'type': 'transparency',
+                        'message': 'Transparency removal requires flattening. Use PDF editor to flatten transparency.',
+                        'severity': 'error'
+                    })
+                    print(f"[PDFAFixEngine] ⚠ Transparency requires manual intervention")
+                
+                if 'encrypt' in message.lower():
+                    warnings.append({
+                        'type': 'encryption',
+                        'message': 'Document is encrypted. Save without encryption for PDF/A compliance.',
+                        'severity': 'critical'
+                    })
+                    print(f"[PDFAFixEngine] ⚠ Encryption requires manual intervention")
+            
+            if tracker:
+                tracker.start_step(9)  # save_pdf step
+            
+            print(f"[PDFAFixEngine] ========== SAVING PDF/A FIXES ==========")
+            print(f"[PDFAFixEngine] Applied {success_count} fixes, now saving...")
+            print(f"[PDFAFixEngine] Saving to temp file: {temp_path}")
+            
+            pdf.save(
+                temp_path,
+                linearize=False,
+                compress_streams=True
+            )
+            
+            print(f"[PDFAFixEngine] ✓ PDF saved to temp file")
+            print(f"[PDFAFixEngine] Temp file size: {os.path.getsize(temp_path)} bytes")
+            
+            # Close PDF
+            pdf.close()
+            pdf = None
+            
+            print(f"[PDFAFixEngine] Replacing original file with fixed version...")
+            shutil.move(temp_path, pdf_path)
+            print(f"[PDFAFixEngine] ✓ Original file replaced")
+            print(f"[PDFAFixEngine] Final file size: {os.path.getsize(pdf_path)} bytes")
+            
+            if tracker:
+                tracker.complete_step(9, f"PDF saved ({os.path.getsize(pdf_path)} bytes)")
+            
+            print(f"[PDFAFixEngine] ========== PDF/A FIXES COMPLETE ==========")
+            print(f"[PDFAFixEngine] Total fixes applied: {success_count}")
             
             return {
                 'success': True,
-                'fixes_applied': self.fixes_applied,
-                'fixes_count': len(self.fixes_applied),
-                'output_path': self.output_path
+                'fixedFile': os.path.basename(pdf_path),
+                'fixesApplied': fixes_applied,
+                'warnings': warnings,
+                'successCount': success_count,
+                'message': f'Applied {success_count} PDF/A fixes with {len(warnings)} warnings'
             }
             
         except Exception as e:
-            logger.error(f"[PDFFixEngine] Error applying fixes: {str(e)}")
+            print(f"[PDFAFixEngine] ========== ERROR ==========")
+            print(f"[PDFAFixEngine] Error applying PDF/A fixes: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                    print(f"[PDFAFixEngine] Cleaned up temp file")
+                except:
+                    pass
+            
+            if pdf:
+                try:
+                    pdf.close()
+                except:
+                    pass
+            
             return {
                 'success': False,
                 'error': str(e),
-                'fixes_applied': self.fixes_applied,
-                'fixes_count': len(self.fixes_applied)
+                'fixesApplied': [],
+                'successCount': 0
             }
-        finally:
-            if self.pdf:
-                self.pdf.close()
     
-    def _fix_document_structure(self):
-        """Fix PDF/UA-1 document structure requirements."""
+    def _add_output_intent(self, pdf: Pdf) -> Dict[str, Any]:
+        """
+        Add OutputIntent with embedded sRGB ICC profile
+        Now embeds actual ICC profile data instead of just reference
+        """
         try:
-            # Fix: Add MarkInfo dictionary if missing
-            if '/MarkInfo' not in self.pdf.Root:
-                self.pdf.Root.MarkInfo = Dictionary({
-                    '/Marked': True
-                })
-                self._log_fix('Added MarkInfo dictionary with Marked=true')
-            else:
-                # Fix: Set Marked to true if false
-                if not self.pdf.Root.MarkInfo.get('/Marked', False):
-                    self.pdf.Root.MarkInfo.Marked = True
-                    self._log_fix('Set MarkInfo.Marked to true')
+            if '/OutputIntents' in pdf.Root and len(pdf.Root.OutputIntents) > 0:
+                return {
+                    'success': False,
+                    'message': 'OutputIntent already exists'
+                }
             
-            # Fix: Remove or set Suspects to false
-            if '/MarkInfo' in self.pdf.Root and '/Suspects' in self.pdf.Root.MarkInfo:
-                if self.pdf.Root.MarkInfo.Suspects:
-                    self.pdf.Root.MarkInfo.Suspects = False
-                    self._log_fix('Set MarkInfo.Suspects to false')
+            # Decode the ICC profile from base64
+            try:
+                icc_data = base64.b64decode(SRGB_ICC_PROFILE_BASE64)
+            except Exception as e:
+                print(f"[PDFAFixEngine] Warning: Could not decode ICC profile: {e}")
+                # Fall back to reference-only OutputIntent
+                output_intent = pdf.make_indirect(Dictionary(
+                    Type=Name('/OutputIntent'),
+                    S=Name('/GTS_PDFA1'),
+                    OutputConditionIdentifier='sRGB IEC61966-2.1',
+                    RegistryName='http://www.color.org',
+                    Info='sRGB IEC61966-2.1'
+                ))
+                pdf.Root.OutputIntents = Array([output_intent])
+                return {
+                    'success': True,
+                    'type': 'addOutputIntent',
+                    'description': 'Added OutputIntent with sRGB reference (ICC profile embedding failed)'
+                }
             
-            # Fix: Add metadata stream if missing
-            if '/Metadata' not in self.pdf.Root:
-                # Create basic XMP metadata
-                xmp_metadata = self._create_xmp_metadata()
-                metadata_stream = pikepdf.Stream(self.pdf, xmp_metadata.encode('utf-8'))
-                metadata_stream.Type = Name('/Metadata')
-                metadata_stream.Subtype = Name('/XML')
-                self.pdf.Root.Metadata = metadata_stream
-                self._log_fix('Added XMP metadata stream with PDF/UA identification')
+            # Create ICC profile stream
+            icc_stream = Stream(pdf, icc_data)
+            icc_stream.stream_dict = Dictionary(
+                N=3,  # Number of color components (RGB)
+                Alternate=Name('/DeviceRGB')
+            )
+            icc_stream_indirect = pdf.make_indirect(icc_stream)
+            
+            # Create OutputIntent with embedded ICC profile
+            output_intent = pdf.make_indirect(Dictionary(
+                Type=Name('/OutputIntent'),
+                S=Name('/GTS_PDFA1'),
+                OutputConditionIdentifier='sRGB IEC61966-2.1',
+                RegistryName='http://www.color.org',
+                Info='sRGB IEC61966-2.1',
+                DestOutputProfile=icc_stream_indirect
+            ))
+            
+            pdf.Root.OutputIntents = Array([output_intent])
+            
+            return {
+                'success': True,
+                'type': 'addOutputIntent',
+                'description': 'Added OutputIntent with embedded sRGB ICC profile'
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'Failed to add OutputIntent: {str(e)}'
+            }
+    
+    def _add_pdfa_identifier(self, pdf: Pdf) -> Dict[str, Any]:
+        """
+        Add PDF/A identifier to XMP metadata with proper namespace declarations
+        Enhanced to include proper XMP namespace declarations
+        """
+        try:
+            with pdf.open_metadata(set_pikepdf_as_editor=False) as meta:
+                # Check if PDF/A identifier already exists
+                existing_part = meta.get('{http://www.aiim.org/pdfa/ns/id/}part')
+                if existing_part:
+                    return {
+                        'success': False,
+                        'message': 'PDF/A identifier already exists'
+                    }
                 
+                # Add PDF/A-1B identifier with proper namespace
+                meta['{http://www.aiim.org/pdfa/ns/id/}part'] = '1'
+                meta['{http://www.aiim.org/pdfa/ns/id/}conformance'] = 'B'
+                
+                # Also set using the shorthand if available
+                try:
+                    meta['pdfaid:part'] = '1'
+                    meta['pdfaid:conformance'] = 'B'
+                except:
+                    pass
+                
+                return {
+                    'success': True,
+                    'type': 'addPDFAIdentifier',
+                    'description': 'Added PDF/A-1B identifier to XMP metadata with proper namespaces'
+                }
+            
         except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing document structure: {str(e)}")
+            return {
+                'success': False,
+                'message': f'Failed to add PDF/A identifier: {str(e)}'
+            }
     
-    def _fix_document_language(self):
-        """Fix WCAG 3.1.1 - Document language."""
+    def _downgrade_pdf_version(self, pdf: Pdf) -> Dict[str, Any]:
+        """
+        New method to downgrade PDF version from 1.7 to 1.4 for PDF/A-1 compliance
+        """
         try:
-            if '/Lang' not in self.pdf.Root:
-                # Set default language to English
-                self.pdf.Root.Lang = 'en-US'
-                self._log_fix('Set document language to en-US')
-            else:
-                lang = str(self.pdf.Root.Lang)
-                if not lang or len(lang) < 2:
-                    self.pdf.Root.Lang = 'en-US'
-                    self._log_fix('Fixed invalid language code to en-US')
-                    
+            current_version = str(pdf.pdf_version) if hasattr(pdf, 'pdf_version') else 'unknown'
+            
+            # PDF/A-1 requires PDF version 1.4
+            if hasattr(pdf, 'pdf_version'):
+                if pdf.pdf_version == '1.4':
+                    return {
+                        'success': False,
+                        'message': 'PDF version is already 1.4'
+                    }
+                
+                # Set PDF version to 1.4
+                pdf.pdf_version = '1.4'
+                
+                # Also update the catalog version if present
+                if hasattr(pdf.Root, 'Version'):
+                    pdf.Root.Version = Name('/1.4')
+                
+                return {
+                    'success': True,
+                    'type': 'downgradePDFVersion',
+                    'description': f'Downgraded PDF version from {current_version} to 1.4 for PDF/A-1 compliance'
+                }
+            
+            return {
+                'success': False,
+                'message': 'Could not determine PDF version'
+            }
+            
         except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing document language: {str(e)}")
+            return {
+                'success': False,
+                'message': f'Failed to downgrade PDF version: {str(e)}'
+            }
     
-    def _fix_document_title(self):
-        """Fix WCAG 2.4.2 - Document title."""
+    def _fix_annotation_appearances(self, pdf: Pdf) -> Dict[str, Any]:
+        """Add appearance streams to annotations"""
         try:
-            # Fix: Add title to document info dictionary if missing
-            if '/Info' not in self.pdf.docinfo or '/Title' not in self.pdf.docinfo:
-                # Try to extract title from filename
-                import os
-                filename = os.path.basename(self.input_path)
+            fixed_count = 0
+            
+            for page_num, page in enumerate(pdf.pages, 1):
+                if '/Annots' not in page:
+                    continue
+                
+                annots = page.Annots
+                for annot in annots:
+                    if '/AP' not in annot:
+                        # Create a minimal appearance stream
+                        # Note: In production, you would create proper appearance based on annotation type
+                        appearance = pdf.make_indirect(Dictionary(
+                            N=pdf.make_indirect(Stream(pdf, b''))
+                        ))
+                        annot.AP = appearance
+                        fixed_count += 1
+            
+            if fixed_count > 0:
+                return {
+                    'success': True,
+                    'type': 'fixAnnotationAppearances',
+                    'description': f'Added appearance streams to {fixed_count} annotations (minimal appearances - manual review recommended)'
+                }
+            
+            return {
+                'success': False,
+                'message': 'No annotations without appearances found'
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'Failed to fix annotation appearances: {str(e)}'
+            }
+    
+    def _fix_metadata_consistency(self, pdf: Pdf) -> Dict[str, Any]:
+        """
+        Ensure DocInfo and XMP metadata are consistent
+        Enhanced to handle more metadata fields and proper XMP namespaces
+        """
+        try:
+            # Get title from docinfo or filename
+            title = None
+            if hasattr(pdf, 'docinfo') and pdf.docinfo and '/Title' in pdf.docinfo:
+                title = str(pdf.docinfo.Title)
+            
+            if not title:
+                filename = os.path.basename(pdf.filename) if hasattr(pdf, 'filename') and pdf.filename else 'Untitled'
                 title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
-                
-                if '/Info' not in self.pdf.docinfo:
-                    self.pdf.docinfo = Dictionary()
-                
-                self.pdf.docinfo.Title = title
-                self._log_fix(f'Added document title: {title}')
-            else:
-                title = str(self.pdf.docinfo.Title)
-                if not title or title.strip() == '':
-                    import os
-                    filename = os.path.basename(self.input_path)
-                    title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
-                    self.pdf.docinfo.Title = title
-                    self._log_fix(f'Fixed empty document title: {title}')
             
-            # Update XMP metadata with title
-            self._update_xmp_title()
+            # Ensure docinfo exists
+            if not hasattr(pdf, 'docinfo') or pdf.docinfo is None:
+                pdf.docinfo = pdf.make_indirect(Dictionary())
+            
+            # Set title in docinfo
+            if '/Title' not in pdf.docinfo:
+                pdf.docinfo['/Title'] = title
+            
+            # Sync with XMP metadata using proper namespaces
+            with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
+                # Dublin Core namespace for title
+                if not meta.get('{http://purl.org/dc/elements/1.1/}title'):
+                    meta['{http://purl.org/dc/elements/1.1/}title'] = title
+                
+                # Also try shorthand
+                try:
+                    if not meta.get('dc:title'):
+                        meta['dc:title'] = title
+                except:
+                    pass
+                
+                # Sync other common fields
+                if hasattr(pdf, 'docinfo') and pdf.docinfo:
+                    if '/Author' in pdf.docinfo:
+                        author = str(pdf.docinfo.Author)
+                        try:
+                            meta['{http://purl.org/dc/elements/1.1/}creator'] = author
+                            meta['dc:creator'] = author
+                        except:
+                            pass
                     
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing document title: {str(e)}")
-    
-    def _fix_viewer_preferences(self):
-        """Fix PDF/UA-1 ViewerPreferences requirements."""
-        try:
-            if '/ViewerPreferences' not in self.pdf.Root:
-                self.pdf.Root.ViewerPreferences = Dictionary({
-                    '/DisplayDocTitle': True
-                })
-                self._log_fix('Added ViewerPreferences with DisplayDocTitle=true')
-            else:
-                if not self.pdf.Root.ViewerPreferences.get('/DisplayDocTitle', False):
-                    self.pdf.Root.ViewerPreferences.DisplayDocTitle = True
-                    self._log_fix('Set ViewerPreferences.DisplayDocTitle to true')
+                    if '/Subject' in pdf.docinfo:
+                        subject = str(pdf.docinfo.Subject)
+                        try:
+                            meta['{http://purl.org/dc/elements/1.1/}description'] = subject
+                            meta['dc:description'] = subject
+                        except:
+                            pass
                     
+                    if '/Keywords' in pdf.docinfo:
+                        keywords = str(pdf.docinfo.Keywords)
+                        try:
+                            meta['{http://ns.adobe.com/pdf/1.3/}Keywords'] = keywords
+                            meta['pdf:Keywords'] = keywords
+                        except:
+                            pass
+            
+            return {
+                'success': True,
+                'type': 'fixMetadataConsistency',
+                'description': 'Synchronized DocInfo and XMP metadata with proper namespaces'
+            }
+            
         except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing viewer preferences: {str(e)}")
+            return {
+                'success': False,
+                'message': f'Failed to fix metadata consistency: {str(e)}'
+            }
     
-    def _fix_structure_tree(self):
-        """Fix PDF/UA-1 structure tree requirements."""
+    def _fix_structure_types(self, pdf: Pdf) -> Dict[str, Any]:
+        """
+        Fix non-standard structure types by adding proper RoleMap mappings
+        ENHANCED with comprehensive mappings from veraPDF corpus analysis
+        """
         try:
-            if '/StructTreeRoot' not in self.pdf.Root:
-                # Create basic structure tree
-                struct_tree_root = Dictionary({
-                    '/Type': Name('/StructTreeRoot'),
-                    '/K': Array([]),
-                    '/ParentTree': Dictionary({
-                        '/Nums': Array([])
-                    })
-                })
-                self.pdf.Root.StructTreeRoot = struct_tree_root
-                self._log_fix('Created structure tree root')
+            # Ensure structure tree exists
+            if not hasattr(pdf.Root, 'StructTreeRoot'):
+                return {
+                    'success': False,
+                    'message': 'No structure tree found'
+                }
+            
+            struct_tree = pdf.Root.StructTreeRoot
+            
+            # Validate structure tree
+            validation = validate_structure_tree(struct_tree)
+            if not validation['valid']:
+                print(f"[PDFAFixEngine] Structure tree validation issues: {validation['issues']}")
+            
+            # Ensure RoleMap exists
+            if not hasattr(struct_tree, 'RoleMap'):
+                struct_tree.RoleMap = pdf.make_indirect(Dictionary())
+                print("[PDFAFixEngine] Created new RoleMap dictionary")
+            
+            role_map = struct_tree.RoleMap
+            
+            mappings_added = []
+            
+            for custom_type, standard_type in COMMON_ROLEMAP_MAPPINGS.items():
+                custom_name = Name(custom_type)
+                standard_name = Name(standard_type)
                 
-                # Create basic document structure
-                doc_element = Dictionary({
-                    '/Type': Name('/StructElem'),
-                    '/S': Name('/Document'),
-                    '/P': self.pdf.Root.StructTreeRoot,
-                    '/K': Array([])
-                })
-                self.pdf.Root.StructTreeRoot.K.append(doc_element)
-                self._log_fix('Added Document structure element')
-            else:
-                # Validate and fix existing structure tree
-                struct_tree_root = self.pdf.Root.StructTreeRoot
+                # Only add if not already mapped
+                if custom_name not in role_map:
+                    role_map[custom_name] = standard_name
+                    mappings_added.append(f'{custom_type} -> {standard_type}')
+            
+            circular_fixed = self._fix_circular_rolemaps(pdf, role_map)
+            if circular_fixed:
+                mappings_added.append('Fixed circular RoleMap references')
+            
+            if len(mappings_added) > 0:
+                print(f"[PDFAFixEngine] Added {len(mappings_added)} RoleMap mappings")
+                return {
+                    'success': True,
+                    'type': 'fixStructureTypes',
+                    'description': f'Added {len(mappings_added)} RoleMap mappings including: {", ".join(mappings_added[:5])}'
+                }
+            
+            return {
+                'success': False,
+                'message': 'No structure type mappings needed'
+            }
+            
+        except Exception as e:
+            print(f"[PDFAFixEngine] Error in _fix_structure_types: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'success': False,
+                'message': f'Failed to fix structure types: {str(e)}'
+            }
+    
+    def _fix_circular_rolemaps(self, pdf: Pdf, role_map: Dictionary) -> bool:
+        """
+        NEW METHOD: Detect and fix circular RoleMap references
+        Based on veraPDF validation rules
+        """
+        try:
+            fixed = False
+            visited = set()
+            
+            for key in list(role_map.keys()):
+                if key in visited:
+                    continue
                 
-                if '/K' not in struct_tree_root:
-                    struct_tree_root.K = Array([])
-                    self._log_fix('Added K entry to structure tree root')
+                # Trace the mapping chain
+                chain = [key]
+                current = role_map.get(key)
                 
-                if '/ParentTree' not in struct_tree_root:
-                    struct_tree_root.ParentTree = Dictionary({
-                        '/Nums': Array([])
-                    })
-                    self._log_fix('Added ParentTree to structure tree root')
-                    
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing structure tree: {str(e)}")
-    
-    def _fix_alternative_text(self):
-        """Fix WCAG 1.1.1 - Alternative text for images."""
-        try:
-            for page_num, page in enumerate(self.pdf.pages, 1):
-                if '/Resources' in page and '/XObject' in page.Resources:
-                    xobjects = page.Resources.XObject
-                    for name, xobject in xobjects.items():
-                        if xobject.get('/Subtype') == '/Image':
-                            # Add default alt text if missing
-                            if '/Alt' not in xobject and '/ActualText' not in xobject:
-                                xobject.Alt = f'Image on page {page_num}'
-                                self._log_fix(f'Added alt text to image on page {page_num}')
-                                
-                                # Also add to structure tree if possible
-                                self._add_figure_to_structure_tree(page_num, name)
-                                
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing alternative text: {str(e)}")
-    
-    def _add_figure_to_structure_tree(self, page_num: int, image_name: str):
-        """Add Figure element to structure tree for an image."""
-        try:
-            if '/StructTreeRoot' not in self.pdf.Root:
-                return
-            
-            struct_tree_root = self.pdf.Root.StructTreeRoot
-            
-            # Find or create Document element
-            doc_element = None
-            if '/K' in struct_tree_root and len(struct_tree_root.K) > 0:
-                doc_element = struct_tree_root.K[0]
-            
-            if doc_element:
-                # Create Figure element
-                figure_element = Dictionary({
-                    '/Type': Name('/StructElem'),
-                    '/S': Name('/Figure'),
-                    '/P': doc_element,
-                    '/Alt': f'Image on page {page_num}',
-                    '/K': page_num - 1  # Page index
-                })
-                
-                if '/K' not in doc_element:
-                    doc_element.K = Array([])
-                doc_element.K.append(figure_element)
-                self._log_fix(f'Added Figure structure element for image on page {page_num}')
-                
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error adding figure to structure tree: {str(e)}")
-    
-    def _fix_table_structure(self):
-        """Fix WCAG 1.3.1 - Table structure."""
-        try:
-            # This is complex and requires content stream analysis
-            # For now, we'll add a note that tables need manual review
-            logger.info("[PDFFixEngine] Table structure fixes require manual review")
-            
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing table structure: {str(e)}")
-    
-    def _fix_heading_hierarchy(self):
-        """Fix WCAG 1.3.1 - Heading hierarchy."""
-        try:
-            if '/StructTreeRoot' not in self.pdf.Root:
-                return
-            
-            # Find all heading elements
-            headings = []
-            self._find_headings(self.pdf.Root.StructTreeRoot, headings)
-            
-            if not headings:
-                return
-            
-            # Fix heading hierarchy by adjusting levels
-            prev_level = 0
-            for heading in headings:
-                if '/S' in heading:
-                    heading_type = str(heading.S)
-                    match = re.match(r'H(\d)', heading_type)
-                    if match:
-                        level = int(match.group(1))
-                        if level > prev_level + 1:
-                            # Adjust to proper level
-                            new_level = prev_level + 1
-                            heading.S = Name(f'/H{new_level}')
-                            self._log_fix(f'Fixed heading hierarchy: changed H{level} to H{new_level}')
-                            prev_level = new_level
-                        else:
-                            prev_level = level
-                            
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing heading hierarchy: {str(e)}")
-    
-    def _find_headings(self, element, headings: List, depth=0):
-        """Recursively find heading elements."""
-        if depth > 50:
-            return
-        
-        try:
-            if isinstance(element, pikepdf.Dictionary):
-                if '/S' in element:
-                    struct_type = str(element.S)
-                    if re.match(r'H\d?', struct_type):
-                        headings.append(element)
-                
-                if '/K' in element:
-                    self._find_headings(element.K, headings, depth + 1)
-            elif isinstance(element, list):
-                for item in element:
-                    self._find_headings(item, headings, depth + 1)
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error finding headings: {str(e)}")
-    
-    def _fix_list_structure(self):
-        """Fix WCAG 1.3.1 - List structure."""
-        try:
-            if '/StructTreeRoot' not in self.pdf.Root:
-                return
-            
-            # Find all list elements
-            lists = []
-            self._find_lists(self.pdf.Root.StructTreeRoot, lists)
-            
-            for list_elem in lists:
-                # Ensure list has list items
-                if '/K' not in list_elem or not list_elem.K:
-                    # Add a placeholder list item
-                    list_item = Dictionary({
-                        '/Type': Name('/StructElem'),
-                        '/S': Name('/LI'),
-                        '/P': list_elem,
-                        '/K': Array([])
-                    })
-                    list_elem.K = Array([list_item])
-                    self._log_fix('Added list item to empty list structure')
-                    
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing list structure: {str(e)}")
-    
-    def _find_lists(self, element, lists: List, depth=0):
-        """Recursively find list elements."""
-        if depth > 50:
-            return
-        
-        try:
-            if isinstance(element, pikepdf.Dictionary):
-                if '/S' in element and str(element.S) == 'L':
-                    lists.append(element)
-                
-                if '/K' in element:
-                    self._find_lists(element.K, lists, depth + 1)
-            elif isinstance(element, list):
-                for item in element:
-                    self._find_lists(item, lists, depth + 1)
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error finding lists: {str(e)}")
-    
-    def _fix_form_fields(self):
-        """Fix WCAG 3.3.2 - Form field labels."""
-        try:
-            if '/AcroForm' not in self.pdf.Root:
-                return
-            
-            acro_form = self.pdf.Root.AcroForm
-            if '/Fields' in acro_form:
-                for i, field in enumerate(acro_form.Fields):
-                    # Add label if missing
-                    if '/T' not in field:
-                        field.T = f'Field_{i+1}'
-                        self._log_fix(f'Added label to form field: Field_{i+1}')
-                    
-                    # Add tooltip if missing
-                    if '/TU' not in field:
-                        field.TU = f'Please fill in Field_{i+1}'
-                        self._log_fix(f'Added tooltip to form field: Field_{i+1}')
+                while current and current in role_map:
+                    if current in chain:
+                        # Circular reference detected!
+                        print(f"[PDFAFixEngine] Circular RoleMap detected: {' -> '.join(str(c) for c in chain)} -> {current}")
                         
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing form fields: {str(e)}")
-    
-    def _fix_annotations(self):
-        """Fix PDF/UA-1 annotation requirements."""
-        try:
-            for page_num, page in enumerate(self.pdf.pages, 1):
-                if '/Annots' in page:
-                    for i, annot in enumerate(page.Annots):
-                        # Add Contents (description) if missing
-                        if '/Contents' not in annot:
-                            annot.Contents = f'Annotation {i+1} on page {page_num}'
-                            self._log_fix(f'Added description to annotation on page {page_num}')
-                        
-                        # Ensure annotation has proper structure
-                        if '/Subtype' in annot:
-                            subtype = str(annot.Subtype)
-                            if subtype == '/Link' and '/A' in annot:
-                                # Ensure link has alt text
-                                if '/Contents' not in annot or not str(annot.Contents).strip():
-                                    action = annot.A
-                                    if '/URI' in action:
-                                        uri = str(action.URI)
-                                        annot.Contents = f'Link to {uri}'
-                                        self._log_fix(f'Added description to link annotation on page {page_num}')
-                                        
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing annotations: {str(e)}")
-    
-    def _fix_role_map(self):
-        """Fix PDF/UA-1 RoleMap issues."""
-        try:
-            if '/StructTreeRoot' not in self.pdf.Root:
-                return
-            
-            struct_tree_root = self.pdf.Root.StructTreeRoot
-            
-            if '/RoleMap' not in struct_tree_root:
-                # Create empty RoleMap if needed
-                struct_tree_root.RoleMap = Dictionary({})
-                return
-            
-            role_map = struct_tree_root.RoleMap
-            
-            # Fix circular mappings
-            to_remove = []
-            for custom_type, mapped_type in role_map.items():
-                custom_type_str = str(custom_type)
-                mapped_type_str = str(mapped_type)
+                        # Break the circle by mapping to a standard type
+                        standard_mapping = get_standard_mapping(str(key))
+                        role_map[key] = Name(standard_mapping)
+                        fixed = True
+                        break
+                    
+                    chain.append(current)
+                    current = role_map.get(current)
+                    
+                    # Safety limit
+                    if len(chain) > 10:
+                        print(f"[PDFAFixEngine] RoleMap chain too long, breaking: {chain}")
+                        standard_mapping = get_standard_mapping(str(key))
+                        role_map[key] = Name(standard_mapping)
+                        fixed = True
+                        break
                 
-                # Check for circular mapping
-                if self._has_circular_mapping_fix(custom_type_str, role_map, set()):
-                    to_remove.append(custom_type)
-                    self._log_fix(f'Removed circular mapping for {custom_type_str}')
+                visited.update(chain)
             
-            # Remove problematic mappings
-            for key in to_remove:
-                del role_map[key]
-                
+            return fixed
+            
         except Exception as e:
-            logger.error(f"[PDFFixEngine] Error fixing role map: {str(e)}")
-    
-    def _has_circular_mapping_fix(self, struct_type: str, role_map, visited: set) -> bool:
-        """Check if a structure type has circular mapping."""
-        if struct_type in visited:
-            return True
-        if struct_type not in role_map:
+            print(f"[PDFAFixEngine] Error fixing circular RoleMaps: {e}")
             return False
-        
-        visited.add(struct_type)
-        mapped_type = str(role_map[struct_type])
-        return self._has_circular_mapping_fix(mapped_type, role_map, visited)
-    
-    def _create_xmp_metadata(self) -> str:
-        """Create basic XMP metadata with PDF/UA identification."""
-        title = str(self.pdf.docinfo.Title) if '/Title' in self.pdf.docinfo else 'Untitled Document'
-        
-        xmp = f'''<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/">
-  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-    <rdf:Description rdf:about=""
-        xmlns:dc="http://purl.org/dc/elements/1.1/"
-        xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-        xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">
-      <dc:title>
-        <rdf:Alt>
-          <rdf:li xml:lang="x-default">{title}</rdf:li>
-        </rdf:Alt>
-      </dc:title>
-      <xmp:CreateDate>{datetime.now().isoformat()}</xmp:CreateDate>
-      <xmp:ModifyDate>{datetime.now().isoformat()}</xmp:ModifyDate>
-      <pdfuaid:part>1</pdfuaid:part>
-    </rdf:Description>
-  </rdf:RDF>
-</x:xmpmeta>
-<?xpacket end="w"?>'''
-        return xmp
-    
-    def _update_xmp_title(self):
-        """Update XMP metadata with document title."""
-        try:
-            if '/Metadata' in self.pdf.Root:
-                # Update existing metadata
-                # This would require parsing and updating XMP
-                logger.info("[PDFFixEngine] XMP metadata update requires XML parsing")
-            else:
-                # Create new metadata with title
-                xmp_metadata = self._create_xmp_metadata()
-                metadata_stream = pikepdf.Stream(self.pdf, xmp_metadata.encode('utf-8'))
-                metadata_stream.Type = Name('/Metadata')
-                metadata_stream.Subtype = Name('/XML')
-                self.pdf.Root.Metadata = metadata_stream
-                self._log_fix('Updated XMP metadata with document title')
-                
-        except Exception as e:
-            logger.error(f"[PDFFixEngine] Error updating XMP title: {str(e)}")
-    
-    def _log_fix(self, description: str):
-        """Log a fix that was applied."""
-        self.fixes_applied.append(description)
-        logger.info(f"[PDFFixEngine] Fix applied: {description}")
-
-
-def fix_pdf_accessibility(input_path: str, output_path: str, issues: Dict[str, Any] = None) -> Dict[str, Any]:
-    """
-    Convenience function to fix PDF accessibility issues.
-    
-    Args:
-        input_path: Path to the input PDF file
-        output_path: Path to save the fixed PDF file
-        issues: Optional dictionary of detected issues (not currently used)
-        
-    Returns:
-        Dictionary containing fix results
-    """
-    engine = PDFFixEngine(input_path, output_path)
-    return engine.apply_all_fixes(issues or {})

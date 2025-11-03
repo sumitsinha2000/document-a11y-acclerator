@@ -4,8 +4,11 @@ import { useState, useRef, useEffect } from "react"
 import axios from "axios"
 import jsPDF from "jspdf"
 import "jspdf-autotable"
+import { useNotification } from "../contexts/NotificationContext"
 
 export default function ExportDropdown({ scanId, filename }) {
+  const { showError } = useNotification()
+
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef(null)
 
@@ -53,7 +56,7 @@ export default function ExportDropdown({ scanId, filename }) {
       }
     } catch (error) {
       console.error(`Error exporting ${format}:`, error)
-      alert(`Failed to export report: ${error.response?.data?.error || error.message}`)
+      showError(`Failed to export report: ${error.response?.data?.error || error.message}`)
     }
   }
 
