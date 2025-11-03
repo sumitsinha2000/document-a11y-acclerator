@@ -136,7 +136,10 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     if (onRefresh) {
       console.log("[v0] FixSuggestions - Calling onRefresh with new data...")
       try {
-        await onRefresh(newSummary, newResults)
+        await onRefresh({
+          summary: newSummary,
+          results: newResults,
+        })
         console.log("[v0] FixSuggestions - onRefresh completed successfully")
       } catch (error) {
         console.error("[v0] FixSuggestions - Error during refresh:", error)
@@ -166,10 +169,16 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       const response = await axios.get(`/api/download-fixed-file/${scanId}`, {
         responseType: "blob",
       })
-      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const suggestedName = fixedFile?.filename || scanId || "fixed-document"
+      const downloadName = suggestedName.endsWith(".pdf") ? suggestedName : `${suggestedName}.pdf`
+      const blob = new Blob([response.data], {
+        type: response.headers["content-type"] || "application/pdf",
+      })
+
+      const url = window.URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
-      link.setAttribute("download", fixedFile.filename)
+      link.setAttribute("download", downloadName)
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -191,8 +200,14 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         console.log("[v0] FixSuggestions - New fixes:", newScanData.newFixes)
 
         if (onRefresh) {
+          const normalizedData = {
+            results: newScanData?.newScanResults ?? newScanData?.results,
+            summary: newScanData?.newSummary ?? newScanData?.summary,
+            fixes: newScanData?.newFixes ?? newScanData?.fixes,
+            verapdfStatus: newScanData?.verapdfStatus ?? newScanData?.newVerapdfStatus,
+          }
           try {
-            await onRefresh(newScanData.newScanResults, newScanData.newFixes)
+            await onRefresh(normalizedData)
             console.log("[v0] FixSuggestions - Refresh completed with new scan data")
           } catch (refreshError) {
             console.error("[v0] FixSuggestions - Error during refresh:", refreshError)
@@ -257,12 +272,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold text-gray-900 dark:text-white">Remediation Suggestions</h3>
         <div className="flex items-center gap-3">
-          <span
+          {/* <span
             className="text-xs text-gray-500 dark:text-gray-400"
             aria-label={`Estimated time: ${formatTimeEstimate(fixes.estimatedTime)}`}
           >
             Est. Time: {formatTimeEstimate(fixes.estimatedTime)}
-          </span>
+          </span> */}
           <button
             onClick={() => setShowAIPanel(true)}
             className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"

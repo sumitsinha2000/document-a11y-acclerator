@@ -246,12 +246,14 @@ def init_db():
         traceback.print_exc()
         raise
 
-def save_scan_to_db(scan_id, filename, results, summary=None, batch_id=None):
+def save_scan_to_db(scan_id, filename, results, summary=None, batch_id=None, verapdf_status=None):
     """Save scan results to database"""
     scan_data = {
         'results': results,
         'summary': summary
     }
+    if verapdf_status is not None:
+        scan_data['verapdfStatus'] = verapdf_status
     
     param_placeholder = '%s' if USE_POSTGRESQL else '?'
     query = f'''
@@ -304,6 +306,38 @@ def ensure_fixes_structure(fixes):
     
     return fixes
 
+def build_verapdf_status(results, analyzer=None):
+    """Build veraPDF-style status using analyzer scores when available."""
+    base_status = {
+        'isActive': False,
+        'wcagCompliance': None,
+        'pdfuaCompliance': None,
+        'totalVeraPDFIssues': 0
+    }
+
+    if analyzer and hasattr(analyzer, 'get_verapdf_status'):
+        try:
+            computed = analyzer.get_verapdf_status()
+            if computed:
+                return computed
+        except Exception as e:
+            print(f"[Backend] Warning: Failed to read validator scores: {e}")
+
+    if not isinstance(results, dict):
+        return base_status
+
+    wcag_issues = len(results.get('wcagIssues', []))
+    pdfua_issues = len(results.get('pdfuaIssues', []))
+    has_verapdf_keys = 'wcagIssues' in results or 'pdfuaIssues' in results
+
+    if has_verapdf_keys:
+        base_status['isActive'] = True
+        base_status['wcagCompliance'] = max(0, min(100, 100 - (wcag_issues * 10)))
+        base_status['pdfuaCompliance'] = max(0, min(100, 100 - (pdfua_issues * 10)))
+        base_status['totalVeraPDFIssues'] = wcag_issues + pdfua_issues
+
+    return base_status
+
 @app.route('/api/health', methods=['GET'])
 def health():
     """Health check endpoint"""
@@ -348,29 +382,16 @@ def scan_pdf():
             scan_results = analyzer.analyze(str(file_path))
             print(f"[Backend] Analysis complete, found {sum(len(v) for v in scan_results.values())} issues")
             
+            verapdf_status = build_verapdf_status(scan_results, analyzer)
+            
             try:
-                summary = analyzer.calculate_summary(scan_results)
+                summary = analyzer.calculate_summary(scan_results, verapdf_status)
                 print(f"[Backend] Summary calculated: {summary.get('totalIssues', 0)} total issues, {summary.get('complianceScore', 0)}% compliance")
             except Exception as summary_error:
                 print(f"[Backend] Error calculating summary: {summary_error}")
                 summary = {'totalIssues': 0, 'complianceScore': 0}
-            
-            verapdf_status = {
-                'isActive': False,
-                'wcagCompliance': None,
-                'pdfuaCompliance': None,
-                'totalVeraPDFIssues': 0
-            }
-            
-            if hasattr(analyzer, 'wcag_validator_available') and analyzer.wcag_validator_available:
-                verapdf_status['isActive'] = True
-                # Calculate compliance from veraPDF issues
-                wcag_issues = len(scan_results.get('wcagIssues', []))
-                pdfua_issues = len(scan_results.get('pdfuaIssues', []))
-                verapdf_status['wcagCompliance'] = max(0, 100 - (wcag_issues * 10))
-                verapdf_status['pdfuaCompliance'] = max(0, 100 - (pdfua_issues * 10))
-                verapdf_status['totalVeraPDFIssues'] = wcag_issues + pdfua_issues
-                print(f"[Backend] veraPDF validation: WCAG {verapdf_status['wcagCompliance']}%, PDF/UA {verapdf_status['pdfuaCompliance']}%")
+            if verapdf_status.get('isActive'):
+                print(f"[Backend] veraPDF validation: WCAG {verapdf_status.get('wcagCompliance')}%, PDF/UA {verapdf_status.get('pdfuaCompliance')}%")
     
         except Exception as e:
             print(f"[Backend] Error during PDF analysis: {e}")
@@ -412,7 +433,7 @@ def scan_pdf():
         
         # Persist scan so single-file workflows match batch behavior
         try:
-            save_scan_to_db(scan_id, file.filename, scan_results, summary, batch_id=None)
+            save_scan_to_db(scan_id, file.filename, scan_results, summary, batch_id=None, verapdf_status=verapdf_status)
             print(f"[Backend] ✓ Scan saved to database")
         except Exception as db_error:
             print(f"[Backend] ERROR saving scan results to database: {db_error}")
@@ -470,22 +491,8 @@ def get_scan_details(scan_id):
                 try:
                     analyzer = PDFAccessibilityAnalyzer()
                     results = analyzer.analyze(upload_path)
-                    summary = analyzer.calculate_summary(results)
-                    
-                    verapdf_status = {
-                        'isActive': False,
-                        'wcagCompliance': None,
-                        'pdfuaCompliance': None,
-                        'totalVeraPDFIssues': 0
-                    }
-                    
-                    if hasattr(analyzer, 'wcag_validator_available') and analyzer.wcag_validator_available:
-                        verapdf_status['isActive'] = True
-                        wcag_issues = len(results.get('wcagIssues', []))
-                        pdfua_issues = len(results.get('pdfuaIssues', []))
-                        verapdf_status['wcagCompliance'] = max(0, 100 - (wcag_issues * 10))
-                        verapdf_status['pdfuaCompliance'] = max(0, 100 - (pdfua_issues * 10))
-                        verapdf_status['totalVeraPDFIssues'] = wcag_issues + pdfua_issues
+                    verapdf_status = build_verapdf_status(results, analyzer)
+                    summary = analyzer.calculate_summary(results, verapdf_status)
                     
                     fixes = get_empty_fixes_structure()
                     if AUTO_FIX_AVAILABLE:
@@ -501,7 +508,8 @@ def get_scan_details(scan_id):
                     
                     scan_data = {
                         'results': results,
-                        'summary': summary
+                        'summary': summary,
+                        'verapdfStatus': verapdf_status
                     }
                     param_placeholder = '%s' if USE_POSTGRESQL else '?'
                     insert_query = f'''
@@ -544,27 +552,16 @@ def get_scan_details(scan_id):
             results = scan_data
             summary = None
         
+        verapdf_status = scan_data.get('verapdfStatus') if isinstance(scan_data, dict) else None
+        if not verapdf_status:
+            verapdf_status = build_verapdf_status(results)
+        
         # If summary is missing, regenerate it from results
         if not summary:
             print("[Backend] Summary missing, regenerating...")
             analyzer = PDFAccessibilityAnalyzer()
-            summary = analyzer.calculate_summary(results)
-        
-        verapdf_status = {
-            'isActive': False,
-            'wcagCompliance': None,
-            'pdfuaCompliance': None,
-            'totalVeraPDFIssues': 0
-        }
-        
-        # Check if results contain veraPDF issues
-        if 'wcagIssues' in results or 'pdfuaIssues' in results:
-            verapdf_status['isActive'] = True
-            wcag_issues = len(results.get('wcagIssues', []))
-            pdfua_issues = len(results.get('pdfuaIssues', []))
-            verapdf_status['wcagCompliance'] = max(0, 100 - (wcag_issues * 10))
-            verapdf_status['pdfuaCompliance'] = max(0, 100 - (pdfua_issues * 10))
-            verapdf_status['totalVeraPDFIssues'] = wcag_issues + pdfua_issues
+            verapdf_status = build_verapdf_status(results, analyzer)
+            summary = analyzer.calculate_summary(results, verapdf_status)
         
         fixes = get_empty_fixes_structure()
         
@@ -757,12 +754,16 @@ def apply_fixes(scan_id):
                 analyzer = PDFAccessibilityAnalyzer()
                 new_scan_results = analyzer.analyze(file_path)
                 
+                new_verapdf_status = build_verapdf_status(new_scan_results, analyzer)
+                new_summary = analyzer.calculate_summary(new_scan_results, new_verapdf_status)
+
                 # Update scan results in database
                 scan_data_updated = {
                     'results': new_scan_results,
-                    'summary': None
+                    'summary': new_summary,
+                    'verapdfStatus': new_verapdf_status
                 }
-                
+
                 update_query = f'UPDATE scans SET scan_results = {param_placeholder}, status = {param_placeholder} WHERE id = {param_placeholder}'
                 execute_query(update_query, (json.dumps(scan_data_updated), 'fixed', scan_id))
                 
@@ -772,10 +773,31 @@ def apply_fixes(scan_id):
                     new_fixes = auto_fix_engine.generate_fixes(new_scan_results)
                 else:
                     new_fixes = generate_fix_suggestions(new_scan_results)
-                
+
                 result['newScanResults'] = new_scan_results
                 result['newFixes'] = new_fixes
-                
+                result['newSummary'] = new_summary
+                result['verapdfStatus'] = new_verapdf_status
+
+                try:
+                    history_success_count = result.get('successCount')
+                    if history_success_count is None:
+                        history_success_count = len(result.get('fixesApplied') or [])
+                    insert_query = f'''
+                        INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
+                        VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                    '''
+                    execute_query(insert_query, (
+                        scan_id,
+                        scan_id,
+                        result.get('fixedFile', scan_id),
+                        json.dumps(result.get('fixesApplied', [])),
+                        history_success_count
+                    ))
+                    print(f"[Backend] ✓ Recorded fix history entry for {scan_id}")
+                except Exception as history_error:
+                    print(f"[Backend] Warning: Failed to record fix history: {history_error}")
+
                 print(f"[Backend] Storing new scan results in tracker step")
                 print(f"[Backend] newScanResults keys: {list(new_scan_results.keys())}")
                 print(f"[Backend] newScanResults.wcagIssues count: {len(new_scan_results.get('wcagIssues', []))}")
@@ -785,7 +807,12 @@ def apply_fixes(scan_id):
                 tracker.complete_step(
                     step_id, 
                     f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues",
-                    result_data={'newScanResults': new_scan_results, 'newFixes': new_fixes}
+                    result_data={
+                        'newScanResults': new_scan_results,
+                        'newFixes': new_fixes,
+                        'newSummary': new_summary,
+                        'verapdfStatus': new_verapdf_status
+                    }
                 )
                 print(f"[Backend] Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
                 print(f"[Backend] Step completed with resultData stored")
@@ -920,11 +947,14 @@ def apply_semi_automated_fixes(scan_id):
                 file_path = os.path.join('uploads', scan_id)
                 analyzer = PDFAccessibilityAnalyzer()
                 new_scan_results = analyzer.analyze(file_path)
+                new_verapdf_status = build_verapdf_status(new_scan_results, analyzer)
+                new_summary = analyzer.calculate_summary(new_scan_results, new_verapdf_status)
                 
                 # Update scan results in database
                 scan_data_updated = {
                     'results': new_scan_results,
-                    'summary': None
+                    'summary': new_summary,
+                    'verapdfStatus': new_verapdf_status
                 }
                 
                 update_query = f'UPDATE scans SET scan_results = {param_placeholder}, status = {param_placeholder} WHERE id = {param_placeholder}'
@@ -939,8 +969,38 @@ def apply_semi_automated_fixes(scan_id):
                 
                 result['newScanResults'] = new_scan_results
                 result['newFixes'] = new_fixes
+                result['newSummary'] = new_summary
+                result['verapdfStatus'] = new_verapdf_status
+
+                try:
+                    history_success_count = result.get('successCount')
+                    if history_success_count is None:
+                        history_success_count = len(result.get('fixesApplied') or [])
+                    insert_query = f'''
+                        INSERT INTO fix_history (scan_id, original_file, fixed_file, fixes_applied, success_count)
+                        VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+                    '''
+                    execute_query(insert_query, (
+                        scan_id,
+                        scan_id,
+                        result.get('fixedFile', scan_id),
+                        json.dumps(result.get('fixesApplied', [])),
+                        history_success_count
+                    ))
+                    print(f"[Backend] ✓ Recorded semi-automated fix history entry for {scan_id}")
+                except Exception as history_error:
+                    print(f"[Backend] Warning: Failed to record semi-automated fix history: {history_error}")
                 
-                tracker.complete_step(step_id, f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
+                tracker.complete_step(
+                    step_id,
+                    f"Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues",
+                    result_data={
+                        'newScanResults': new_scan_results,
+                        'newFixes': new_fixes,
+                        'newSummary': new_summary,
+                        'verapdfStatus': new_verapdf_status
+                    }
+                )
                 print(f"[Backend] Re-scan complete: {len(new_scan_results.get('wcagIssues', []))} WCAG issues, {len(new_scan_results.get('pdfuaIssues', []))} PDF/UA issues")
             except Exception as rescan_error:
                 print(f"[Backend] Warning: Re-scan failed: {rescan_error}")
@@ -1000,16 +1060,27 @@ def download_fixed_pdf(filename):
     """Download a fixed PDF"""
     try:
         from flask import send_file
-        
-        if not filename.endswith('.pdf'):
-            filename = filename + '.pdf'
-        
-        file_path = os.path.join('uploads', filename)
-        
-        if not os.path.exists(file_path):
+
+        # Some stored filenames may or may not include the .pdf extension.
+        # Try both variants so existing records continue to work.
+        candidate_paths = []
+        if filename.endswith('.pdf'):
+            candidate_paths.append(os.path.join('uploads', filename))
+            base_name = filename[:-4]
+            if base_name:
+                candidate_paths.append(os.path.join('uploads', base_name))
+        else:
+            candidate_paths.append(os.path.join('uploads', filename))
+            candidate_paths.append(os.path.join('uploads', f"{filename}.pdf"))
+
+        file_path = next((path for path in candidate_paths if os.path.exists(path)), None)
+
+        if not file_path:
             return jsonify({'error': 'File not found'}), 404
-        
-        return send_file(file_path, as_attachment=True, download_name=filename)
+
+        download_name = filename if filename.endswith('.pdf') else f"{filename}.pdf"
+
+        return send_file(file_path, as_attachment=True, download_name=download_name)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1172,7 +1243,8 @@ def apply_manual_fix(scan_id):
         try:
             analyzer = PDFAccessibilityAnalyzer()
             new_results = analyzer.analyze(pdf_path)
-            new_summary = analyzer.calculate_summary(new_results)
+            new_verapdf_status = build_verapdf_status(new_results, analyzer)
+            new_summary = analyzer.calculate_summary(new_results, new_verapdf_status)
             
             print(f"[ManualFix] ✓ Re-scan complete:")
             print(f"[ManualFix]   Total issues: {new_summary.get('totalIssues', 0)}")
@@ -1182,7 +1254,8 @@ def apply_manual_fix(scan_id):
             # Update the scan record with new results
             scan_data = {
                 'results': new_results,
-                'summary': new_summary
+                'summary': new_summary,
+                'verapdfStatus': new_verapdf_status
             }
             
             print(f"[ManualFix] Updating database with new scan data...")
@@ -1306,8 +1379,9 @@ def process_single_file(file, idx, batch_id, total_files):
             traceback.print_exc()
             raise
         
+        verapdf_status = build_verapdf_status(issues, analyzer)
         try:
-            summary = analyzer.calculate_summary(issues)
+            summary = analyzer.calculate_summary(issues, verapdf_status)
             print(f"[Backend] ✓ Summary calculated: {summary.get('totalIssues', 0)} total issues, {summary.get('complianceScore', 0)}% compliance")
         except Exception as summary_error:
             print(f"[Backend] ERROR calculating summary: {summary_error}")
@@ -1332,7 +1406,8 @@ def process_single_file(file, idx, batch_id, total_files):
         try:
             scan_data = {
                 'results': issues,
-                'summary': summary
+                'summary': summary,
+                'verapdfStatus': verapdf_status
             }
             
             # Use unified query execution to save scan (thread-safe with db_lock)
@@ -1556,13 +1631,15 @@ def fix_all_batch(batch_id):
                     
                     analyzer = PDFAccessibilityAnalyzer()
                     new_results = analyzer.analyze(fixed_file_path)
-                    new_summary = analyzer.calculate_summary(new_results)
+                    new_verapdf_status = build_verapdf_status(new_results, analyzer)
+                    new_summary = analyzer.calculate_summary(new_results, new_verapdf_status)
                     
                     print(f"[Backend] New scan results: {new_summary.get('totalIssues', 0)} issues, {new_summary.get('complianceScore', 0)}% compliance")
                     
                     scan_data = {
                         'results': new_results,
-                        'summary': new_summary
+                        'summary': new_summary,
+                        'verapdfStatus': new_verapdf_status
                     }
                     
                     param_placeholder = '%s' if USE_POSTGRESQL else '?'
@@ -1657,11 +1734,13 @@ def fix_batch_file(batch_id, scan_id):
                 try:
                     analyzer = PDFAccessibilityAnalyzer()
                     results = analyzer.analyze(pdf_path)
-                    summary = analyzer.calculate_summary(results)
+                    verapdf_status = build_verapdf_status(results, analyzer)
+                    summary = analyzer.calculate_summary(results, verapdf_status)
                     
                     scan_data = {
                         'results': results,
-                        'summary': summary
+                        'summary': summary,
+                        'verapdfStatus': verapdf_status
                     }
                     
                     # Use unified query execution to add scan
@@ -1703,13 +1782,15 @@ def fix_batch_file(batch_id, scan_id):
                 
                 analyzer = PDFAccessibilityAnalyzer()
                 new_results = analyzer.analyze(fixed_file_path)
-                new_summary = analyzer.calculate_summary(new_results)
+                new_verapdf_status = build_verapdf_status(new_results, analyzer)
+                new_summary = analyzer.calculate_summary(new_results, new_verapdf_status)
                 
                 print(f"[Backend] New scan results: {new_summary.get('totalIssues', 0)} issues, {new_summary.get('complianceScore', 0)}% compliance")
                 
                 scan_data = {
                     'results': new_results,
-                    'summary': new_summary
+                    'summary': new_summary,
+                    'verapdfStatus': new_verapdf_status
                 }
                 
                 param_placeholder = '%s' if USE_POSTGRESQL else '?'
@@ -1831,18 +1912,48 @@ def batch_operations(batch_id):
             '''
             scans = execute_query(query, (batch_id,), fetch=True)
             
+            analyzer = None
             scan_details = []
             for scan in scans:
                 scan_data = scan['scan_results']
                 if isinstance(scan_data, str):
-                    scan_data = json.loads(scan_data)
+                    try:
+                        scan_data = json.loads(scan_data)
+                    except json.JSONDecodeError:
+                        print(f"[Backend] Warning: invalid JSON for scan {scan['id']}, using empty results")
+                        scan_data = {}
                 
-                if isinstance(scan_data, dict) and 'summary' in scan_data:
-                    summary = scan_data['summary']
-                else:
+                results = None
+                summary = None
+                
+                if isinstance(scan_data, dict):
                     results = scan_data.get('results', scan_data)
-                    analyzer = PDFAccessibilityAnalyzer()
-                    summary = analyzer.calculate_summary(results)
+                    summary = scan_data.get('summary')
+                else:
+                    results = scan_data
+                
+                if results is None:
+                    results = {}
+                
+                verapdf_status = scan_data.get('verapdfStatus') if isinstance(scan_data, dict) else None
+                if not verapdf_status:
+                    verapdf_status = build_verapdf_status(results)
+
+                if summary is None:
+                    if analyzer is None:
+                        analyzer = PDFAccessibilityAnalyzer()
+                    try:
+                        verapdf_status = build_verapdf_status(results, analyzer)
+                        summary = analyzer.calculate_summary(results, verapdf_status)
+                    except Exception as calc_error:
+                        print(f"[Backend] Warning: failed to calculate summary for scan {scan['id']}: {calc_error}")
+                        summary = {
+                            'totalIssues': 0,
+                            'highSeverity': 0,
+                            'mediumSeverity': 0,
+                            'lowSeverity': 0,
+                            'complianceScore': 0
+                        }
                 
                 scan_details.append({
                     'scanId': scan['id'],
@@ -1969,12 +2080,20 @@ def get_history():
                 if isinstance(scan_data, str):
                     scan_data = json.loads(scan_data)
                 
-                if isinstance(scan_data, dict) and 'summary' in scan_data:
-                    summary = scan_data['summary']
-                else:
-                    results = scan_data.get('results', scan_data)
+                results = scan_data.get('results') if isinstance(scan_data, dict) else scan_data
+                summary = scan_data.get('summary') if isinstance(scan_data, dict) else None
+                verapdf_status = scan_data.get('verapdfStatus') if isinstance(scan_data, dict) else None
+
+                if results is None:
+                    results = {}
+
+                if verapdf_status is None:
+                    verapdf_status = build_verapdf_status(results)
+
+                if summary is None:
                     analyzer = PDFAccessibilityAnalyzer()
-                    summary = analyzer.calculate_summary(results)
+                    verapdf_status = build_verapdf_status(results, analyzer)
+                    summary = analyzer.calculate_summary(results, verapdf_status)
                 
                 scan_list.append({
                     'scanId': scan['id'],
@@ -2009,12 +2128,20 @@ def get_history():
             if isinstance(scan_data, str):
                 scan_data = json.loads(scan_data)
             
-            if isinstance(scan_data, dict) and 'summary' in scan_data:
-                summary = scan_data['summary']
-            else:
-                results = scan_data.get('results', scan_data)
+            results = scan_data.get('results') if isinstance(scan_data, dict) else scan_data
+            summary = scan_data.get('summary') if isinstance(scan_data, dict) else None
+            verapdf_status = scan_data.get('verapdfStatus') if isinstance(scan_data, dict) else None
+
+            if results is None:
+                results = {}
+
+            if verapdf_status is None:
+                verapdf_status = build_verapdf_status(results)
+
+            if summary is None:
                 analyzer = PDFAccessibilityAnalyzer()
-                summary = analyzer.calculate_summary(results)
+                verapdf_status = build_verapdf_status(results, analyzer)
+                summary = analyzer.calculate_summary(results, verapdf_status)
             
             scans.append({
                 'id': scan['id'],

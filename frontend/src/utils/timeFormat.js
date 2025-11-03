@@ -8,5 +8,5 @@ export function formatTimeEstimate(minutes) {
     return `${minutes} min`;
   }
 
-  return `${hours}:${remainingMinutes.toString().padStart(2, '0')} hours`;
+  return `${hours} hours ${remainingMinutes} mins`;
 }

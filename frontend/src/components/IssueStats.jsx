@@ -4,6 +4,14 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 
 export default function IssueStats({ results }) {
 
+  const normalizeSeverity = (severity) => {
+    if (!severity) return "low"
+    const normalized = String(severity).toLowerCase()
+    if (["high", "critical", "error"].includes(normalized)) return "high"
+    if (["medium", "warning"].includes(normalized)) return "medium"
+    return "low"
+  }
+
   // Prepare data for bar chart - issues by category
   const categoryData = Object.entries(results || {}).map(([category, issues]) => {
     const labels = {
@@ -22,16 +30,16 @@ export default function IssueStats({ results }) {
   })
 
   // Prepare data for severity pie chart
-  const severityData = []
   let highCount = 0
   let mediumCount = 0
   let lowCount = 0
 
   Object.values(results || {}).forEach((issues) => {
     issues.forEach((issue) => {
-      if (issue.severity === "high") highCount++
-      else if (issue.severity === "medium") mediumCount++
-      else if (issue.severity === "low") lowCount++
+      const normalizedSeverity = normalizeSeverity(issue.severity)
+      if (normalizedSeverity === "high") highCount++
+      else if (normalizedSeverity === "medium") mediumCount++
+      else lowCount++
     })
   })
 

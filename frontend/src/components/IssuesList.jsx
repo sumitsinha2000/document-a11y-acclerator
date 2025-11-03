@@ -1,5 +1,22 @@
 "use client"
 
+const normalizeSeverity = (severity) => {
+  if (!severity) return "low"
+  const normalized = String(severity).toLowerCase()
+  if (["high", "critical", "error"].includes(normalized)) return "high"
+  if (["medium", "warning"].includes(normalized)) return "medium"
+  return "low"
+}
+
+const formatSeverityLabel = (severity) => {
+  if (!severity) return "Low"
+  const value = String(severity).toLowerCase()
+  if (value === "critical") return "Critical"
+  if (value === "error") return "Error"
+  if (value === "warning") return "Warning"
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
 export default function IssuesList({ results, selectedCategory, onSelectCategory }) {
   console.log("[v0] IssuesList received results:", results)
   console.log("[v0] Results type:", typeof results)
@@ -34,6 +51,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
       tableIssues: "Table Issues",
       wcagIssues: "WCAG 2.1 Violations",
       pdfuaIssues: "PDF/UA Issues",
+      pdfaIssues: "PDF/A Issues",
       structureIssues: "Structure Issues",
       readingOrderIssues: "Reading Order Issues",
     }
@@ -41,7 +59,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
   }
 
   const getSeverityStyles = (severity) => {
-    switch (severity) {
+    switch (normalizeSeverity(severity)) {
       case "high":
         return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 border-l-red-500"
       case "medium":
@@ -74,6 +92,16 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
           />
         </svg>
       ),
+      pdfaIssues: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 12l2 2 4-4m2-5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7z"
+          />
+        </svg>
+      ),
     }
     return icons[key] || null
   }
@@ -85,7 +113,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
           const issues = results[category] || []
           const count = issues.length
           const icon = getCategoryIcon(category)
-          const isVeraPDFCategory = category === "wcagIssues" || category === "pdfuaIssues"
+          const isVeraPDFCategory = ["wcagIssues", "pdfuaIssues", "pdfaIssues"].includes(category)
 
           return (
             <button
@@ -149,16 +177,23 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
                 <div className="flex items-start gap-3 mb-2">
                   <span
                     className="px-2 py-1 rounded text-xs font-bold uppercase"
-                    aria-label={`Severity: ${issue.severity}`}
+                    aria-label={`Severity: ${formatSeverityLabel(issue.severity)}`}
                   >
-                    {issue.severity}
+                    {formatSeverityLabel(issue.severity)}
                   </span>
-                  <span className="font-semibold flex-1">{issue.description}</span>
+                  <span className="font-semibold flex-1">
+                    {issue.description || issue.message || "Issue details not provided"}
+                  </span>
                 </div>
                 {issue.specification && (
                   <p className="text-sm opacity-75 ml-16">
                     <strong>Specification:</strong> {issue.specification}
                     {issue.clause && ` - Clause ${issue.clause}`}
+                  </p>
+                )}
+                {!issue.specification && issue.clause && (
+                  <p className="text-sm opacity-75 ml-16">
+                    <strong>Clause:</strong> {issue.clause}
                   </p>
                 )}
                 {issue.wcagCriterion && (
@@ -175,6 +210,14 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
                     <p className="text-sm">
                       <strong className="text-blue-700 dark:text-blue-300">Recommendation:</strong>{" "}
                       <span className="text-gray-700 dark:text-gray-300">{issue.recommendation}</span>
+                    </p>
+                  </div>
+                )}
+                {issue.remediation && (
+                  <div className="mt-3 ml-16 p-3 bg-purple-50 dark:bg-purple-900/20 rounded border-l-2 border-purple-500">
+                    <p className="text-sm">
+                      <strong className="text-purple-700 dark:text-purple-300">Remediation:</strong>{" "}
+                      <span className="text-gray-700 dark:text-gray-300">{issue.remediation}</span>
                     </p>
                   </div>
                 )}

@@ -1,4 +1,4 @@
-export default function StatCard({ label, value, change, changeLabel = "Vs last month" }) {
+export default function StatCard({ label, value, change, changeLabel = "Vs last month", context }) {
   const isPositive = change >= 0
   const changeBgColor = isPositive ? "bg-green-500/10 dark:bg-green-500/20" : "bg-red-500/10 dark:bg-red-500/20"
   const changeTextColor = isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
@@ -16,6 +16,10 @@ export default function StatCard({ label, value, change, changeLabel = "Vs last 
           </span>
         )}
       </div>
+
+      {context && (
+        <div className="text-xs text-gray-500 dark:text-gray-400 mt-2">{context}</div>
+      )}
     </div>
   )
 }
