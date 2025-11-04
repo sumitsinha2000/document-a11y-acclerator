@@ -16,6 +16,8 @@ from pdf_analyzer import PDFAccessibilityAnalyzer
 from fix_suggestions import generate_fix_suggestions
 from auto_fix_engine import AutoFixEngine
 from fix_progress_tracker import create_progress_tracker, get_progress_tracker
+from pdf_generator import PDFGenerator
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -26,6 +28,8 @@ db_lock = threading.Lock()
 
 UPLOAD_FOLDER = "uploads"
 FIXED_FOLDER = "fixed"
+pdf_generator = PDFGenerator()
+GENERATED_PDFS_FOLDER = pdf_generator.output_dir
 
 
 # === Database Connection ===
@@ -305,6 +309,57 @@ def save_scan_to_db(
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return jsonify({"status": "ok"})
+
+
+# === PDF Generator ===
+@app.route("/api/generate-pdf", methods=["POST"])
+def generate_pdf():
+    payload = request.get_json(silent=True) or {}
+    pdf_type = (payload.get("pdfType") or "inaccessible").lower()
+    company_name = payload.get("companyName") or "BrightPath Consulting"
+    services = payload.get("services") if isinstance(payload.get("services"), list) else None
+    accessibility_options = (
+        payload.get("accessibilityOptions")
+        if isinstance(payload.get("accessibilityOptions"), dict)
+        else None
+    )
+
+    try:
+        if pdf_type == "accessible":
+            output_path = pdf_generator.create_accessible_pdf(company_name, services)
+        else:
+            output_path = pdf_generator.create_inaccessible_pdf(
+                company_name, services, accessibility_options
+            )
+
+        filename = os.path.basename(output_path)
+        return jsonify({"filename": filename}), 201
+    except Exception as e:
+        print(f"[Backend] ✗ PDF generation failed: {e}")
+        return jsonify({"error": "Failed to generate PDF"}), 500
+
+
+@app.route("/api/generated-pdfs", methods=["GET"])
+def list_generated_pdfs():
+    try:
+        pdfs = pdf_generator.get_generated_pdfs()
+        return jsonify({"pdfs": pdfs})
+    except Exception as e:
+        print(f"[Backend] ✗ Listing generated PDFs failed: {e}")
+        return jsonify({"error": "Unable to list generated PDFs"}), 500
+
+
+@app.route("/api/download-generated/<path:filename>", methods=["GET"])
+def download_generated_pdf(filename):
+    safe_name = secure_filename(filename)
+    if safe_name != filename:
+        return jsonify({"error": "Invalid filename"}), 400
+
+    file_path = os.path.join(GENERATED_PDFS_FOLDER, safe_name)
+    if not os.path.exists(file_path):
+        return jsonify({"error": "File not found"}), 404
+
+    return send_file(file_path, as_attachment=True, mimetype="application/pdf")
 
 
 # === PDF Scan ===

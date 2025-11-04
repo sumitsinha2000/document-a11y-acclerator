@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import axios from "axios"
 import jsPDF from "jspdf"
-import "jspdf-autotable"
+import autoTable from "jspdf-autotable"
 import { useNotification } from "../contexts/NotificationContext"
 
 export default function ExportDropdown({ scanId, filename }) {
@@ -119,7 +119,7 @@ export default function ExportDropdown({ scanId, filename }) {
       ["High Severity Issues", `${summary.highSeverity || 0}`],
     ]
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: yPos,
       head: [["Metric", "Value"]],
       body: summaryData,
@@ -132,7 +132,7 @@ export default function ExportDropdown({ scanId, filename }) {
       },
     })
 
-    yPos = doc.lastAutoTable.finalY + 15
+    yPos = (doc.lastAutoTable?.finalY || yPos) + 15
 
     // Issues by category
     Object.entries(results).forEach(([category, issues]) => {
@@ -163,7 +163,7 @@ export default function ExportDropdown({ scanId, filename }) {
           ]
         })
 
-        doc.autoTable({
+        autoTable(doc, {
           startY: yPos,
           head: [["Severity", "Description", "Pages", "Recommendation"]],
           body: issuesData,
@@ -199,7 +199,7 @@ export default function ExportDropdown({ scanId, filename }) {
           },
         })
 
-        yPos = doc.lastAutoTable.finalY + 12
+        yPos = (doc.lastAutoTable?.finalY || yPos) + 12
       }
     })
 

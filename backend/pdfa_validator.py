@@ -158,13 +158,37 @@ class PDFAValidator:
             for font_name, font_obj in fonts.items():
                 # Check if font is embedded
                 is_embedded = False
-                
-                if '/FontDescriptor' in font_obj:
-                    font_desc = font_obj.FontDescriptor
-                    # Check for embedded font stream
-                    if any(key in font_desc for key in ['/FontFile', '/FontFile2', '/FontFile3']):
-                        is_embedded = True
-                
+
+                font_descriptors = []
+
+                try:
+                    descriptor = font_obj.get('/FontDescriptor') if hasattr(font_obj, 'get') else None
+                except Exception:
+                    descriptor = None
+
+                if descriptor:
+                    font_descriptors.append(descriptor)
+
+                if hasattr(font_obj, '__contains__') and '/DescendantFonts' in font_obj:
+                    try:
+                        for descendant in font_obj['/DescendantFonts']:
+                            try:
+                                descriptor = descendant.get('/FontDescriptor') if hasattr(descendant, 'get') else None
+                            except Exception:
+                                descriptor = None
+                            if descriptor:
+                                font_descriptors.append(descriptor)
+                    except Exception:
+                        pass
+
+                for font_desc in font_descriptors:
+                    try:
+                        if any(key in font_desc for key in ['/FontFile', '/FontFile2', '/FontFile3']):
+                            is_embedded = True
+                            break
+                    except Exception:
+                        continue
+
                 if not is_embedded:
                     self.issues.append({
                         'category': 'pdfaIssues',

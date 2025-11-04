@@ -60,7 +60,12 @@ export default function PDFGenerator() {
         text: `Successfully generated: ${response.data.filename}`,
       })
 
-      fetchGeneratedPdfs()
+      setGeneratedPdfs((prev) => {
+        const next = [response.data.filename, ...prev.filter((name) => name !== response.data.filename)]
+        return next
+      })
+
+      await fetchGeneratedPdfs()
     } catch (error) {
       setMessage({
         type: "error",
@@ -74,9 +79,11 @@ export default function PDFGenerator() {
   const fetchGeneratedPdfs = async () => {
     try {
       const response = await axios.get("/api/generated-pdfs")
-      setGeneratedPdfs(response.data.pdfs)
+      setGeneratedPdfs(response.data.pdfs || [])
+      return response.data.pdfs || []
     } catch (error) {
       console.error("Error fetching generated PDFs:", error)
+      return []
     }
   }
 
