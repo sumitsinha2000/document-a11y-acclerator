@@ -38,7 +38,6 @@ class OCRProcessor:
         """
         try:
             with pdfplumber.open(pdf_path) as pdf:
-                total_pages = len(pdf.pages)
                 pages_with_text = 0
                 pages_with_images = 0
                 scanned_pages = []

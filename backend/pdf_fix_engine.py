@@ -207,7 +207,20 @@ class PDFAFixEngine:
                 if isinstance(issue, str):
                     issue = {'message': issue, 'severity': 'error'}
                 
-                severity = issue.get('severity', 'error')
+                severity = str(issue.get('severity', 'error')).lower()
+                severity_rank = {
+                    'info': 0,
+                    'warning': 1,
+                    'error': 2,
+                    'critical': 3
+                }
+
+                def pick_severity(default_level: str) -> str:
+                    """Return the more severe level between issue severity and supplied default."""
+                    default_lower = str(default_level).lower()
+                    issue_score = severity_rank.get(severity, severity_rank['error'])
+                    default_score = severity_rank.get(default_lower, severity_rank['error'])
+                    return severity if issue_score > default_score else default_lower
                 message = issue.get('message', '')
                 
                 if 'annotation' in message.lower() and 'appearance' in message.lower():
@@ -217,13 +230,17 @@ class PDFAFixEngine:
                         success_count += 1
                         print(f"[PDFAFixEngine] ✓ Fixed annotation appearances")
                     else:
-                        warnings.append(result['message'])
+                        warnings.append({
+                            'type': 'annotationAppearance',
+                            'message': result.get('message', 'Could not fix annotation appearances automatically'),
+                            'severity': pick_severity('warning')
+                        })
                 
                 if 'font' in message.lower() and 'embed' in message.lower():
                     warnings.append({
                         'type': 'fontEmbedding',
                         'message': 'Font embedding requires source font files. Please re-create PDF with embedded fonts.',
-                        'severity': 'critical'
+                        'severity': pick_severity('critical')
                     })
                     print(f"[PDFAFixEngine] ⚠ Font embedding requires manual intervention")
                 
@@ -231,7 +248,7 @@ class PDFAFixEngine:
                     warnings.append({
                         'type': 'transparency',
                         'message': 'Transparency removal requires flattening. Use PDF editor to flatten transparency.',
-                        'severity': 'error'
+                        'severity': pick_severity('error')
                     })
                     print(f"[PDFAFixEngine] ⚠ Transparency requires manual intervention")
                 
@@ -239,7 +256,7 @@ class PDFAFixEngine:
                     warnings.append({
                         'type': 'encryption',
                         'message': 'Document is encrypted. Save without encryption for PDF/A compliance.',
-                        'severity': 'critical'
+                        'severity': pick_severity('critical')
                     })
                     print(f"[PDFAFixEngine] ⚠ Encryption requires manual intervention")
             
@@ -293,13 +310,13 @@ class PDFAFixEngine:
                 try:
                     os.remove(temp_path)
                     print(f"[PDFAFixEngine] Cleaned up temp file")
-                except:
+                except Exception as e:
                     pass
             
             if pdf:
                 try:
                     pdf.close()
-                except:
+                except Exception as e:
                     pass
             
             return {
@@ -396,7 +413,7 @@ class PDFAFixEngine:
                 try:
                     meta['pdfaid:part'] = '1'
                     meta['pdfaid:conformance'] = 'B'
-                except:
+                except Exception as e:
                     pass
                 
                 return {
@@ -521,7 +538,7 @@ class PDFAFixEngine:
                 try:
                     if not meta.get('dc:title'):
                         meta['dc:title'] = title
-                except:
+                except Exception as e:
                     pass
                 
                 # Sync other common fields
@@ -531,7 +548,7 @@ class PDFAFixEngine:
                         try:
                             meta['{http://purl.org/dc/elements/1.1/}creator'] = author
                             meta['dc:creator'] = author
-                        except:
+                        except Exception as e:
                             pass
                     
                     if '/Subject' in pdf.docinfo:
@@ -539,7 +556,7 @@ class PDFAFixEngine:
                         try:
                             meta['{http://purl.org/dc/elements/1.1/}description'] = subject
                             meta['dc:description'] = subject
-                        except:
+                        except Exception as e:
                             pass
                     
                     if '/Keywords' in pdf.docinfo:
@@ -547,7 +564,7 @@ class PDFAFixEngine:
                         try:
                             meta['{http://ns.adobe.com/pdf/1.3/}Keywords'] = keywords
                             meta['pdf:Keywords'] = keywords
-                        except:
+                        except Exception as e:
                             pass
             
             return {

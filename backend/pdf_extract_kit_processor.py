@@ -5,9 +5,15 @@ Provides advanced PDF processing using PDF-Extract-Kit when available
 
 import os
 import sys
-from typing import Dict, List, Any, Optional
+import importlib
+from typing import Dict, List, Any, Optional, TYPE_CHECKING
 from pathlib import Path
 import json
+
+if TYPE_CHECKING:
+    from pdf_extract import PDFExtractor  # pragma: no cover
+else:
+    PDFExtractor = Any
 
 
 class PDFExtractKitProcessor:
@@ -26,8 +32,9 @@ class PDFExtractKitProcessor:
         try:
             # Try to import PDF-Extract-Kit modules
             # Adjust the import path based on your PDF-Extract-Kit installation
-            from pdf_extract import PDFExtractor
-            
+            module = importlib.import_module("pdf_extract")
+            PDFExtractor = getattr(module, "PDFExtractor")
+
             self.extractor = PDFExtractor()
             self.available = True
             print("[PDF-Extract-Kit] Successfully initialized")

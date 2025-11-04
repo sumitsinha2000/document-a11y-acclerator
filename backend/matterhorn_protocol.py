@@ -249,8 +249,8 @@ class MatterhornProtocol:
             with pdf.open_metadata() as meta:
                 if 'dc:title' not in meta:
                     issues.append(self._create_issue("01-002", "XMP metadata"))
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Unable to read XMP metadata: {e}")
         
         if not pdf.docinfo or '/Title' not in pdf.docinfo:
             issues.append(self._create_issue("01-003", "Document info"))

@@ -5,7 +5,7 @@ Comprehensive metadata repair for PDF/A compliance
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pikepdf import Pdf, Dictionary, Name, Array
 from datetime import datetime
 

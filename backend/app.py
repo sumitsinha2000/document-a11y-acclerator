@@ -746,7 +746,8 @@ def get_history():
             if isinstance(scan_results, str):
                 try:
                     scan_results = json.loads(scan_results)
-                except:
+                except Exception as e:
+                    print(f"[Backend] Warning: Failed to parse scan_results JSON: {e}")
                     scan_results = {}
 
             results = scan_results.get("results", scan_results)
@@ -794,7 +795,6 @@ def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
     tracker = None
     payload = data or {}
     try:
-        fixes = payload.get("fixes", [])
         filename = payload.get("filename", "fixed_document.pdf")
 
         if not filename.lower().endswith(".pdf"):
@@ -2104,7 +2104,6 @@ def update_scan_status(scan_id):
         # Get summary from scan_results
         summary = scan_results.get("summary", {})
         total_issues = summary.get("totalIssues", result.get("total_issues") or 0)
-        issues_fixed = result.get("issues_fixed") or 0
 
         # Determine status based on fix history
         c.execute(
@@ -2916,7 +2915,8 @@ def get_group_files(group_id):
             if isinstance(scan_results, str):
                 try:
                     scan_results = json.loads(scan_results)
-                except:
+                except Exception as e:
+                    print(f"[v0] Warning: failed to parse scan_results JSON: {e}")
                     scan_results = {}
 
             summary = scan_results.get("summary", {})

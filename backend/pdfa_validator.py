@@ -88,7 +88,7 @@ class PDFAValidator:
                     version = (int(parts[0]), int(parts[1]))
                 else:
                     version = (1, 4)  # Default to 1.4 if can't parse
-            except:
+            except Exception:
                 version = (1, 4)
         
         if version > (1, 4):  # PDF/A-1 requires PDF 1.4

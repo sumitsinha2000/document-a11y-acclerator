@@ -265,8 +265,9 @@ Format as JSON with keys: headings, reading_order, tags, outline"""
             import json
             try:
                 structure_data = json.loads(structure_suggestion)
-            except:
-                # If not valid JSON, return as text
+            except Exception as e:
+                # If not valid JSON, return as text and log the parsing error
+                print(f"[SambaNova] WARNING: Failed to parse structure suggestion as JSON: {e}")
                 structure_data = {
                     'raw_suggestion': structure_suggestion
                 }
@@ -328,7 +329,6 @@ Format as JSON array with keys: issue, priority, impact, effort, order, reasonin
             
             prioritization = response.choices[0].message.content
             print(f"[SambaNova] ✓ Generated fix prioritization")
-            
             # Parse JSON response
             import json
             try:
@@ -337,7 +337,8 @@ Format as JSON array with keys: issue, priority, impact, effort, order, reasonin
                     return priority_data
                 else:
                     return [priority_data]
-            except:
+            except Exception as e:
+                print(f"[SambaNova] WARNING: Could not parse prioritization JSON: {e}")
                 return [{
                     'raw_prioritization': prioritization
                 }]

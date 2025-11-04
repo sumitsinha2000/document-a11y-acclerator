@@ -225,14 +225,14 @@ class PDFAFixEngine:
                 try:
                     os.remove(temp_path)
                     print(f"[PDFAFixEngine] Cleaned up temp file")
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[PDFAFixEngine] Cleanup temp file removal failed: {e}")
             
             if pdf:
                 try:
                     pdf.close()
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[PDFAFixEngine] Closing PDF failed: {e}")
             
             return {
                 'success': False,
@@ -328,7 +328,9 @@ class PDFAFixEngine:
                 try:
                     meta['pdfaid:part'] = '1'
                     meta['pdfaid:conformance'] = 'B'
-                except:
+                except Exception as e:
+                    # Do not catch system-exiting exceptions; log the error for debugging
+                    logger.debug(f"Could not set shorthand PDF/A id properties: {e}")
                     pass
                 
                 return {
@@ -453,8 +455,8 @@ class PDFAFixEngine:
                 try:
                     if not meta.get('dc:title'):
                         meta['dc:title'] = title
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Could not set shorthand dc:title: {e}")
                 
                 # Sync other common fields
                 if hasattr(pdf, 'docinfo') and pdf.docinfo:
@@ -463,24 +465,24 @@ class PDFAFixEngine:
                         try:
                             meta['{http://purl.org/dc/elements/1.1/}creator'] = author
                             meta['dc:creator'] = author
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Could not set creator metadata: {e}")
                     
                     if '/Subject' in pdf.docinfo:
                         subject = str(pdf.docinfo.Subject)
                         try:
                             meta['{http://purl.org/dc/elements/1.1/}description'] = subject
                             meta['dc:description'] = subject
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Could not set description metadata: {e}")
                     
                     if '/Keywords' in pdf.docinfo:
                         keywords = str(pdf.docinfo.Keywords)
                         try:
                             meta['{http://ns.adobe.com/pdf/1.3/}Keywords'] = keywords
                             meta['pdf:Keywords'] = keywords
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Could not set keywords metadata: {e}")
             
             return {
                 'success': True,
