@@ -453,6 +453,12 @@ def scan_batch():
         if not files or len(files) == 0:
             return jsonify({"error": "No files provided"}), 400
 
+        pdf_files = [f for f in files if f.filename.lower().endswith(".pdf")]
+        skipped_files = [f.filename for f in files if not f.filename.lower().endswith(".pdf")]
+
+        if not pdf_files:
+            return jsonify({"error": "No PDF files provided"}), 400
+
         # Create batch record
         batch_id = f"batch_{uuid.uuid4().hex}"
 
@@ -461,16 +467,16 @@ def scan_batch():
         c.execute(
             """
             INSERT INTO batches (id, name, group_id, created_at, status, total_files, total_issues, unprocessed_files)
-            VALUES (%s, %s, %s, NOW(), 'unprocessed', %s, 0, %s)
+            VALUES (%s, %s, %s, NOW(), 'processing', %s, 0, %s)
         """,
-            (batch_id, batch_name, group_id, len(files), len(files)),
+            (batch_id, batch_name, group_id, len(pdf_files), len(pdf_files)),
         )
         conn.commit()
         c.close()
         conn.close()
 
         print(
-            f"[Backend] ✓ Created batch: {batch_id} with {len(files)} files in group {group_id}"
+            f"[Backend] ✓ Created batch: {batch_id} with {len(pdf_files)} PDF files in group {group_id} (skipped {len(skipped_files)})"
         )
 
         # Process each file
@@ -480,11 +486,11 @@ def scan_batch():
         upload_dir = Path(UPLOAD_FOLDER)
         upload_dir.mkdir(exist_ok=True)
 
-        analyzer = PDFAccessibilityAnalyzer()
+        processed_files = len(pdf_files)
+        successful_scans = 0
 
-        for file in files:
-            if not file.filename.lower().endswith(".pdf"):
-                continue
+        for file in pdf_files:
+            analyzer = PDFAccessibilityAnalyzer()
 
             scan_id = f"scan_{uuid.uuid4().hex}"
             file_path = upload_dir / f"{scan_id}.pdf"
@@ -523,6 +529,9 @@ def scan_batch():
                 group_id=group_id,
             )
 
+            if not saved_id:
+                continue
+
             # Update scan with issue counts
             conn = get_db_connection()
             c = conn.cursor()
@@ -544,23 +553,47 @@ def scan_batch():
                     "filename": file.filename,
                     "totalIssues": total_issues,
                     "status": "unprocessed",
+                    "summary": summary,
+                    "results": scan_data,
+                    "verapdfStatus": verapdf_status,
+                    "fixes": formatted_results.get("fixes", []),
+                    "groupId": group_id,
+                    "batchId": batch_id,
                 }
             )
+            successful_scans += 1
 
         # Update batch with total issues
         conn = get_db_connection()
         c = conn.cursor()
+        unprocessed_files = max(len(pdf_files) - successful_scans, 0)
+        if successful_scans == len(pdf_files):
+            batch_status = "completed"
+        elif successful_scans == 0:
+            batch_status = "failed"
+        else:
+            batch_status = "partial"
+
         c.execute(
             """
             UPDATE batches 
-            SET total_issues = %s, remaining_issues = %s
+            SET total_issues = %s, remaining_issues = %s, unprocessed_files = %s, status = %s, total_files = %s
             WHERE id = %s
         """,
-            (total_batch_issues, total_batch_issues, batch_id),
+            (
+                total_batch_issues,
+                total_batch_issues,
+                unprocessed_files,
+                batch_status,
+                len(pdf_files),
+                batch_id,
+            ),
         )
         conn.commit()
         c.close()
         conn.close()
+
+        update_batch_statistics(batch_id)
 
         print(
             f"[Backend] ✓ Batch upload complete: {len(scan_results)} files, {total_batch_issues} total issues"
@@ -573,6 +606,9 @@ def scan_batch():
                 "scans": scan_results,
                 "totalIssues": total_batch_issues,
                 "timestamp": datetime.now().isoformat(),
+                "processedFiles": processed_files,
+                "successfulScans": successful_scans,
+                "skippedFiles": skipped_files,
             }
         )
 
@@ -582,6 +618,89 @@ def scan_batch():
 
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+def update_batch_statistics(batch_id):
+    """Recalculate and persist aggregate metrics for a batch."""
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute(
+            """
+            SELECT
+                COUNT(*) AS total_files,
+                COALESCE(SUM(total_issues), 0) AS total_issues,
+                COALESCE(SUM(issues_remaining), 0) AS remaining_issues,
+                COALESCE(SUM(issues_fixed), 0) AS fixed_issues,
+                SUM(CASE WHEN status IN ('unprocessed', 'processing') THEN 1 ELSE 0 END) AS unprocessed_files,
+                SUM(CASE WHEN status = 'fixed' THEN 1 ELSE 0 END) AS fixed_files
+            FROM scans
+            WHERE batch_id = %s
+        """,
+            (batch_id,),
+        )
+
+        stats = cursor.fetchone() or {}
+
+        total_files = stats.get("total_files") or 0
+        total_issues = stats.get("total_issues") or 0
+        remaining_issues = stats.get("remaining_issues") or 0
+        fixed_issues = stats.get("fixed_issues")
+        if fixed_issues is None:
+            fixed_issues = max(total_issues - remaining_issues, 0)
+        unprocessed_files = stats.get("unprocessed_files") or 0
+        fixed_files = stats.get("fixed_files") or 0
+
+        if total_files == 0:
+            batch_status = "empty"
+        elif remaining_issues == 0:
+            batch_status = "completed"
+        elif fixed_files == 0 and unprocessed_files == total_files:
+            batch_status = "processing"
+        else:
+            batch_status = "partial"
+
+        cursor.execute(
+            """
+            UPDATE batches
+            SET total_files = %s,
+                total_issues = %s,
+                remaining_issues = %s,
+                fixed_issues = %s,
+                unprocessed_files = %s,
+                status = %s
+            WHERE id = %s
+        """,
+            (
+                total_files,
+                total_issues,
+                remaining_issues,
+                fixed_issues,
+                unprocessed_files,
+                batch_status,
+                batch_id,
+            ),
+        )
+
+        conn.commit()
+        print(
+            f"[Backend] ✓ Batch {batch_id} statistics updated: total={total_issues}, remaining={remaining_issues}, status={batch_status}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"[Backend] ⚠ Failed to update batch statistics: {e}")
+        import traceback
+
+        traceback.print_exc()
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 # === Scan History ===
@@ -671,13 +790,12 @@ def get_history():
 
 
 # === Apply Fixes ===
-@app.route("/api/apply-fixes/<scan_id>", methods=["POST"])
-def apply_fixes(scan_id):
+def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
     tracker = None
+    payload = data or {}
     try:
-        data = request.get_json()
-        fixes = data.get("fixes", [])
-        filename = data.get("filename", "fixed_document.pdf")
+        fixes = payload.get("fixes", [])
+        filename = payload.get("filename", "fixed_document.pdf")
 
         if not filename.lower().endswith(".pdf"):
             filename = f"{filename}.pdf"
@@ -686,16 +804,27 @@ def apply_fixes(scan_id):
 
         scan_data = get_scan_by_id(scan_id)
         if not scan_data:
-            return jsonify({"error": "Scan not found"}), 404
+            return 404, {"error": "Scan not found", "success": False}
+
+        if expected_batch_id and scan_data.get("batch_id") != expected_batch_id:
+            return (
+                404,
+                {
+                    "error": f"Scan {scan_id} does not belong to batch {expected_batch_id}",
+                    "success": False,
+                },
+            )
 
         original_filename = scan_data.get("filename")
         if not original_filename:
             print(f"[Backend] ERROR: No filename found in scan data")
-            return jsonify({"error": "Scan filename not found"}), 400
+            return (
+                400,
+                {"error": "Scan filename not found", "success": False},
+            )
 
         print(f"[Backend] Original filename: {original_filename}")
 
-        # Get initial scan results for before state
         initial_scan_results = scan_data.get("scan_results", {})
         if isinstance(initial_scan_results, str):
             try:
@@ -717,123 +846,195 @@ def apply_fixes(scan_id):
         engine = AutoFixEngine()
         result = engine.apply_automated_fixes(scan_id, scan_data, tracker)
 
-        if result.get("success"):
+        if not result.get("success"):
+            error_message = result.get("error", "Unknown error")
             if tracker:
-                tracker.complete_all()
+                tracker.fail_all(error_message)
+            return 500, {"success": False, "error": error_message}
 
-            fixes_applied = result.get("fixesApplied", [])
-            fixed_filename = result.get("fixedFile") or filename
-            if not fixes_applied and result.get("fixedIssues"):
-                fixes_applied = [
-                    {
-                        "type": "automated",
-                        "issueType": issue.get("type", "unknown"),
-                        "description": issue.get(
-                            "description", "Automated fix applied"
-                        ),
-                        "timestamp": datetime.now().isoformat(),
-                    }
-                    for issue in result.get("fixedIssues", [])
-                ]
+        if tracker:
+            tracker.complete_all()
 
-            # Get after state
-            scan_results_after = result.get("scanResults", {}) or {}
-            issues_after = scan_results_after.get("results", {})
-            summary_after = scan_results_after.get("summary", {}) or {}
-            compliance_after = summary_after.get("complianceScore", compliance_before)
-            total_issues_after = summary_after.get("totalIssues", total_issues_before)
-            high_severity_after = summary_after.get(
-                "highSeverity", high_severity_before
-            )
-
-            changes_detected = scan_results_changed(
-                issues_before=issues_before,
-                summary_before=summary_before,
-                compliance_before=compliance_before,
-                issues_after=issues_after,
-                summary_after=summary_after,
-                compliance_after=compliance_after,
-            )
-
-            formatted_results = {
-                "results": issues_after,
-                "summary": summary_after,
-                "verapdfStatus": scan_results_after.get("verapdfStatus"),
-                "fixes": result.get("suggestions", []),
-            }
-
-            save_scan_to_db(
-                scan_id,
-                original_filename,
-                formatted_results,
-                batch_id=scan_data.get("batch_id"),
-                group_id=scan_data.get("group_id"),
-                is_update=True,
-            )
-
-            save_success = False
-            if changes_detected:
-                save_success = bool(
-                    save_fix_history(
-                        scan_id=scan_id,
-                        original_filename=original_filename,  # Explicitly pass the filename
-                        fixed_filename=fixed_filename,  # Track the actual fixed filename
-                        fixes_applied=fixes_applied,
-                        fix_type="automated",
-                        issues_before=issues_before,
-                        issues_after=issues_after,
-                        compliance_before=compliance_before,
-                        compliance_after=compliance_after,
-                        total_issues_before=total_issues_before,
-                        total_issues_after=total_issues_after,
-                        high_severity_before=high_severity_before,
-                        high_severity_after=high_severity_after,
-                        fix_suggestions=result.get("suggestions", []),
-                        fix_metadata={
-                            "engine_version": "1.0",
-                            "processing_time": result.get("processingTime"),
-                            "success_rate": result.get("successRate"),
-                        },
-                    )
-                )
-            else:
-                print(
-                    "[Backend] ℹ No changes detected after automated fixes; skipping fix history entry."
-                )
-
-            if changes_detected and not save_success:
-                print(
-                    f"[Backend] WARNING: Fix history save failed, but fix was applied successfully"
-                )
-
-            update_scan_status(scan_id)
-
-            return jsonify(
+        fixes_applied = result.get("fixesApplied", [])
+        fixed_filename = result.get("fixedFile") or filename
+        if not fixes_applied and result.get("fixedIssues"):
+            fixes_applied = [
                 {
-                    "status": "success",
-                    "fixedFile": fixed_filename,
-                    "scanResults": scan_results_after,
-                    "summary": summary_after,
-                    "fixesApplied": fixes_applied,
-                    "historyRecorded": save_success,
-                    "changesDetected": changes_detected,
+                    "type": "automated",
+                    "issueType": issue.get("type", "unknown"),
+                    "description": issue.get("description", "Automated fix applied"),
+                    "timestamp": datetime.now().isoformat(),
                 }
+                for issue in result.get("fixedIssues", [])
+            ]
+
+        scan_results_after = result.get("scanResults", {}) or {}
+        issues_after = scan_results_after.get("results", {})
+        summary_after = scan_results_after.get("summary", {}) or {}
+        compliance_after = summary_after.get("complianceScore", compliance_before)
+        total_issues_after = summary_after.get("totalIssues", total_issues_before)
+        high_severity_after = summary_after.get("highSeverity", high_severity_before)
+
+        changes_detected = scan_results_changed(
+            issues_before=issues_before,
+            summary_before=summary_before,
+            compliance_before=compliance_before,
+            issues_after=issues_after,
+            summary_after=summary_after,
+            compliance_after=compliance_after,
+        )
+
+        formatted_results = {
+            "results": issues_after,
+            "summary": summary_after,
+            "verapdfStatus": scan_results_after.get("verapdfStatus"),
+            "fixes": result.get("suggestions", []),
+        }
+
+        save_scan_to_db(
+            scan_id,
+            original_filename,
+            formatted_results,
+            batch_id=scan_data.get("batch_id"),
+            group_id=scan_data.get("group_id"),
+            is_update=True,
+        )
+
+        save_success = False
+        if changes_detected:
+            save_success = bool(
+                save_fix_history(
+                    scan_id=scan_id,
+                    original_filename=original_filename,
+                    fixed_filename=fixed_filename,
+                    fixes_applied=fixes_applied,
+                    fix_type="automated",
+                    issues_before=issues_before,
+                    issues_after=issues_after,
+                    compliance_before=compliance_before,
+                    compliance_after=compliance_after,
+                    total_issues_before=total_issues_before,
+                    total_issues_after=total_issues_after,
+                    high_severity_before=high_severity_before,
+                    high_severity_after=high_severity_after,
+                    fix_suggestions=result.get("suggestions", []),
+                    fix_metadata={
+                        "engine_version": "1.0",
+                        "processing_time": result.get("processingTime"),
+                        "success_rate": result.get("successRate"),
+                    },
+                )
             )
         else:
-            if tracker:
-                tracker.fail_all(result.get("error", "Unknown error"))
-            return jsonify(
-                {"status": "error", "error": result.get("error", "Unknown error")}
-            ), 500
+            print(
+                "[Backend] ℹ No changes detected after automated fixes; skipping fix history entry."
+            )
+
+        if changes_detected and not save_success:
+            print(
+                "[Backend] WARNING: Fix history save failed, but fix was applied successfully"
+            )
+
+        update_scan_status(scan_id)
+
+        batch_id = scan_data.get("batch_id")
+        if batch_id:
+            update_batch_statistics(batch_id)
+
+        success_count = len(fixes_applied) if fixes_applied else len(result.get("fixedIssues", []))
+        if not success_count:
+            success_count = result.get("successCount", 0)
+
+        response = {
+            "success": True,
+            "status": "success",
+            "fixedFile": fixed_filename,
+            "scanResults": scan_results_after,
+            "summary": summary_after,
+            "fixesApplied": fixes_applied,
+            "historyRecorded": save_success,
+            "changesDetected": changes_detected,
+            "successCount": success_count,
+            "scanId": scan_id,
+        }
+
+        return 200, response
 
     except Exception as e:
-        print(f"[Backend] ERROR in apply_fixes: {e}")
+        print(f"[Backend] ERROR in automated fix: {e}")
         import traceback
 
         traceback.print_exc()
         if tracker:
             tracker.fail_all(str(e))
-        return jsonify({"error": str(e)}), 500
+        return 500, {"error": str(e), "success": False}
+
+
+@app.route("/api/apply-fixes/<scan_id>", methods=["POST"])
+def apply_fixes(scan_id):
+    data = request.get_json(silent=True) or {}
+    status, payload = _perform_automated_fix(scan_id, data)
+    return jsonify(payload), status
+
+
+@app.route("/api/batch/<batch_id>/fix-file/<scan_id>", methods=["POST"])
+def apply_batch_fix(batch_id, scan_id):
+    data = request.get_json(silent=True) or {}
+    status, payload = _perform_automated_fix(
+        scan_id, data, expected_batch_id=batch_id
+    )
+    if status == 200:
+        payload.setdefault("batchId", batch_id)
+    return jsonify(payload), status
+
+
+@app.route("/api/batch/<batch_id>/fix-all", methods=["POST"])
+def apply_batch_fix_all(batch_id):
+    scans = execute_query(
+        "SELECT id FROM scans WHERE batch_id = %s",
+        (batch_id,),
+        fetch=True,
+    )
+
+    if not scans:
+        return (
+            jsonify(
+                {"success": False, "error": f"No scans found for batch {batch_id}"}
+            ),
+            404,
+        )
+
+    success_count = 0
+    errors = []
+
+    for scan in scans:
+        scan_id = scan.get("id") if isinstance(scan, dict) else scan[0]
+        status, payload = _perform_automated_fix(
+            scan_id, {}, expected_batch_id=batch_id
+        )
+        if status == 200 and payload.get("success"):
+            success_count += 1
+        else:
+            errors.append(
+                {
+                    "scanId": scan_id,
+                    "error": payload.get("error", "Unknown error"),
+                }
+            )
+
+    update_batch_statistics(batch_id)
+
+    total_files = len(scans)
+    response_payload = {
+        "success": success_count > 0,
+        "successCount": success_count,
+        "totalFiles": total_files,
+        "errors": errors,
+        "batchId": batch_id,
+    }
+
+    status_code = 200 if success_count > 0 else 500
+    return jsonify(response_payload), status_code
 
 
 # === Apply Semi-Automated Fixes ===
@@ -2430,6 +2631,242 @@ def download_batch(batch_id):
 
     except Exception as e:
         print(f"[Backend] Error creating batch ZIP: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/batch/<batch_id>/export", methods=["GET"])
+def export_batch(batch_id):
+    """Generate a ZIP containing batch metadata, scan summaries, and source/fixed PDFs."""
+    try:
+        import zipfile
+        from io import BytesIO
+        import re
+
+        print(f"[Backend] Exporting batch package for: {batch_id}")
+
+        update_batch_statistics(batch_id)
+
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            SELECT id, name, group_id, created_at, status,
+                   total_files, total_issues, fixed_issues,
+                   remaining_issues, unprocessed_files
+            FROM batches
+            WHERE id = %s
+        """,
+            (batch_id,),
+        )
+        batch = cur.fetchone()
+
+        if not batch:
+            cur.close()
+            conn.close()
+            return jsonify({"error": f"Batch {batch_id} not found"}), 404
+
+        cur.execute(
+            """
+            SELECT s.id, s.filename, s.scan_results, s.status, s.upload_date,
+                   s.total_issues, s.issues_fixed, s.issues_remaining,
+                   fh.fixed_filename, fh.fixes_applied, fh.applied_at, fh.fix_type,
+                   fh.total_issues_after, fh.compliance_after, fh.high_severity_after
+            FROM scans s
+            LEFT JOIN LATERAL (
+                SELECT *
+                FROM fix_history
+                WHERE scan_id = s.id
+                ORDER BY applied_at DESC
+                LIMIT 1
+            ) fh ON true
+            WHERE s.batch_id = %s
+            ORDER BY COALESCE(s.upload_date, s.created_at)
+        """,
+            (batch_id,),
+        )
+        scans = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        if not scans:
+            return jsonify({"error": "No scans found for this batch"}), 404
+
+        def _sanitize(value: str, fallback: str) -> str:
+            text = value or fallback
+            return re.sub(r"[^A-Za-z0-9._-]", "_", text)
+
+        def _deserialize_payload(value, fallback):
+            if not value:
+                return fallback
+            if isinstance(value, (list, dict)):
+                return value
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except Exception:
+                    return fallback
+            return fallback
+
+        def _to_export_payload(scan_row):
+            scan_results = scan_row.get("scan_results", {})
+            if isinstance(scan_results, str):
+                try:
+                    scan_results = json.loads(scan_results)
+                except Exception:
+                    scan_results = {}
+
+            results = scan_results.get("results", scan_results) or {}
+            summary = scan_results.get("summary", {}) or {}
+            verapdf_status = scan_results.get("verapdfStatus")
+
+            if verapdf_status is None:
+                verapdf_status = build_verapdf_status(results)
+
+            if not summary or "totalIssues" not in summary:
+                try:
+                    summary = PDFAccessibilityAnalyzer.calculate_summary(
+                        results, verapdf_status
+                    )
+                except Exception as calc_error:
+                    print(
+                        f"[Backend] Warning: unable to regenerate summary for export ({scan_row.get('id')}): {calc_error}"
+                    )
+                    total_issues = sum(
+                        len(v) if isinstance(v, list) else 0 for v in results.values()
+                    )
+                    summary = {
+                        "totalIssues": total_issues,
+                        "highSeverity": 0,
+                        "complianceScore": max(0, 100 - total_issues * 2),
+                    }
+
+            if isinstance(summary, dict) and verapdf_status:
+                summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+                summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+
+            latest_fix = None
+            if scan_row.get("applied_at"):
+                fix_list = _deserialize_payload(scan_row.get("fixes_applied"), [])
+                latest_fix = {
+                    "fixedFilename": scan_row.get("fixed_filename"),
+                    "fixType": scan_row.get("fix_type"),
+                    "appliedAt": scan_row.get("applied_at").isoformat()
+                    if scan_row.get("applied_at")
+                    else None,
+                    "fixesApplied": fix_list,
+                    "totalIssuesAfter": scan_row.get("total_issues_after"),
+                    "complianceAfter": scan_row.get("compliance_after"),
+                    "highSeverityAfter": scan_row.get("high_severity_after"),
+                }
+
+            export_payload = {
+                "scanId": scan_row.get("id"),
+                "filename": scan_row.get("filename"),
+                "status": scan_row.get("status"),
+                "uploadDate": scan_row.get("upload_date").isoformat()
+                if scan_row.get("upload_date")
+                else None,
+                "summary": summary,
+                "results": results,
+                "verapdfStatus": verapdf_status,
+                "issues": {
+                    "total": scan_row.get("total_issues"),
+                    "fixed": scan_row.get("issues_fixed"),
+                    "remaining": scan_row.get("issues_remaining"),
+                },
+                "latestFix": latest_fix,
+            }
+
+            return export_payload
+
+        batch_name = batch.get("name") or batch_id
+        safe_batch_name = _sanitize(batch_name, batch_id)
+
+        export_summary = {
+            "batch": {
+                "id": batch_id,
+                "name": batch_name,
+                "groupId": batch.get("group_id"),
+                "createdAt": batch.get("created_at").isoformat()
+                if batch.get("created_at")
+                else None,
+                "status": batch.get("status"),
+            },
+            "totals": {
+                "files": batch.get("total_files"),
+                "issues": batch.get("total_issues"),
+                "fixedIssues": batch.get("fixed_issues"),
+                "remainingIssues": batch.get("remaining_issues"),
+                "unprocessedFiles": batch.get("unprocessed_files"),
+            },
+            "generatedAt": datetime.utcnow().isoformat() + "Z",
+        }
+
+        zip_buffer = BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            zip_file.writestr(
+                f"{safe_batch_name}/batch_summary.json",
+                json.dumps(export_summary, indent=2, default=str),
+            )
+
+            uploads_dir = Path(UPLOAD_FOLDER)
+            fixed_dir = Path(FIXED_FOLDER)
+
+            for scan_row in scans:
+                scan_export = _to_export_payload(scan_row)
+                sanitized_filename = _sanitize(scan_row.get("filename"), scan_row.get("id"))
+
+                zip_file.writestr(
+                    f"{safe_batch_name}/scans/{sanitized_filename}.json",
+                    json.dumps(scan_export, indent=2, default=str),
+                )
+
+                scan_id = scan_row.get("id")
+                pdf_added = False
+                for folder in [fixed_dir, uploads_dir]:
+                    for candidate in [
+                        folder / f"{scan_id}.pdf",
+                        folder / scan_row.get("filename", ""),
+                    ]:
+                        if candidate and candidate.exists():
+                            arcname = f"{safe_batch_name}/files/{candidate.name}"
+                            zip_file.write(candidate, arcname)
+                            pdf_added = True
+                            print(f"[Backend] Added PDF to export: {candidate}")
+                            break
+                    if pdf_added:
+                        break
+
+                fixed_filename = scan_row.get("fixed_filename")
+                if fixed_filename:
+                    fixed_path = fixed_dir / fixed_filename
+                    if fixed_path.exists():
+                        arcname = f"{safe_batch_name}/fixed/{fixed_filename}"
+                        zip_file.write(fixed_path, arcname)
+                        print(f"[Backend] Added fixed PDF to export: {fixed_path}")
+
+        zip_buffer.seek(0)
+
+        download_name = f"{safe_batch_name}.zip"
+        print(
+            f"[Backend] ✓ Batch export prepared: {download_name} with {len(scans)} scans"
+        )
+
+        return send_file(
+            zip_buffer,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=download_name,
+        )
+
+    except Exception as e:
+        print(f"[Backend] Error exporting batch: {e}")
         import traceback
 
         traceback.print_exc()
