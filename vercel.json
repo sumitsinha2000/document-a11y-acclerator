@@ -5,7 +5,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://your-backend-url.com/api/:path*"
+      "destination": "/api/:path*"
     }
-  ]
+  ],
+  "env": {
+    "NEXT_PUBLIC_BACKEND_URL": "https://your-backend-url.vercel.app",
+    "NEXT_PUBLIC_FRONTEND_URL": "http://localhost:3000"
+  }
 }
