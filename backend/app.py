@@ -108,6 +108,74 @@ def build_verapdf_status(results, analyzer=None):
 
 
 # === Fixed save_scan_to_db ===
+def scan_results_changed(
+    issues_before,
+    summary_before,
+    compliance_before,
+    issues_after,
+    summary_after,
+    compliance_after,
+):
+    """Detect if there is any meaningful change between two scan states."""
+
+    def _normalize_summary(summary):
+        if not isinstance(summary, dict):
+            return {}
+        return summary
+
+    def _normalize_issues(issues):
+        if issues is None:
+            return "{}"
+        if isinstance(issues, (bytes, bytearray, memoryview)):
+            try:
+                issues = issues.decode()
+            except Exception:
+                issues = bytes(issues).decode(errors="ignore")
+        if isinstance(issues, str):
+            return issues
+        try:
+            return json.dumps(issues, sort_keys=True, default=str)
+        except Exception:
+            return str(issues)
+
+    summary_before = _normalize_summary(summary_before)
+    summary_after = _normalize_summary(summary_after)
+
+    def _to_int(value):
+        try:
+            if value is None:
+                return 0
+            return int(round(float(value)))
+        except Exception:
+            return 0
+
+    def _to_float(value):
+        try:
+            if value is None:
+                return 0.0
+            return round(float(value), 2)
+        except Exception:
+            return 0.0
+
+    total_before = _to_int(summary_before.get("totalIssues", 0))
+    total_after = _to_int(summary_after.get("totalIssues", total_before))
+    high_before = _to_int(summary_before.get("highSeverity", 0))
+    high_after = _to_int(summary_after.get("highSeverity", high_before))
+    compliance_before_val = _to_float(compliance_before)
+    compliance_after_val = _to_float(compliance_after)
+
+    if total_before != total_after:
+        return True
+    if high_before != high_after:
+        return True
+    if compliance_before_val != compliance_after_val:
+        return True
+
+    return _normalize_issues(issues_before or {}) != _normalize_issues(
+        issues_after or {}
+    )
+
+
 def save_scan_to_db(
     scan_id, filename, scan_results, batch_id=None, group_id=None, is_update=False
 ):
@@ -580,9 +648,14 @@ def apply_fixes(scan_id):
             except json.JSONDecodeError:
                 initial_scan_results = {}
         issues_before = initial_scan_results.get("results", {})
-        compliance_before = initial_scan_results.get("summary", {}).get(
-            "complianceScore", 0
+        summary_before = (
+            initial_scan_results.get("summary", {})
+            if isinstance(initial_scan_results, dict)
+            else {}
         )
+        compliance_before = summary_before.get("complianceScore", 0)
+        total_issues_before = summary_before.get("totalIssues", 0)
+        high_severity_before = summary_before.get("highSeverity", 0)
 
         tracker = create_progress_tracker(scan_id)
 
@@ -594,6 +667,7 @@ def apply_fixes(scan_id):
                 tracker.complete_all()
 
             fixes_applied = result.get("fixesApplied", [])
+            fixed_filename = result.get("fixedFile") or filename
             if not fixes_applied and result.get("fixedIssues"):
                 fixes_applied = [
                     {
@@ -612,6 +686,19 @@ def apply_fixes(scan_id):
             issues_after = scan_results_after.get("results", {})
             summary_after = scan_results_after.get("summary", {}) or {}
             compliance_after = summary_after.get("complianceScore", compliance_before)
+            total_issues_after = summary_after.get("totalIssues", total_issues_before)
+            high_severity_after = summary_after.get(
+                "highSeverity", high_severity_before
+            )
+
+            changes_detected = scan_results_changed(
+                issues_before=issues_before,
+                summary_before=summary_before,
+                compliance_before=compliance_before,
+                issues_after=issues_after,
+                summary_after=summary_after,
+                compliance_after=compliance_after,
+            )
 
             formatted_results = {
                 "results": issues_after,
@@ -629,25 +716,37 @@ def apply_fixes(scan_id):
                 is_update=True,
             )
 
-            save_success = save_fix_history(
-                scan_id=scan_id,
-                original_filename=original_filename,  # Explicitly pass the filename
-                fixed_filename=filename,  # Use filename from request or generate default
-                fixes_applied=fixes_applied,
-                fix_type="automated",
-                issues_before=issues_before,
-                issues_after=issues_after,
-                compliance_before=compliance_before,
-                compliance_after=compliance_after,
-                fix_suggestions=result.get("suggestions", []),
-                fix_metadata={
-                    "engine_version": "1.0",
-                    "processing_time": result.get("processingTime"),
-                    "success_rate": result.get("successRate"),
-                },
-            )
+            save_success = False
+            if changes_detected:
+                save_success = bool(
+                    save_fix_history(
+                        scan_id=scan_id,
+                        original_filename=original_filename,  # Explicitly pass the filename
+                        fixed_filename=fixed_filename,  # Track the actual fixed filename
+                        fixes_applied=fixes_applied,
+                        fix_type="automated",
+                        issues_before=issues_before,
+                        issues_after=issues_after,
+                        compliance_before=compliance_before,
+                        compliance_after=compliance_after,
+                        total_issues_before=total_issues_before,
+                        total_issues_after=total_issues_after,
+                        high_severity_before=high_severity_before,
+                        high_severity_after=high_severity_after,
+                        fix_suggestions=result.get("suggestions", []),
+                        fix_metadata={
+                            "engine_version": "1.0",
+                            "processing_time": result.get("processingTime"),
+                            "success_rate": result.get("successRate"),
+                        },
+                    )
+                )
+            else:
+                print(
+                    "[Backend] ℹ No changes detected after automated fixes; skipping fix history entry."
+                )
 
-            if not save_success:
+            if changes_detected and not save_success:
                 print(
                     f"[Backend] WARNING: Fix history save failed, but fix was applied successfully"
                 )
@@ -657,11 +756,12 @@ def apply_fixes(scan_id):
             return jsonify(
                 {
                     "status": "success",
-                    "fixedFile": result.get("fixedFile"),
+                    "fixedFile": fixed_filename,
                     "scanResults": scan_results_after,
                     "summary": summary_after,
                     "fixesApplied": fixes_applied,
                     "historyRecorded": save_success,
+                    "changesDetected": changes_detected,
                 }
             )
         else:
@@ -711,9 +811,14 @@ def apply_semi_automated_fixes(scan_id):
             except json.JSONDecodeError:
                 initial_scan_results = {}
         issues_before = initial_scan_results.get("results", {})
-        compliance_before = initial_scan_results.get("summary", {}).get(
-            "complianceScore", 0
+        summary_before = (
+            initial_scan_results.get("summary", {})
+            if isinstance(initial_scan_results, dict)
+            else {}
         )
+        compliance_before = summary_before.get("complianceScore", 0)
+        total_issues_before = summary_before.get("totalIssues", 0)
+        high_severity_before = summary_before.get("highSeverity", 0)
 
         tracker = create_progress_tracker(scan_id)
 
@@ -743,6 +848,20 @@ def apply_semi_automated_fixes(scan_id):
             issues_after = scan_results_after.get("results", {})
             summary_after = scan_results_after.get("summary", {}) or {}
             compliance_after = summary_after.get("complianceScore", compliance_before)
+            total_issues_after = summary_after.get("totalIssues", total_issues_before)
+            high_severity_after = summary_after.get(
+                "highSeverity", high_severity_before
+            )
+            fixed_filename = result.get("fixedFile")
+
+            changes_detected = scan_results_changed(
+                issues_before=issues_before,
+                summary_before=summary_before,
+                compliance_before=compliance_before,
+                issues_after=issues_after,
+                summary_after=summary_after,
+                compliance_after=compliance_after,
+            )
 
             formatted_results = {
                 "results": issues_after,
@@ -760,26 +879,36 @@ def apply_semi_automated_fixes(scan_id):
                 is_update=True,
             )
 
-            save_success = save_fix_history(
-                scan_id=scan_id,
-                original_filename=original_filename,  # Explicitly pass the filename
-                fixed_filename=result.get(
-                    "fixedFile"
-                ),  # Pass the actual fixed file path
-                fixes_applied=fixes_applied,
-                fix_type="semi-automated",
-                issues_before=issues_before,
-                issues_after=issues_after,
-                compliance_before=compliance_before,
-                compliance_after=compliance_after,
-                fix_suggestions=fixes,
-                fix_metadata={
-                    "user_selected_fixes": len(fixes),
-                    "engine_version": "1.0",
-                },
-            )
+            save_success = False
+            if changes_detected:
+                save_success = bool(
+                    save_fix_history(
+                        scan_id=scan_id,
+                        original_filename=original_filename,
+                        fixed_filename=fixed_filename,
+                        fixes_applied=fixes_applied,
+                        fix_type="semi-automated",
+                        issues_before=issues_before,
+                        issues_after=issues_after,
+                        compliance_before=compliance_before,
+                        compliance_after=compliance_after,
+                        total_issues_before=total_issues_before,
+                        total_issues_after=total_issues_after,
+                        high_severity_before=high_severity_before,
+                        high_severity_after=high_severity_after,
+                        fix_suggestions=fixes,
+                        fix_metadata={
+                            "user_selected_fixes": len(fixes),
+                            "engine_version": "1.0",
+                        },
+                    )
+                )
+            else:
+                print(
+                    "[Backend] ℹ No changes detected after semi-automated fixes; skipping fix history entry."
+                )
 
-            if not save_success:
+            if changes_detected and not save_success:
                 print(
                     f"[Backend] WARNING: Fix history save failed, but fix was applied successfully"
                 )
@@ -794,6 +923,7 @@ def apply_semi_automated_fixes(scan_id):
                     "summary": summary_after,
                     "fixesApplied": fixes_applied,
                     "historyRecorded": save_success,
+                    "changesDetected": changes_detected,
                 }
             )
         else:
@@ -1033,15 +1163,44 @@ def get_fix_history(scan_id):
     try:
         print(f"[Backend] 📜 Fetching fix history for scan: {scan_id}")
 
+        def _deserialize_json(value, default):
+            if value in (None, "", b"", bytearray()):
+                return default
+            if isinstance(value, (dict, list)):
+                return value
+            if isinstance(value, memoryview):
+                value = value.tobytes()
+            if isinstance(value, (bytes, bytearray)):
+                value = value.decode()
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except json.JSONDecodeError:
+                    print(f"[Backend] Warning: Failed to decode JSON field, returning default")
+            return default
+
         conn = get_db_connection()
         c = conn.cursor()
 
         query = """
             SELECT 
-                id, scan_id, original_file, fixed_file, 
-                fixes_applied, applied_at, fix_type,
-                total_issues_before, total_issues_after,
-                compliance_before, compliance_after
+                id,
+                scan_id,
+                original_file,
+                original_filename,
+                fixed_file,
+                fixed_filename,
+                fixes_applied,
+                fix_suggestions,
+                issues_before,
+                issues_after,
+                fix_metadata,
+                applied_at,
+                fix_type,
+                total_issues_before,
+                total_issues_after,
+                compliance_before,
+                compliance_after
             FROM fix_history
             WHERE scan_id = %s
             ORDER BY applied_at DESC
@@ -1055,15 +1214,24 @@ def get_fix_history(scan_id):
 
         history = []
         for row in results:
+            fixes_applied = _deserialize_json(row.get("fixes_applied"), [])
+            issues_before = _deserialize_json(row.get("issues_before"), {})
+            issues_after = _deserialize_json(row.get("issues_after"), {})
+            fix_metadata = _deserialize_json(row.get("fix_metadata"), {})
+            fix_suggestions = _deserialize_json(row.get("fix_suggestions"), [])
+
             history.append(
                 {
                     "id": row["id"],
                     "scanId": row["scan_id"],
-                    "originalFilename": row["original_file"],
-                    "fixedFilename": row["fixed_file"],
-                    "fixesApplied": json.loads(row["fixes_applied"])
-                    if row["fixes_applied"]
-                    else [],
+                    "originalFilename": row.get("original_filename")
+                    or row.get("original_file"),
+                    "fixedFilename": row.get("fixed_filename") or row.get("fixed_file"),
+                    "fixesApplied": fixes_applied,
+                    "issuesBefore": issues_before,
+                    "issuesAfter": issues_after,
+                    "fixSuggestions": fix_suggestions,
+                    "metadata": fix_metadata,
                     "appliedAt": row["applied_at"].isoformat()
                     if row["applied_at"]
                     else None,

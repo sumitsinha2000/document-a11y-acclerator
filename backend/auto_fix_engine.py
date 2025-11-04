@@ -917,14 +917,14 @@ class AutoFixEngine:
                 try:
                     os.remove(temp_path)
                     print(f"[AutoFixEngine] Cleaned up temp file")
-                except:
-                    pass
+                except Exception as cleanup_e:
+                    print(f"[AutoFixEngine] Warning cleaning temp file: {cleanup_e}")
             
             if pdf:
                 try:
                     pdf.close()
-                except:
-                    pass
+                except Exception as close_e:
+                    print(f"[AutoFixEngine] Warning closing PDF: {close_e}")
             
             return {
                 'success': False,
@@ -1125,14 +1125,14 @@ class AutoFixEngine:
                 try:
                     os.remove(temp_path)
                     print(f"[AutoFixEngine] Cleaned up temp file")
-                except:
-                    pass
+                except Exception as cleanup_e:
+                    print(f"[AutoFixEngine] Warning cleaning temp file: {cleanup_e}")
             
             if pdf:
                 try:
                     pdf.close()
-                except:
-                    pass
+                except Exception as close_e:
+                    print(f"[AutoFixEngine] Warning closing PDF: {close_e}")
             
             return {
                 'success': False,
