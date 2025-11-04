@@ -88,17 +88,23 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
 
   return (
     <div className="space-y-3">
-      <label className="block text-sm font-semibold text-gray-900 dark:text-white">
+      <label className="block text-sm font-semibold text-gray-900 dark:text-white" id="Selectgroup" htmlFor="groupSelect">
         Select Group {required && <span className="text-red-500">*</span>}
       </label>
 
       {!isCreatingNew ? (
         <div className="space-y-2">
           <select
+            id="groupSelect"
+            name="group"
             value={selectedGroup || ""}
             onChange={(e) => onGroupChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
+                 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm
+                 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             required={required}
+            aria-describedby="groupHelp"
+            autoComplete="on"
           >
             <option value="">-- Select a group --</option>
             {groups.map((group) => (
@@ -108,46 +114,86 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
             ))}
           </select>
 
+          <p
+            id="groupHelp"
+            className="text-xs text-gray-600 dark:text-gray-400 mt-1"
+          >
+            Choose an existing group or create a new one.
+          </p>
+
           <button
             type="button"
             onClick={() => setIsCreatingNew(true)}
-            className="w-full px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+            className="w-full px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400
+                 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800
+                 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors
+                 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                 dark:focus:ring-offset-gray-800"
           >
             + Create New Group
           </button>
         </div>
       ) : (
-        <div className="space-y-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
+        <div
+          className="space-y-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
+          role="form"
+          aria-labelledby="createGroupHeading"
+        >
+          <h3
+            id="createGroupHeading"
+            className="text-sm font-semibold text-gray-800 dark:text-gray-100"
+          >
+            Create a New Group
+          </h3>
+
           <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label
+              htmlFor="newGroupName"
+              className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
               Group Name <span className="text-red-500">*</span>
             </label>
             <input
+              id="newGroupName"
               type="text"
               value={newGroupName}
               onChange={(e) => setNewGroupName(e.target.value)}
               placeholder="e.g., Q1 Reports, Legal Documents"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
+                   bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2
+                   focus:ring-blue-500 focus:border-transparent text-sm"
               disabled={loading}
+              required
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label
+              htmlFor="newGroupDescription"
+              className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
               Description (Optional)
             </label>
             <textarea
+              id="newGroupDescription"
               value={newGroupDescription}
               onChange={(e) => setNewGroupDescription(e.target.value)}
               placeholder="Brief description of this group"
               rows={2}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm resize-none"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
+                   bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2
+                   focus:ring-blue-500 focus:border-transparent text-sm resize-none"
               disabled={loading}
             />
           </div>
 
+          {/* Accessible Error Handling */}
           {error && (
-            <p className="text-xs text-red-600 dark:text-red-400" role="alert">
+            <p
+              className="text-xs text-red-600 dark:text-red-400"
+              role="alert"
+              aria-live="assertive"
+            >
               {error}
             </p>
           )}
@@ -157,15 +203,24 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
               type="button"
               onClick={handleCreateGroup}
               disabled={loading || !newGroupName.trim()}
-              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg
+                   hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
+                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                   dark:focus:ring-offset-gray-800 transition-colors"
             >
               {loading ? "Creating..." : "Create Group"}
             </button>
+
             <button
               type="button"
               onClick={handleCancelCreate}
               disabled={loading}
-              className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300
+                   bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600
+                   rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700
+                   disabled:opacity-50 disabled:cursor-not-allowed
+                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                   dark:focus:ring-offset-gray-800 transition-colors"
             >
               Cancel
             </button>

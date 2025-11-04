@@ -126,8 +126,8 @@ export default function PDFGenerator() {
             customizable options.
           </p>
 
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">PDF Type</label>
+          <fieldset className="mb-6">
+            <legend className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">PDF Type</legend>
             <div className="grid grid-cols-2 gap-4">
               <button
                 onClick={() => setPdfType("accessible")}
@@ -175,7 +175,7 @@ export default function PDFGenerator() {
                 </p>
               </button>
             </div>
-          </div>
+          </fieldset>
 
           {pdfType === "inaccessible" && (
             <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-lg">
@@ -190,40 +190,57 @@ export default function PDFGenerator() {
                   { key: "rasterizedText", label: "Rasterized Text", desc: "Text as images (not selectable)" },
                   { key: "improperHeadings", label: "Improper Headings", desc: "Incorrect heading hierarchy" },
                   { key: "noLanguage", label: "No Language Declaration", desc: "Missing document language" },
-                ].map((option) => (
-                  <label
-                    key={option.key}
-                    className="flex items-start gap-3 p-3 bg-white dark:bg-gray-800 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={accessibilityOptions[option.key]}
-                      onChange={() => toggleOption(option.key)}
-                      className="mt-1 w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
-                    />
-                    <div className="flex-1">
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">{option.label}</div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400">{option.desc}</div>
-                    </div>
-                  </label>
-                ))}
+                ].map((option) => {
+                  const inputId = `accessibility-${option.key}`
+                  const descriptionId = `${inputId}-description`
+                  return (
+                    <label
+                      key={option.key}
+                      htmlFor={inputId}
+                      className="flex items-start gap-3 p-3 bg-white dark:bg-gray-800 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <input
+                        id={inputId}
+                        name={inputId}
+                        type="checkbox"
+                        checked={accessibilityOptions[option.key]}
+                        onChange={() => toggleOption(option.key)}
+                        className="mt-1 w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                        aria-describedby={descriptionId}
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">{option.label}</div>
+                        <div id={descriptionId} className="text-xs text-gray-600 dark:text-gray-400">
+                          {option.desc}
+                        </div>
+                      </div>
+                    </label>
+                  )
+                })}
               </div>
             </div>
           )}
 
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Company Name</label>
+            <label htmlFor="companyName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Company Name
+            </label>
             <input
+              id="companyName"
+              name="companyName"
               type="text"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               placeholder="Enter company name"
+              autoComplete="organization"
             />
           </div>
 
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Services</label>
+            <label htmlFor="serviceInput" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Services
+            </label>
 
             <div className="space-y-2 mb-3">
               {services.map((service, index) => (
@@ -244,12 +261,15 @@ export default function PDFGenerator() {
 
             <div className="flex gap-2">
               <input
+                id="serviceInput"
+                name="serviceInput"
                 type="text"
                 value={newService}
                 onChange={(e) => setNewService(e.target.value)}
                 onKeyPress={(e) => e.key === "Enter" && handleAddService()}
                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                 placeholder="Add a service"
+                autoComplete="off"
               />
               <button
                 onClick={handleAddService}

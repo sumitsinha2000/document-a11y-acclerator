@@ -312,15 +312,14 @@ export default function UploadArea({ onScanComplete }) {
           </aside>
 
           {/* Right Column: Upload Interface */}
-          <main className="lg:col-span-8" aria-label="File upload">
+          <div className="lg:col-span-8" aria-label="File upload">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 lg:p-8 transition-colors">
               <div
                 ref={uploadAreaRef}
-                className={`relative border-2 border-dashed rounded-xl p-12 lg:p-16 text-center transition-all cursor-pointer focus-within:ring-2 focus-within:ring-primary-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-800 ${
-                  isDragging
+                className={`relative border-2 border-dashed rounded-xl p-12 lg:p-16 text-center transition-all cursor-pointer focus-within:ring-2 focus-within:ring-primary-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-800 ${isDragging
                     ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20 scale-[1.02]"
                     : "border-gray-300 dark:border-gray-600 hover:border-primary-400 dark:hover:border-primary-500 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                } ${isScanning ? "pointer-events-none opacity-75" : ""}`}
+                  } ${isScanning ? "pointer-events-none opacity-75" : ""}`}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
@@ -369,7 +368,7 @@ export default function UploadArea({ onScanComplete }) {
                     <p className="mt-2 text-base text-gray-600 dark:text-gray-400" id="upload-instructions">
                       Drag and drop your PDFs here or click to browse
                     </p>
-                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-500">
+                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
                       You can select multiple files at once
                     </p>
                     <input
@@ -611,7 +610,7 @@ export default function UploadArea({ onScanComplete }) {
                 </ul>
               </div>
             </div>
-          </main>
+          </div>
         </div>
       </div>
 

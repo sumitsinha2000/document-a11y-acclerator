@@ -205,7 +205,10 @@ export default function GroupTreeSidebar({
   }
 
   return (
-    <div className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 h-full overflow-y-auto">
+    <aside
+      className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 h-full overflow-y-auto"
+      aria-label="Group navigation"
+    >
       <div className="p-4 border-b border-slate-200 dark:border-slate-700">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -266,12 +269,13 @@ export default function GroupTreeSidebar({
               return (
                 <div key={group.id} className="space-y-1">
                   {/* Group Node */}
-                  <div
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                  <button
+                    type="button"
+                    className={`flex w-full items-center gap-2 px-3 py-2 rounded-lg transition-colors text-left ${
                       isSelected
                         ? "bg-violet-50 dark:bg-violet-900/20 border border-violet-500"
                         : "hover:bg-slate-100 dark:hover:bg-slate-700"
-                    }`}
+                    } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500`}
                     onClick={() => {
                       toggleGroup(group.id);
                       handleNodeClick({
@@ -280,65 +284,67 @@ export default function GroupTreeSidebar({
                         data: group,
                       });
                     }}
+                    aria-expanded={isExpanded}
+                    aria-controls={`group-${group.id}-panel`}
+                    aria-current={isSelected ? "true" : undefined}
                   >
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleGroup(group.id);
-                      }}
-                      className="flex-shrink-0"
+                    <span
+                      className={`flex-shrink-0 text-slate-400 dark:text-slate-500 transition-transform ${
+                        isExpanded ? "rotate-90" : ""
+                      }`}
                     >
                       <svg
-                        className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform ${
-                          isExpanded ? "rotate-90" : ""
-                        }`}
+                        className="w-4 h-4"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                    <span
+                      className={`flex-shrink-0 ${
+                        isSelected
+                          ? "text-violet-600 dark:text-violet-400"
+                          : "text-slate-400 dark:text-slate-500"
+                      }`}
+                    >
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        focusable="false"
                       >
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           strokeWidth={2}
-                          d="M9 5l7 7-7 7"
+                          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
                         />
                       </svg>
-                    </button>
-                    <svg
-                      className={`w-5 h-5 flex-shrink-0 ${
-                        isSelected
-                          ? "text-violet-600 dark:text-violet-400"
-                          : "text-slate-400 dark:text-slate-500"
-                      }`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                      />
-                    </svg>
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={`text-sm font-medium truncate ${
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span
+                        className={`block text-sm font-medium truncate ${
                           isSelected
                             ? "text-violet-900 dark:text-violet-100"
                             : "text-slate-700 dark:text-slate-300"
                         }`}
                       >
                         {group.name}
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
                         {group.fileCount || 0} files, {group.batchCount || 0} batches
-                      </p>
-                    </div>
-                  </div>
+                      </span>
+                    </span>
+                  </button>
 
                   {isExpanded && (
-                    <div className="ml-6 space-y-1">
+                    <div id={`group-${group.id}-panel`} className="ml-6 space-y-1">
                       {/* Batches Section */}
                       {batches.length > 0 && (
                         <div className="space-y-1">
@@ -351,13 +357,14 @@ export default function GroupTreeSidebar({
                               selectedNode?.id === batch.batchId;
 
                             return (
-                              <div
+                              <button
+                                type="button"
                                 key={batch.batchId}
-                                className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                                className={`flex w-full items-center gap-2 px-3 py-2 rounded-lg transition-colors text-left ${
                                   isBatchSelected
                                     ? "bg-purple-50 dark:bg-purple-900/20 border border-purple-500"
                                     : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
-                                }`}
+                                } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500`}
                                 onClick={() =>
                                   handleNodeClick({
                                     type: "batch",
@@ -365,39 +372,46 @@ export default function GroupTreeSidebar({
                                     data: batch,
                                   })
                                 }
+                                aria-current={isBatchSelected ? "true" : undefined}
                               >
-                                <svg
-                                  className={`w-4 h-4 flex-shrink-0 ${
+                                <span
+                                  className={`flex-shrink-0 ${
                                     isBatchSelected
                                       ? "text-purple-600 dark:text-purple-400"
                                       : "text-slate-400 dark:text-slate-500"
                                   }`}
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
                                 >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                                  />
-                                </svg>
-                                <div className="flex-1 min-w-0">
-                                  <p
-                                    className={`text-sm truncate ${
+                                  <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                    focusable="false"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                                    />
+                                  </svg>
+                                </span>
+                                <span className="flex-1 min-w-0">
+                                  <span
+                                    className={`block text-sm truncate ${
                                       isBatchSelected
                                         ? "text-purple-900 dark:text-purple-100"
                                         : "text-slate-600 dark:text-slate-400"
                                     }`}
                                   >
                                     {batch.name}
-                                  </p>
-                                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                                  </span>
+                                  <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
                                     {batch.fileCount} files
-                                  </p>
-                                </div>
-                              </div>
+                                  </span>
+                                </span>
+                              </button>
                             );
                           })}
                         </div>
@@ -415,13 +429,14 @@ export default function GroupTreeSidebar({
                               selectedNode?.id === file.id;
 
                             return (
-                              <div
+                              <button
+                                type="button"
                                 key={file.id}
-                                className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                                className={`flex w-full items-center gap-2 px-3 py-2 rounded-lg transition-colors text-left ${
                                   isFileSelected
                                     ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-500"
                                     : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
-                                }`}
+                                } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500`}
                                 onClick={() =>
                                   handleNodeClick({
                                     type: "file",
@@ -429,37 +444,44 @@ export default function GroupTreeSidebar({
                                     data: file,
                                   })
                                 }
+                                aria-current={isFileSelected ? "true" : undefined}
                               >
-                                <svg
-                                  className={`w-4 h-4 flex-shrink-0 ${
+                                <span
+                                  className={`flex-shrink-0 ${
                                     isFileSelected
                                       ? "text-blue-600 dark:text-blue-400"
                                       : "text-slate-400 dark:text-slate-500"
                                   }`}
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
                                 >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                  />
-                                </svg>
-                                <div className="flex-1 min-w-0">
-                                  <p
-                                    className={`text-sm truncate ${
+                                  <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                    focusable="false"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                    />
+                                  </svg>
+                                </span>
+                                <span className="flex-1 min-w-0">
+                                  <span
+                                    className={`block text-sm truncate ${
                                       isFileSelected
                                         ? "text-blue-900 dark:text-blue-100"
                                         : "text-slate-600 dark:text-slate-400"
                                     }`}
                                   >
                                     {file.filename}
-                                  </p>
+                                  </span>
                                   {file.status && (
                                     <span
-                                      className={`inline-block mt-0.5 px-1.5 py-0.5 text-xs font-medium rounded ${
+                                      className={`mt-0.5 inline-block px-1.5 py-0.5 text-xs font-medium rounded ${
                                         file.status === "fixed"
                                           ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                                           : file.status === "processed"
@@ -472,8 +494,8 @@ export default function GroupTreeSidebar({
                                       {file.status}
                                     </span>
                                   )}
-                                </div>
-                              </div>
+                                </span>
+                              </button>
                             );
                           })}
                         </div>
@@ -492,6 +514,6 @@ export default function GroupTreeSidebar({
           </div>
         )}
       </div>
-    </div>
+    </aside>
   );
 }

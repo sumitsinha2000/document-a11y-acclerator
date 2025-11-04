@@ -299,8 +299,10 @@ function AppContent() {
 
               {/* User Menu */}
               <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg">
-                <div className="w-9 h-9 rounded-full bg-gradient-indigo flex items-center justify-center text-white text-base font-bold">
+                <div className="w-9 h-9 rounded-full bg-gradient-indigo p-px">
+                  <span className="flex h-full w-full items-center justify-center rounded-full bg-indigo-700 text-white text-base font-bold">
                   U
+                  </span>
                 </div>
                 <span className="text-base font-semibold text-slate-800 dark:text-slate-200">User</span>
               </div>
