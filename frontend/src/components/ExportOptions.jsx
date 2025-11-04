@@ -1,6 +1,15 @@
 "use client"
 
 import axios from "axios"
+import {
+  buildDescriptionWithClause,
+  getIssuePrimaryText,
+  getIssueRecommendation,
+  getIssuePagesText,
+  getIssueClause,
+  getRecommendationLabel,
+  escapeCsvValue,
+} from "../utils/exportUtils"
 
 export default function ExportOptions({ scanId, filename }) {
   const handleExportJSON = async () => {
@@ -27,8 +36,18 @@ export default function ExportOptions({ scanId, filename }) {
 
       Object.entries(data.results).forEach(([category, issues]) => {
         issues.forEach((issue) => {
-          const pages = issue.pages ? issue.pages.join(";") : issue.page || "N/A"
-          const row = [category, issue.severity, `"${issue.description}"`, pages, `"${issue.recommendation}"`].join(",")
+          const severity = issue.severity || "medium"
+          const description = buildDescriptionWithClause(issue)
+          const pages = getIssuePagesText(issue)
+          const recommendation = getIssueRecommendation(issue)
+
+          const row = [
+            escapeCsvValue(category),
+            escapeCsvValue(severity),
+            escapeCsvValue(description),
+            escapeCsvValue(pages),
+            escapeCsvValue(recommendation),
+          ].join(",")
           csv += row + "\n"
         })
       })
@@ -102,15 +121,25 @@ export default function ExportOptions({ scanId, filename }) {
       Object.entries(data.results).forEach(([category, issues]) => {
         html += `<div class="issue-category"><h2>${category}</h2>`
         issues.forEach((issue) => {
-          const pages = issue.pages ? issue.pages.join(", ") : issue.page || "N/A"
+          const severity = (issue.severity || "medium").toLowerCase()
+          const pages = getIssuePagesText(issue)
+          const description = getIssuePrimaryText(issue)
+          const clause = getIssueClause(issue)
+          const recommendation = getIssueRecommendation(issue)
+          const recommendationLabel = getRecommendationLabel(issue)
           html += `
-    <div class="issue-item ${issue.severity}">
-      <span class="severity ${issue.severity}">${issue.severity.toUpperCase()}</span>
-      <p><strong>${issue.description}</strong></p>
+    <div class="issue-item ${severity}">
+      <span class="severity ${severity}">${severity.toUpperCase()}</span>
+      <p><strong>${description}</strong></p>
       <p>Pages: ${pages}</p>
-      <div class="recommendation">
-        <strong>Recommendation:</strong> ${issue.recommendation}
-      </div>
+      ${clause ? `<p><strong>Clause:</strong> ${clause}</p>` : ""}
+      ${
+        recommendation
+          ? `<div class="recommendation">
+        <strong>${recommendationLabel}:</strong> ${recommendation}
+      </div>`
+          : ""
+      }
     </div>
 `
         })

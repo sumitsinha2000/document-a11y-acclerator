@@ -5,6 +5,15 @@ import axios from "axios"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { useNotification } from "../contexts/NotificationContext"
+import {
+  buildDescriptionWithClause,
+  escapeCsvValue,
+  getIssuePrimaryText,
+  getIssuePagesText,
+  getIssueRecommendation,
+  getIssueClause,
+  getRecommendationLabel,
+} from "../utils/exportUtils"
 
 export default function ExportDropdown({ scanId, filename }) {
   const { showError } = useNotification()
@@ -38,10 +47,19 @@ export default function ExportDropdown({ scanId, filename }) {
         let csv = "Issue Category,Severity,Description,Pages,Recommendation\n"
         Object.entries(data.results).forEach(([category, issues]) => {
           issues.forEach((issue) => {
-            const pages = issue.pages ? issue.pages.join(";") : issue.page || "N/A"
-            const row = [category, issue.severity, `"${issue.description}"`, pages, `"${issue.recommendation}"`].join(
-              ",",
-            )
+            const severity = (issue.severity || "medium").toString()
+            const description = buildDescriptionWithClause(issue)
+            const pages = getIssuePagesText(issue)
+            const recommendation = getIssueRecommendation(issue)
+
+            const row = [
+              escapeCsvValue(category),
+              escapeCsvValue(severity),
+              escapeCsvValue(description),
+              escapeCsvValue(pages),
+              escapeCsvValue(recommendation),
+            ].join(",")
+
             csv += row + "\n"
           })
         })
@@ -154,13 +172,19 @@ export default function ExportDropdown({ scanId, filename }) {
 
         // Issues table
         const issuesData = issues.map((issue) => {
-          const pages = issue.pages ? issue.pages.join(", ") : issue.page || "N/A"
-          return [
-            issue.severity || "Medium",
-            issue.description || issue.title || "Issue",
-            pages,
-            issue.recommendation || "N/A",
-          ]
+          const severityValue = (issue.severity || "medium").toString().toLowerCase()
+          const severityDisplay = severityValue.charAt(0).toUpperCase() + severityValue.slice(1)
+          const description = getIssuePrimaryText(issue)
+          const clause = getIssueClause(issue)
+          const descriptionWithClause = clause ? `${description} (Clause: ${clause})` : description
+          const pages = getIssuePagesText(issue)
+          const recommendation = getIssueRecommendation(issue)
+          const recommendationLabel = getRecommendationLabel(issue)
+          const recommendationCell = recommendation
+            ? `${recommendationLabel || "Recommendation"}: ${recommendation}`
+            : "N/A"
+
+          return [severityDisplay, descriptionWithClause, pages, recommendationCell]
         })
 
         autoTable(doc, {
@@ -228,22 +252,31 @@ export default function ExportDropdown({ scanId, filename }) {
           <div class="category-section">
             <h2>${category.replace(/([A-Z])/g, " $1").trim()}</h2>
             ${issues
-              .map(
-                (issue) => `
-              <div class="issue-item ${issue.severity || "medium"}">
+              .map((issue) => {
+                const severityValue = (issue.severity || "medium").toString().toLowerCase()
+                const severityDisplay = severityValue.charAt(0).toUpperCase() + severityValue.slice(1)
+                const description = getIssuePrimaryText(issue)
+                const clause = getIssueClause(issue)
+                const pages = getIssuePagesText(issue)
+                const showPages = pages && pages !== "N/A"
+                const recommendation = getIssueRecommendation(issue)
+                const recommendationLabel = getRecommendationLabel(issue) || "Recommendation"
+
+                return `
+              <div class="issue-item ${severityValue}">
                 <div class="issue-header">
-                  <span class="severity-badge ${issue.severity || "medium"}">${issue.severity || "Medium"}</span>
-                  <span class="issue-title">${issue.description || issue.title || "Issue"}</span>
+                  <span class="severity-badge ${severityValue}">${severityDisplay}</span>
+                  <span class="issue-title">${description}</span>
                 </div>
                 <div class="issue-details">
-                  ${issue.page ? `<p><strong>Page:</strong> ${issue.page}</p>` : ""}
-                  ${issue.pages ? `<p><strong>Pages:</strong> ${issue.pages.join(", ")}</p>` : ""}
-                  ${issue.recommendation ? `<p><strong>Recommendation:</strong> ${issue.recommendation}</p>` : ""}
+                  ${showPages ? `<p><strong>Pages:</strong> ${pages}</p>` : ""}
+                  ${clause ? `<p><strong>Clause:</strong> ${clause}</p>` : ""}
+                  ${recommendation ? `<p><strong>${recommendationLabel}:</strong> ${recommendation}</p>` : ""}
                   ${issue.wcagCriteria ? `<p><strong>WCAG Criteria:</strong> ${issue.wcagCriteria}</p>` : ""}
                 </div>
               </div>
-            `,
-              )
+            `
+              })
               .join("")}
           </div>
         `
