@@ -23,30 +23,71 @@ export default function GroupTreeSidebar({
     try {
       setLoading(true);
       setError(null);
+
       const response = await axios.get("/api/groups");
-      const fetchedGroups = response.data.groups || [];
-      setGroups(fetchedGroups);
+      const fetchedGroupsRaw = response.data.groups || [];
 
-  if (fetchedGroups.length > 0) {
-  const firstGroup = fetchedGroups[0]
-  const firstGroupId = firstGroup.id
+      const normalizedGroups = fetchedGroupsRaw.map((group) => ({
+        ...group,
+        fileCount: group.fileCount ?? group.file_count ?? 0,
+        batchCount: group.batchCount ?? group.batch_count ?? 0,
+      }));
 
-  // Expand the first group by default
-  setExpandedGroups(new Set([firstGroupId]))
+      setGroupFiles({});
 
-  // Fetch its files and batches
-  await fetchGroupData(firstGroupId)
+      if (normalizedGroups.length === 0) {
+        setGroups([]);
+        setGroupBatches({});
+        setExpandedGroups(new Set());
+        return;
+      }
 
-  // 🆕 Notify parent dashboard so it shows group data immediately
-  if (onNodeSelect) {
-    onNodeSelect({
-      type: "group",
-      id: firstGroupId,
-      data: firstGroup,
-    })
-  }
-}
+      let batchesByGroup = normalizedGroups.reduce((acc, group) => {
+        acc[group.id] = [];
+        return acc;
+      }, {});
 
+      try {
+        const historyResponse = await axios.get("/api/history");
+        const allBatches = historyResponse.data.batches || [];
+
+        batchesByGroup = allBatches.reduce((acc, batch) => {
+          if (!batch.groupId) {
+            return acc;
+          }
+          if (!acc[batch.groupId]) {
+            acc[batch.groupId] = [];
+          }
+          acc[batch.groupId].push(batch);
+          return acc;
+        }, batchesByGroup);
+      } catch (historyError) {
+        console.error("[v0] Error fetching batch history:", historyError);
+      }
+
+      setGroupBatches(batchesByGroup);
+
+      const groupsWithCounts = normalizedGroups.map((group) => ({
+        ...group,
+        batchCount: batchesByGroup[group.id]?.length || group.batchCount || 0,
+      }));
+
+      setGroups(groupsWithCounts);
+
+      const firstGroup = groupsWithCounts[0];
+      const firstGroupId = firstGroup.id;
+
+      setExpandedGroups(new Set([firstGroupId]));
+
+      await fetchGroupData(firstGroupId, batchesByGroup[firstGroupId]);
+
+      if (onNodeSelect) {
+        onNodeSelect({
+          type: "group",
+          id: firstGroupId,
+          data: firstGroup,
+        });
+      }
     } catch (error) {
       console.error("[v0] Error fetching groups:", error);
       setError("Failed to load groups");
@@ -55,31 +96,42 @@ export default function GroupTreeSidebar({
     }
   };
 
-  const fetchGroupData = async (groupId) => {
+  const fetchGroupData = async (groupId, prefetchedBatches = null) => {
     try {
       const filesResponse = await axios.get(`/api/groups/${groupId}/files`);
+      const files = filesResponse.data.files || [];
       setGroupFiles((prev) => ({
         ...prev,
-        [groupId]: filesResponse.data.files || [],
+        [groupId]: files,
       }));
 
-      const historyResponse = await axios.get(`/api/history`);
-      const allBatches = historyResponse.data.batches || [];
+      let batchesForGroup = Array.isArray(prefetchedBatches)
+        ? prefetchedBatches
+        : null;
 
-      const groupBatchesData = allBatches.filter(
-        (batch) => batch.groupId === groupId
-      );
-    setGroupBatches((prev) => ({
+      if (!batchesForGroup) {
+        const historyResponse = await axios.get(`/api/history`);
+        const allBatches = historyResponse.data.batches || [];
+        batchesForGroup = allBatches.filter(
+          (batch) => batch.groupId === groupId
+        );
+      }
+
+      setGroupBatches((prev) => ({
         ...prev,
-        [groupId]: groupBatchesData,
+        [groupId]: batchesForGroup,
       }));
       setGroups((prev) =>
         prev.map((g) =>
-            g.id === groupId
-            ? { ...g, fileCount: (filesResponse.data.files || []).length, batchCount: groupBatchesData.length }
+          g.id === groupId
+            ? {
+                ...g,
+                fileCount: files.length,
+                batchCount: batchesForGroup.length,
+              }
             : g
         )
-        )
+      );
     } catch (error) {
       console.error(`[v0] Error fetching data for group ${groupId}:`, error);
     }
@@ -91,7 +143,7 @@ export default function GroupTreeSidebar({
       newExpanded.delete(groupId);
     } else {
       newExpanded.add(groupId);
-      await fetchGroupData(groupId);
+      await fetchGroupData(groupId, groupBatches[groupId] || null);
     }
     setExpandedGroups(newExpanded);
   };
