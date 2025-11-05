@@ -170,7 +170,7 @@ function AppContent() {
                   </svg>
                 </div>
                 <div className="min-w-0">
-                  <h1 className="text-xl font-bold text-slate-900 dark:text-white truncate">Doc A11y Accelerator</h1>
+                  <p className="text-xl font-bold text-slate-900 dark:text-white truncate">Doc A11y Accelerator</p>
                   <p className="text-sm text-slate-600 dark:text-slate-400 truncate">PDF Accessibility Scanner</p>
                 </div>
               </div>
@@ -299,10 +299,8 @@ function AppContent() {
 
               {/* User Menu */}
               <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg">
-                <div className="w-9 h-9 rounded-full bg-gradient-indigo p-px">
-                  <span className="flex h-full w-full items-center justify-center rounded-full bg-indigo-700 text-white text-base font-bold">
-                  U
-                  </span>
+                <div className="w-9 h-9 rounded-full bg-indigo-700 text-white flex items-center justify-center">
+                  <span className="text-base font-bold">U</span>
                 </div>
                 <span className="text-base font-semibold text-slate-800 dark:text-slate-200">User</span>
               </div>

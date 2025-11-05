@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useId } from "react"
 import axios from "axios"
 import ReportViewer from "./ReportViewer"
 import { ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Info } from "lucide-react"
@@ -23,6 +23,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   const [scansState, setScansState] = useState(scans || [])
   const { showSuccess, showError, showWarning, showInfo, confirm } = useNotification()
   const fetchedScanIdsRef = useRef(new Set())
+  const searchInputId = useId()
+  const itemsPerPageId = useId()
 
   useEffect(() => {
     const fetchBatchData = async () => {
@@ -457,7 +459,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
             <button
               onClick={handleFixAll}
               disabled={fixing}
-              className="px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg"
+              className="px-6 py-3.5 bg-indigo-700 hover:bg-indigo-800 focus-visible:bg-indigo-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg transition-colors"
             >
               {fixing ? (
                 <>
@@ -476,7 +478,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
             <button
               onClick={handleExportBatch}
               disabled={exporting}
-              className="px-6 py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg"
+              className="px-6 py-3.5 bg-emerald-700 hover:bg-emerald-800 focus-visible:bg-emerald-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg transition-colors"
             >
               {exporting ? (
                 <>
@@ -539,13 +541,21 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
           {/* Table Controls */}
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-base font-semibold text-gray-700 dark:text-gray-300">Show</span>
+              <label
+                htmlFor={itemsPerPageId}
+                className="text-base font-semibold text-gray-700 dark:text-gray-300"
+              >
+                Show
+              </label>
               <select
+                id={itemsPerPageId}
+                name="itemsPerPage"
                 value={itemsPerPage}
                 onChange={(e) => {
                   setItemsPerPage(Number(e.target.value))
                   setCurrentPage(1)
                 }}
+                autoComplete="off"
                 className="px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-base font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value={10}>10</option>
@@ -556,30 +566,40 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value)
-                    setCurrentPage(1)
-                  }}
-                  placeholder="Search..."
-                  className="pl-11 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-300 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
-                />
-                <svg
-                  className="absolute left-3 top-3.5 w-5 h-5 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+              <div className="flex flex-col">
+                <label
+                  htmlFor={searchInputId}
+                  className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  Search files
+                </label>
+                <div className="relative">
+                  <input
+                    id={searchInputId}
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value)
+                      setCurrentPage(1)
+                    }}
+                    placeholder="Search files"
+                    autoComplete="off"
+                    className="pl-11 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-300 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
                   />
-                </svg>
+                  <svg
+                    className="pointer-events-none absolute left-3 top-3.5 w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </div>
               </div>
 
               <button
