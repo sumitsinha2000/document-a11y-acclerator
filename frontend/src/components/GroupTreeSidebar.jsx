@@ -536,13 +536,15 @@ export default function GroupTreeSidebar({
                                         file.status === "fixed"
                                           ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                                           : file.status === "processed"
-                                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                          : file.status === "compliant"
-                                          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                            : file.status === "compliant"
+                                              ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                              : file.status === "uploaded"
+                                                ? "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200"
+                                                : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
                                       }`}
                                     >
-                                      {file.status}
+                                      {file.status === "uploaded" ? "Uploaded" : file.status}
                                     </span>
                                   )}
                                 </span>

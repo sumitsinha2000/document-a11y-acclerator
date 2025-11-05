@@ -8,6 +8,7 @@ export const API_ENDPOINTS = {
   scans: `${API_BASE_URL}/api/scans`,
   history: `${API_BASE_URL}/api/history`,
   scanDetails: (scanId) => `${API_BASE_URL}/api/scan/${scanId}`,
+  startScan: (scanId) => `${API_BASE_URL}/api/scan/${scanId}/start`,
   batchDetails: (batchId) => `${API_BASE_URL}/api/batch/${batchId}`,
   batchFixAll: (batchId) => `${API_BASE_URL}/api/batch/${batchId}/fix-all`,
   batchFixFile: (batchId, scanId) => `${API_BASE_URL}/api/batch/${batchId}/fix-file/${scanId}`,

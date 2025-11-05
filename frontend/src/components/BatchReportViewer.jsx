@@ -17,6 +17,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   const [filterSeverity, setFilterSeverity] = useState("all")
   const [currentPage, setCurrentPage] = useState(1)
   const [fixingIndividual, setFixingIndividual] = useState({})
+  const [startingScan, setStartingScan] = useState({})
   const [expandedCategories, setExpandedCategories] = useState({})
   const [itemsPerPage, setItemsPerPage] = useState(10)
   const [batchData, setBatchData] = useState(null)
@@ -60,6 +61,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       const scanId = scan.scanId || scan.id
       if (!scanId) return false
       if (fetchedScanIdsRef.current.has(scanId)) return false
+      if (scan.status === "uploaded") return false
       const issues = scan.results || {}
       return !issues || Object.keys(issues).length === 0
     })
@@ -203,6 +205,52 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       showError(`Failed to fix file: ${error.response?.data?.error || error.message}`)
     } finally {
       setFixingIndividual((prev) => ({ ...prev, [scanId]: false }))
+    }
+  }
+
+  const handleStartDeferredScan = async (scanId, filename) => {
+    if (!scanId) {
+      return
+    }
+
+    try {
+      setStartingScan((prev) => ({ ...prev, [scanId]: true }))
+      const response = await axios.post(`/api/scan/${scanId}/start`)
+      const data = response.data
+      showSuccess(`Started scan for ${filename}`)
+
+      setScansState((prev) =>
+        prev.map((scan) => {
+          const currentId = scan.scanId || scan.id
+          if (currentId === scanId) {
+            return {
+              ...scan,
+              ...data,
+              scanId: currentId,
+              status: data.status || "unprocessed",
+              summary: data.summary || scan.summary || {},
+              results: data.results || scan.results || {},
+              verapdfStatus: data.verapdfStatus || scan.verapdfStatus,
+              fixes: data.fixes || scan.fixes || [],
+            }
+          }
+          return scan
+        }),
+      )
+
+      if (onBatchUpdate) {
+        await onBatchUpdate(batchId)
+      }
+    } catch (error) {
+      console.error("[v0] Error starting deferred scan:", error)
+      const message = error.response?.data?.error || error.message || "Failed to start scan"
+      showError(message)
+    } finally {
+      setStartingScan((prev) => {
+        const next = { ...prev }
+        delete next[scanId]
+        return next
+      })
     }
   }
 
@@ -709,6 +757,15 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                       highSeverity: 0,
                     }
                     const fixResult = fixResults?.results?.find((r) => r.scanId === (scan.scanId || scan.id))
+                    const statusValue = (scan.status || "").toLowerCase()
+                    const isUploaded = statusValue === "uploaded"
+                    const complianceScore =
+                      typeof summary.complianceScore === "number" ? summary.complianceScore : 0
+                    const totalIssues =
+                      typeof summary.totalIssues === "number" ? summary.totalIssues : 0
+                    const highSeverity =
+                      typeof summary.highSeverity === "number" ? summary.highSeverity : 0
+                    const scanKey = scan.scanId || scan.id
 
                     return (
                       <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
@@ -726,22 +783,36 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                           </div>
                         </td>
                         <td className="px-7 py-5">
-                          <span className="text-base font-semibold text-gray-900 dark:text-white">
-                            {summary.complianceScore}%
-                          </span>
+                          {isUploaded ? (
+                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
+                          ) : (
+                            <span className="text-base font-semibold text-gray-900 dark:text-white">
+                              {complianceScore}%
+                            </span>
+                          )}
                         </td>
                         <td className="px-7 py-5">
-                          <span className="text-base font-medium text-gray-900 dark:text-white">
-                            {summary.totalIssues}
-                          </span>
+                          {isUploaded ? (
+                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
+                          ) : (
+                            <span className="text-base font-medium text-gray-900 dark:text-white">
+                              {totalIssues}
+                            </span>
+                          )}
                         </td>
                         <td className="px-7 py-5">
-                          <span className="text-base text-red-600 dark:text-red-400 font-bold">
-                            {summary.highSeverity}
-                          </span>
+                          {isUploaded ? (
+                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
+                          ) : (
+                            <span className="text-base text-red-600 dark:text-red-400 font-bold">{highSeverity}</span>
+                          )}
                         </td>
                         <td className="px-7 py-5">
-                          {fixResult ? (
+                          {isUploaded ? (
+                            <span className="inline-flex items-center px-3.5 py-2 rounded-full text-sm font-semibold bg-slate-100 text-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
+                              Not Scanned
+                            </span>
+                          ) : fixResult ? (
                             fixResult.success ? (
                               <span className="inline-flex items-center px-3.5 py-2 rounded-full text-sm font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
                                 Fixed
@@ -758,22 +829,38 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                           )}
                         </td>
                         <td className="px-7 py-5">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
                               onClick={() => handleViewDetails(scan)}
-                              className="px-5 py-2.5 text-base font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
+                              disabled={isUploaded}
+                              className={`px-5 py-2.5 text-base font-semibold rounded-lg transition-colors ${
+                                isUploaded
+                                  ? "text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 cursor-not-allowed"
+                                  : "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+                              }`}
                               title="View Details"
                             >
                               View Details
                             </button>
-                            <button
-                              onClick={() => handleFixIndividual(scan.scanId, scan.filename)}
-                              disabled={fixingIndividual[scan.scanId]}
-                              className="px-5 py-2.5 text-base font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              title="Fix Issues"
-                            >
-                              {fixingIndividual[scan.scanId] ? "Fixing..." : "Fix Issues"}
-                            </button>
+                            {isUploaded ? (
+                              <button
+                                onClick={() => handleStartDeferredScan(scanKey, scan.filename)}
+                                disabled={startingScan[scanKey]}
+                                className="px-5 py-2.5 text-base font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Begin Scan"
+                              >
+                                {startingScan[scanKey] ? "Starting..." : "Begin Scan"}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleFixIndividual(scanKey, scan.filename)}
+                                disabled={fixingIndividual[scanKey]}
+                                className="px-5 py-2.5 text-base font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Fix Issues"
+                              >
+                                {fixingIndividual[scanKey] ? "Fixing..." : "Fix Issues"}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

@@ -12,6 +12,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
   const [nodeData, setNodeData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
+  const [startingScan, setStartingScan] = useState(false)
 
   useEffect(() => {
     loadInitialData()
@@ -82,6 +83,36 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
     }
   }
 
+  const handleBeginScan = async () => {
+    if (!nodeData || nodeData.type !== "file") {
+      return
+    }
+
+    const scanId = nodeData.scanId || nodeData.id || selectedNode?.id
+    if (!scanId) {
+      showError("Unable to determine which file to scan.")
+      return
+    }
+
+    try {
+      setStartingScan(true)
+      await axios.post(`/api/scan/${scanId}/start`)
+      showSuccess(`Started scanning ${nodeData.fileName || nodeData.filename}.`)
+
+      const refreshed = await axios.get(`/api/scan/${scanId}`)
+      setNodeData({
+        type: "file",
+        ...refreshed.data,
+      })
+    } catch (error) {
+      console.error("[v0] Error starting deferred scan from dashboard:", error)
+      const errorMsg = error.response?.data?.error || error.message || "Failed to start scan"
+      showError(errorMsg)
+    } finally {
+      setStartingScan(false)
+    }
+  }
+
   if (initialLoading) {
     return (
       <div className="flex h-screen bg-slate-50 dark:bg-slate-900 items-center justify-center">
@@ -92,6 +123,10 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
       </div>
     )
   }
+
+  const fileIsUploaded = nodeData?.type === "file" && nodeData?.status === "uploaded"
+  const fileScanDateLabel = fileIsUploaded ? "Uploaded on" : "Scanned on"
+  const fileDateValue = nodeData?.type === "file" ? nodeData?.uploadDate || nodeData?.created_at || nodeData?.timestamp : null
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
@@ -174,7 +209,9 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                           {nodeData.fileName || nodeData.filename}
                         </h2>
                         <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
-                          <span>Scanned on {new Date(nodeData.uploadDate).toLocaleDateString()}</span>
+                          <span>
+                            {fileScanDateLabel} {fileDateValue ? new Date(fileDateValue).toLocaleDateString() : "N/A"}
+                          </span>
                           {nodeData.status && (
                             <span
                               className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -182,42 +219,66 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                                   ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                                   : nodeData.status === "processed"
                                     ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                    : nodeData.status === "uploaded"
+                                      ? "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200"
+                                      : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
                               }`}
                             >
-                              {nodeData.status}
+                              {nodeData.status === "uploaded" ? "Uploaded" : nodeData.status}
                             </span>
                           )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => onSelectScan(nodeData)}
-                        className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors font-medium"
-                      >
-                        View Full Report
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => onSelectScan(nodeData)}
+                          disabled={fileIsUploaded}
+                          className={`px-4 py-2 rounded-lg transition-colors font-medium ${
+                            fileIsUploaded
+                              ? "bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400 cursor-not-allowed"
+                              : "bg-violet-600 hover:bg-violet-700 text-white"
+                          }`}
+                        >
+                          View Full Report
+                        </button>
+                        {fileIsUploaded && (
+                          <button
+                            onClick={handleBeginScan}
+                            disabled={startingScan}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {startingScan ? "Starting..." : "Begin Scan"}
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-3 gap-4">
                       <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
                         <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                          {nodeData.summary?.complianceScore || 0}%
+                          {fileIsUploaded ? "—" : `${(nodeData.summary?.complianceScore ?? 0).toLocaleString()}%`}
                         </div>
                         <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Compliance Score</div>
                       </div>
                       <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
                         <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                          {nodeData.summary?.totalIssues || 0}
+                          {fileIsUploaded ? "—" : (nodeData.summary?.totalIssues ?? 0)}
                         </div>
                         <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Total Issues</div>
                       </div>
                       <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
                         <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">
-                          {nodeData.summary?.highSeverity || 0}
+                          {fileIsUploaded ? "—" : (nodeData.summary?.highSeverity ?? 0)}
                         </div>
                         <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">High Severity</div>
                       </div>
                     </div>
+
+                    {fileIsUploaded && (
+                      <div className="mt-4 p-4 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400">
+                        This file is ready to scan. Use the "Begin Scan" button to generate accessibility results.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

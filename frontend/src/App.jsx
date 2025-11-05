@@ -14,7 +14,7 @@ import GroupMaster from "./components/GroupMaster"
 import { NotificationProvider, useNotification } from "./contexts/NotificationContext"
 
 function AppContent() {
-  const { showError } = useNotification()
+  const { showError, showSuccess } = useNotification()
 
   const [currentView, setCurrentView] = useState("upload")
   const [scanHistory, setScanHistory] = useState([])
@@ -74,6 +74,19 @@ function AppContent() {
       setCurrentView("report")
     }
 
+    fetchScanHistory()
+  }
+
+  const handleUploadDeferred = (details) => {
+    const count = details?.scanIds?.length ?? 0
+    const hasBatch = Boolean(details?.batchId)
+    const message =
+      count > 1
+        ? `${count} files uploaded${hasBatch ? " in the batch" : ""}. Begin scanning whenever you're ready from the dashboard or history view.`
+        : count === 1
+          ? "File uploaded successfully. Start the scan when you're ready from the dashboard or history view."
+          : "Upload completed. Start scanning whenever you're ready from the dashboard or history view."
+    showSuccess(message)
     fetchScanHistory()
   }
 
@@ -318,7 +331,9 @@ function AppContent() {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 max-w-full">
         <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-full">
-          {currentView === "upload" && <UploadArea onScanComplete={handleScanComplete} />}
+          {currentView === "upload" && (
+            <UploadArea onScanComplete={handleScanComplete} onUploadDeferred={handleUploadDeferred} />
+          )}
           {currentView === "groups" && <GroupMaster onBack={handleBackToUpload} onOpenGroupDashboard={handleOpenGroupDashboard} />}
           {currentView === "dashboard" && (
             <GroupDashboard

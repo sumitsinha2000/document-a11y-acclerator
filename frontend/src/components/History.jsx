@@ -14,6 +14,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
   const [deletingScan, setDeletingScan] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [startingScan, setStartingScan] = useState(null)
 
   const { showSuccess, showError, confirm } = useNotification()
 
@@ -154,6 +155,11 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
         text: "text-gray-800 dark:text-gray-300",
         label: "Unprocessed",
       },
+      uploaded: {
+        bg: "bg-slate-100 dark:bg-slate-800/60",
+        text: "text-slate-800 dark:text-slate-200",
+        label: "Uploaded",
+      },
       completed: {
         bg: "bg-blue-100 dark:bg-blue-900/30",
         text: "text-blue-800 dark:text-blue-400",
@@ -185,6 +191,40 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
       (scan.groupName && scan.groupName.toLowerCase().includes(query))
     )
   })
+
+  const handleStartDeferredScan = async (scanId, filename, e) => {
+    if (e) {
+      e.stopPropagation()
+    }
+
+    try {
+      setStartingScan(scanId)
+      const response = await fetch(API_ENDPOINTS.startScan(scanId), {
+        method: "POST",
+      })
+
+      if (!response.ok) {
+        let errorMessage = "Failed to start scan"
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorMessage
+        } catch (parseError) {
+          console.warn("[v0] Unable to parse error response for start scan:", parseError)
+        }
+        throw new Error(errorMessage)
+      }
+
+      const data = await response.json()
+      console.log("[v0] Deferred scan started:", data)
+      showSuccess(`Started scanning "${filename}". Reloading history.`)
+      await fetchHistory()
+    } catch (error) {
+      console.error("[v0] Error starting deferred scan:", error)
+      showError(`Failed to start scan: ${error.message}`)
+    } finally {
+      setStartingScan(null)
+    }
+  }
 
   if (loading) {
     return (
@@ -449,12 +489,19 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
               const totalIssues = scan.totalIssues || 0
               const issuesFixed = scan.issuesFixed || 0
               const issuesRemaining = scan.issuesRemaining || totalIssues
+              const isUploaded = scan.status === "uploaded"
 
               return (
                 <div
                   key={scan.id}
-                  className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-shadow cursor-pointer"
-                  onClick={() => onSelectScan(scan)}
+                  className={`bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 transition-shadow ${
+                    isUploaded ? "cursor-default" : "hover:shadow-lg cursor-pointer"
+                  }`}
+                  onClick={() => {
+                    if (!isUploaded) {
+                      onSelectScan(scan)
+                    }
+                  }}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2 min-w-0">
@@ -510,16 +557,32 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
 
                   {/* Issue Statistics */}
                   <div className="space-y-2 mb-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">Total Issues:</span>
-                      <span className="font-semibold text-gray-900 dark:text-white">{totalIssues}</span>
-                    </div>
-                    {issuesFixed > 0 && (
+                    {isUploaded ? (
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Scanning has not started yet. Begin the scan to see issue counts.
+                      </p>
+                    ) : (
                       <>
                         <div className="flex items-center justify-between text-sm">
-                          <span className="text-green-600 dark:text-green-400">Fixed:</span>
-                          <span className="font-semibold text-green-600 dark:text-green-400">{issuesFixed}</span>
+                          <span className="text-gray-600 dark:text-gray-400">Total Issues:</span>
+                          <span className="font-semibold text-gray-900 dark:text-white">{totalIssues}</span>
                         </div>
+                        {issuesFixed > 0 && (
+                          <>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-green-600 dark:text-green-400">Fixed:</span>
+                              <span className="font-semibold text-green-600 dark:text-green-400">{issuesFixed}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-orange-600 dark:text-orange-400">Remaining:</span>
+                              <span className="font-semibold text-orange-600 dark:text-orange-400">{issuesRemaining}</span>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                    {!isUploaded && issuesFixed === 0 && (
+                      <>
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-orange-600 dark:text-orange-400">Remaining:</span>
                           <span className="font-semibold text-orange-600 dark:text-orange-400">{issuesRemaining}</span>
@@ -529,7 +592,34 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                   </div>
 
                   <div className="flex items-center justify-end text-xs">
-                    <button className="text-blue-600 dark:text-blue-400 hover:underline">View Details →</button>
+                    {isUploaded ? (
+                      <button
+                        onClick={(e) => handleStartDeferredScan(scan.id, scan.filename, e)}
+                        disabled={startingScan === scan.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {startingScan === scan.id ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            Starting...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 6v6l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                              />
+                            </svg>
+                            Begin Scan
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <button className="text-blue-600 dark:text-blue-400 hover:underline">View Details →</button>
+                    )}
                   </div>
                 </div>
               )

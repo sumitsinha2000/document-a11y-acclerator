@@ -32,6 +32,87 @@ pdf_generator = PDFGenerator()
 GENERATED_PDFS_FOLDER = pdf_generator.output_dir
 
 
+def should_scan_now(req):
+    """Determine whether scan should run immediately based on request form data."""
+    if not req:
+        return True
+
+    candidates = [
+        req.form.get("scan_mode"),
+        req.form.get("scanMode"),
+        req.form.get("scan_now"),
+        req.form.get("scanNow"),
+        req.form.get("start_scan"),
+        req.form.get("startScan"),
+    ]
+
+    for value in candidates:
+        if value is None:
+            continue
+        normalized = str(value).strip().lower()
+        if normalized in {
+            "defer",
+            "deferred",
+            "upload",
+            "upload_only",
+            "upload-only",
+            "no",
+            "false",
+            "0",
+        }:
+            return False
+        if normalized in {
+            "scan",
+            "scan_now",
+            "scan-now",
+            "yes",
+            "true",
+            "1",
+        }:
+            return True
+    return True
+
+
+def build_placeholder_scan_payload():
+    """Create a minimal scan payload for uploads where analysis is deferred."""
+    base_status = build_verapdf_status({})
+    return {
+        "results": {},
+        "summary": {
+            "totalIssues": 0,
+            "highSeverity": 0,
+            "mediumSeverity": 0,
+            "lowSeverity": 0,
+            "complianceScore": 0,
+        },
+        "verapdfStatus": base_status,
+        "fixes": [],
+    }
+
+
+def resolve_uploaded_file_path(scan_id, scan_record=None):
+    """Locate the uploaded PDF for a scan."""
+    uploads_dir = Path(UPLOAD_FOLDER)
+    candidates = [
+        uploads_dir / f"{scan_id}.pdf",
+        uploads_dir / scan_id,
+    ]
+
+    if scan_record:
+        possible_filename = scan_record.get("filename")
+        if possible_filename:
+            candidates.append(uploads_dir / secure_filename(possible_filename))
+
+        stored_path = scan_record.get("file_path") if isinstance(scan_record, dict) else None
+        if stored_path:
+            candidates.append(Path(stored_path))
+
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return Path(candidate)
+    return None
+
+
 # === Database Connection ===
 def get_db_connection():
     try:
@@ -181,7 +262,16 @@ def scan_results_changed(
 
 
 def save_scan_to_db(
-    scan_id, filename, scan_results, batch_id=None, group_id=None, is_update=False
+    scan_id,
+    filename,
+    scan_results,
+    batch_id=None,
+    group_id=None,
+    is_update=False,
+    status=None,
+    total_issues=None,
+    issues_remaining=None,
+    issues_fixed=None,
 ):
     """
     Unified save logic with group support:
@@ -227,6 +317,27 @@ def save_scan_to_db(
         else:
             formatted_results = scan_results
 
+        # Ensure summary/results keys exist for downstream consumers
+        if not isinstance(formatted_results, dict):
+            formatted_results = {}
+        formatted_results.setdefault("results", {})
+        formatted_results.setdefault("summary", {})
+        formatted_results.setdefault("verapdfStatus", build_verapdf_status({}))
+
+        status_value = status or ("fixed" if is_update else "completed")
+        total_issues_value = total_issues
+        issues_remaining_value = issues_remaining
+        issues_fixed_value = issues_fixed
+
+        summary_data = formatted_results.get("summary") or {}
+        if total_issues_value is None:
+            total_issues_value = summary_data.get("totalIssues")
+        if issues_remaining_value is None:
+            issues_remaining_value = summary_data.get("totalIssues")
+        if issues_fixed_value is None and summary_data:
+            # Prefer stored value, otherwise derive from existing columns later
+            issues_fixed_value = summary_data.get("issuesFixed")
+
         if is_update:
             # === UPDATE EXISTING SCAN ===
             print(f"[Backend] 🔄 Updating scan record: {scan_id}")
@@ -234,10 +345,23 @@ def save_scan_to_db(
                 UPDATE scans
                 SET scan_results = %s,
                     upload_date = NOW(),
-                    status = 'fixed'
+                    status = %s,
+                    total_issues = COALESCE(%s, total_issues),
+                    issues_remaining = COALESCE(%s, issues_remaining),
+                    issues_fixed = COALESCE(%s, issues_fixed)
                 WHERE id = %s
             """
-            c.execute(query, (json.dumps(formatted_results), scan_id))
+            c.execute(
+                query,
+                (
+                    json.dumps(formatted_results),
+                    status_value,
+                    total_issues_value,
+                    issues_remaining_value,
+                    issues_fixed_value,
+                    scan_id,
+                ),
+            )
             conn.commit()
             print(f"[Backend] ✅ Updated existing scan successfully: {scan_id}")
             return scan_id
@@ -252,9 +376,11 @@ def save_scan_to_db(
                     SET scan_results = EXCLUDED.scan_results,
                         status = EXCLUDED.status,
                         group_id = EXCLUDED.group_id,
+                        total_issues = COALESCE(EXCLUDED.total_issues, scans.total_issues),
+                        issues_remaining = COALESCE(EXCLUDED.issues_remaining, scans.issues_remaining),
+                        issues_fixed = COALESCE(EXCLUDED.issues_fixed, scans.issues_fixed),
                         created_at = NOW()
                 """
-                status = "completed"
                 c.execute(
                     query,
                     (
@@ -263,11 +389,35 @@ def save_scan_to_db(
                         json.dumps(formatted_results),
                         batch_id,
                         group_id,
-                        status,
+                        status_value,
                     ),
                 )
+                if any(
+                    value is not None
+                    for value in (
+                        total_issues_value,
+                        issues_remaining_value,
+                        issues_fixed_value,
+                    )
+                ):
+                    c.execute(
+                        """
+                        UPDATE scans
+                        SET total_issues = COALESCE(%s, total_issues),
+                            issues_remaining = COALESCE(%s, issues_remaining),
+                            issues_fixed = COALESCE(%s, issues_fixed)
+                        WHERE id = %s
+                    """,
+                        (
+                            total_issues_value,
+                            issues_remaining_value,
+                            issues_fixed_value,
+                            scan_id,
+                        ),
+                    )
                 conn.commit()
 
+                issues_for_log = summary_data.get("totalIssues")
                 if group_id:
                     update_group_count_query = """
                         UPDATE groups 
@@ -278,7 +428,7 @@ def save_scan_to_db(
                     conn.commit()
 
                 print(
-                    f"[Backend] ✅ Inserted new scan record: {scan_id} ({filename}) in group {group_id} with {formatted_results['summary']['totalIssues']} issues"
+                    f"[Backend] ✅ Inserted new scan record: {scan_id} ({filename}) in group {group_id} with {issues_for_log or 0} issues"
                 )
                 return scan_id
 
@@ -376,6 +526,7 @@ def scan_pdf():
     if not group_id:
         return jsonify({"error": "Group ID is required"}), 400
 
+    scan_now = should_scan_now(request)
     scan_id = f"scan_{uuid.uuid4().hex}"
     upload_dir = Path(UPLOAD_FOLDER)
     upload_dir.mkdir(exist_ok=True)
@@ -383,6 +534,36 @@ def scan_pdf():
     file_path = upload_dir / f"{scan_id}.pdf"
     file.save(str(file_path))
     print(f"[Backend] ✓ File saved: {file_path}")
+
+    if not scan_now:
+        placeholder_results = build_placeholder_scan_payload()
+        saved_id = save_scan_to_db(
+            scan_id,
+            file.filename,
+            placeholder_results,
+            group_id=group_id,
+            status="uploaded",
+            total_issues=0,
+            issues_remaining=0,
+            issues_fixed=0,
+        )
+        print(
+            f"[Backend] ✓ Deferred scan created for {saved_id} (group {group_id})"
+        )
+        return jsonify(
+            {
+                "scanId": saved_id,
+                "filename": file.filename,
+                "groupId": group_id,
+                "status": "uploaded",
+                "summary": placeholder_results.get("summary", {}),
+                "results": placeholder_results.get("results", {}),
+                "fixes": placeholder_results.get("fixes", []),
+                "timestamp": datetime.now().isoformat(),
+                "verapdfStatus": placeholder_results.get("verapdfStatus"),
+                "scanDeferred": True,
+            }
+        )
 
     analyzer = PDFAccessibilityAnalyzer()
     scan_results = analyzer.analyze(str(file_path))
@@ -402,7 +583,14 @@ def scan_pdf():
     }
 
     saved_id = save_scan_to_db(
-        scan_id, file.filename, formatted_results, group_id=group_id
+        scan_id,
+        file.filename,
+        formatted_results,
+        group_id=group_id,
+        status="completed",
+        total_issues=summary.get("totalIssues", 0),
+        issues_remaining=summary.get("totalIssues", 0),
+        issues_fixed=0,
     )
     total_issues = formatted_results.get("summary", {}).get("totalIssues", 0)
     print(
@@ -421,6 +609,95 @@ def scan_pdf():
             "verapdfStatus": verapdf_status,
         }
     )
+
+
+@app.route("/api/scan/<scan_id>/start", methods=["POST"])
+def start_deferred_scan(scan_id):
+    """Trigger analysis for an existing upload that was previously deferred."""
+    try:
+        scan_record = get_scan_by_id(scan_id)
+        if not scan_record:
+            return jsonify({"error": "Scan not found"}), 404
+
+        file_path = resolve_uploaded_file_path(scan_id, scan_record)
+        if not file_path or not file_path.exists():
+            return jsonify({"error": "Original file not found for scanning"}), 404
+
+        analyzer = PDFAccessibilityAnalyzer()
+        scan_results = analyzer.analyze(str(file_path))
+        verapdf_status = build_verapdf_status(scan_results, analyzer)
+        summary = analyzer.calculate_summary(scan_results, verapdf_status)
+        if isinstance(summary, dict) and verapdf_status:
+            summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+            summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+
+        fix_suggestions = generate_fix_suggestions(scan_results)
+        formatted_results = {
+            "results": scan_results,
+            "summary": summary,
+            "verapdfStatus": verapdf_status,
+            "fixes": fix_suggestions,
+        }
+
+        total_issues = summary.get("totalIssues", 0) if isinstance(summary, dict) else 0
+        issues_remaining = total_issues
+
+        save_scan_to_db(
+            scan_id,
+            scan_record.get("filename"),
+            formatted_results,
+            batch_id=scan_record.get("batch_id"),
+            group_id=scan_record.get("group_id"),
+            is_update=True,
+            status="completed",
+            total_issues=total_issues,
+            issues_remaining=issues_remaining,
+            issues_fixed=0,
+        )
+
+        # For batch scans, maintain the 'unprocessed' state for downstream flows
+        batch_id = scan_record.get("batch_id")
+        if batch_id:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE scans
+                SET status = 'unprocessed',
+                    total_issues = %s,
+                    issues_remaining = %s
+                WHERE id = %s
+            """,
+                (total_issues, issues_remaining, scan_id),
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            update_batch_statistics(batch_id)
+
+        response_status = "unprocessed" if batch_id else "completed"
+
+        return jsonify(
+            {
+                "scanId": scan_id,
+                "filename": scan_record.get("filename"),
+                "groupId": scan_record.get("group_id"),
+                "batchId": batch_id,
+                "summary": summary,
+                "results": scan_results,
+                "fixes": fix_suggestions,
+                "verapdfStatus": verapdf_status,
+                "status": response_status,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+
+    except Exception as e:
+        print(f"[Backend] ✗ Error starting deferred scan {scan_id}: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 # === Scan History ===
@@ -461,15 +738,24 @@ def scan_batch():
 
         # Create batch record
         batch_id = f"batch_{uuid.uuid4().hex}"
+        scan_now = should_scan_now(request)
+        batch_initial_status = "processing" if scan_now else "uploaded"
 
         conn = get_db_connection()
         c = conn.cursor()
         c.execute(
             """
             INSERT INTO batches (id, name, group_id, created_at, status, total_files, total_issues, unprocessed_files)
-            VALUES (%s, %s, %s, NOW(), 'processing', %s, 0, %s)
+            VALUES (%s, %s, %s, NOW(), %s, %s, 0, %s)
         """,
-            (batch_id, batch_name, group_id, len(pdf_files), len(pdf_files)),
+            (
+                batch_id,
+                batch_name,
+                group_id,
+                batch_initial_status,
+                len(pdf_files),
+                len(pdf_files),
+            ),
         )
         conn.commit()
         c.close()
@@ -495,6 +781,39 @@ def scan_batch():
             scan_id = f"scan_{uuid.uuid4().hex}"
             file_path = upload_dir / f"{scan_id}.pdf"
             file.save(str(file_path))
+
+            if not scan_now:
+                placeholder_results = build_placeholder_scan_payload()
+                saved_id = save_scan_to_db(
+                    scan_id,
+                    file.filename,
+                    placeholder_results,
+                    batch_id=batch_id,
+                    group_id=group_id,
+                    status="uploaded",
+                    total_issues=0,
+                    issues_remaining=0,
+                    issues_fixed=0,
+                )
+
+                if not saved_id:
+                    continue
+
+                scan_results.append(
+                    {
+                        "scanId": saved_id,
+                        "filename": file.filename,
+                        "totalIssues": 0,
+                        "status": "uploaded",
+                        "summary": placeholder_results.get("summary", {}),
+                        "results": placeholder_results.get("results", {}),
+                        "verapdfStatus": placeholder_results.get("verapdfStatus"),
+                        "fixes": placeholder_results.get("fixes", []),
+                        "groupId": group_id,
+                        "batchId": batch_id,
+                    }
+                )
+                continue
 
             # Analyze PDF
             scan_data = analyzer.analyze(str(file_path))
@@ -527,6 +846,10 @@ def scan_batch():
                 formatted_results,
                 batch_id=batch_id,
                 group_id=group_id,
+                status="completed",
+                total_issues=total_issues,
+                issues_remaining=total_issues,
+                issues_fixed=0,
             )
 
             if not saved_id:
@@ -566,13 +889,17 @@ def scan_batch():
         # Update batch with total issues
         conn = get_db_connection()
         c = conn.cursor()
-        unprocessed_files = max(len(pdf_files) - successful_scans, 0)
-        if successful_scans == len(pdf_files):
-            batch_status = "completed"
-        elif successful_scans == 0:
-            batch_status = "failed"
+        if not scan_now:
+            unprocessed_files = len(pdf_files)
+            batch_status = "uploaded"
         else:
-            batch_status = "partial"
+            unprocessed_files = max(len(pdf_files) - successful_scans, 0)
+            if successful_scans == len(pdf_files):
+                batch_status = "completed"
+            elif successful_scans == 0:
+                batch_status = "failed"
+            else:
+                batch_status = "partial"
 
         c.execute(
             """
@@ -609,6 +936,7 @@ def scan_batch():
                 "processedFiles": processed_files,
                 "successfulScans": successful_scans,
                 "skippedFiles": skipped_files,
+                "scanDeferred": not scan_now,
             }
         )
 
@@ -635,8 +963,9 @@ def update_batch_statistics(batch_id):
                 COALESCE(SUM(total_issues), 0) AS total_issues,
                 COALESCE(SUM(issues_remaining), 0) AS remaining_issues,
                 COALESCE(SUM(issues_fixed), 0) AS fixed_issues,
-                SUM(CASE WHEN status IN ('unprocessed', 'processing') THEN 1 ELSE 0 END) AS unprocessed_files,
-                SUM(CASE WHEN status = 'fixed' THEN 1 ELSE 0 END) AS fixed_files
+                SUM(CASE WHEN status IN ('unprocessed', 'processing', 'uploaded') THEN 1 ELSE 0 END) AS unprocessed_files,
+                SUM(CASE WHEN status = 'fixed' THEN 1 ELSE 0 END) AS fixed_files,
+                SUM(CASE WHEN status = 'uploaded' THEN 1 ELSE 0 END) AS uploaded_files
             FROM scans
             WHERE batch_id = %s
         """,
@@ -653,9 +982,14 @@ def update_batch_statistics(batch_id):
             fixed_issues = max(total_issues - remaining_issues, 0)
         unprocessed_files = stats.get("unprocessed_files") or 0
         fixed_files = stats.get("fixed_files") or 0
+        uploaded_files = stats.get("uploaded_files") or 0
 
         if total_files == 0:
             batch_status = "empty"
+        elif uploaded_files == total_files:
+            batch_status = "uploaded"
+        elif uploaded_files > 0:
+            batch_status = "partial"
         elif remaining_issues == 0:
             batch_status = "completed"
         elif fixed_files == 0 and unprocessed_files == total_files:
