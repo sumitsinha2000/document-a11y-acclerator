@@ -2,11 +2,11 @@
 
 ## Overview
 
-This application is now configured to run directly on Vercel at `https://document-a11y-acclerator.vercel.app/` with the React frontend migrated to Next.js.
+This application uses **React + Vite** as the main frontend application, deployed directly to Vercel at `https://document-a11y-acclerator.vercel.app/`.
 
 ## Architecture
 
-- **Frontend**: Next.js 16 application (migrated from React + Vite)
+- **Frontend**: React + Vite (main application)
 - **Backend**: Flask API (requires separate deployment)
 - **Database**: Neon PostgreSQL (already connected via Vercel integration)
 
@@ -68,7 +68,7 @@ vercel deploy --prod
 Go to your Vercel project settings → Environment Variables and add:
 
 \`\`\`env
-NEXT_PUBLIC_BACKEND_URL=https://your-backend-url.vercel.app
+VITE_BACKEND_URL=https://your-backend-url.vercel.app
 \`\`\`
 
 **Important**: Replace `your-backend-url.vercel.app` with your actual deployed backend URL from Step 1.
@@ -77,10 +77,13 @@ The Neon database variables are automatically provided by the Vercel integration
 
 ### 3. Update vercel.json
 
-Update the `rewrites` section in `vercel.json` with your actual backend URL:
+The `vercel.json` is already configured to build the frontend from the `frontend/` directory:
 
 \`\`\`json
 {
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "cd frontend && npm install",
   "rewrites": [
     {
       "source": "/api/:path*",
@@ -89,6 +92,8 @@ Update the `rewrites` section in `vercel.json` with your actual backend URL:
   ]
 }
 \`\`\`
+
+Update the `destination` URL with your actual backend URL from Step 1.
 
 ### 4. Configure CORS in Backend
 
@@ -116,7 +121,7 @@ git push origin main
 
 ## Local Development
 
-For local development, the app automatically uses `http://localhost:5000` for the backend:
+For local development:
 
 \`\`\`bash
 # Terminal 1: Start backend
@@ -124,6 +129,7 @@ cd backend
 python app.py
 
 # Terminal 2: Start frontend
+cd frontend
 npm run dev
 \`\`\`
 
@@ -133,67 +139,73 @@ Visit `http://localhost:3000` to see your app.
 
 ### Required for Production
 
-- `NEXT_PUBLIC_BACKEND_URL` - Your deployed backend URL
+- `VITE_BACKEND_URL` - Your deployed backend URL
 - Neon database variables (automatically provided by Vercel integration)
 
-### Optional
+### Local Development
 
-- `NODE_ENV` - Set to `production` (automatically set by Vercel)
+Create `frontend/.env.local`:
 
-## Architecture Changes
+\`\`\`env
+VITE_BACKEND_URL=http://localhost:5000
+\`\`\`
 
-### What Changed
+## Architecture Details
 
-The React + Vite frontend has been migrated to Next.js:
+### Frontend (React + Vite)
 
-- ✅ All React components now run in Next.js
-- ✅ No more localhost:3000 redirects or iframes
-- ✅ Direct deployment to Vercel domain
-- ✅ Improved performance with Next.js optimizations
-- ✅ Better SEO and initial load times
+The main application is built with:
+- React 18
+- Vite for fast development and optimized builds
+- Axios for API calls
+- Recharts for data visualization
+- React PDF for document viewing
+- Tailwind CSS for styling
 
 ### File Structure
 
 \`\`\`
 document-a11y-acclerator/
-├── app/
-│   ├── page.tsx              # Main application (migrated from frontend/src/App.jsx)
-│   ├── layout.tsx            # Root layout
-│   └── globals.css           # Global styles (includes frontend styles)
-├── components/
-│   └── frontend/             # All React components (to be migrated)
-├── contexts/
-│   └── NotificationContext.tsx  # Notification context
-├── backend/                  # Flask backend (deploy separately)
-└── vercel.json              # Vercel configuration
+├── frontend/                 # Main React + Vite application
+│   ├── src/
+│   │   ├── App.jsx          # Main application component
+│   │   ├── components/      # React components
+│   │   ├── contexts/        # React contexts
+│   │   └── main.jsx         # Entry point
+│   ├── dist/                # Build output (generated)
+│   ├── package.json         # Frontend dependencies
+│   └── vite.config.js       # Vite configuration
+├── backend/                 # Flask backend (deploy separately)
+├── app/                     # Next.js (not used for main app)
+└── vercel.json             # Vercel configuration
 \`\`\`
 
 ## Troubleshooting
 
 ### API calls failing in production
 
-1. **Check environment variable**: Verify `NEXT_PUBLIC_BACKEND_URL` is set correctly in Vercel
+1. **Check environment variable**: Verify `VITE_BACKEND_URL` is set correctly in Vercel
 2. **Verify CORS**: Ensure CORS is configured in your backend to allow your Vercel domain
 3. **Check backend logs**: Review your backend hosting platform logs for errors
 4. **Test backend directly**: Try accessing your backend URL directly in a browser
 
-### Components not loading
+### Build failures
 
-1. **Check imports**: Ensure all component imports use `@/components/frontend/` prefix
-2. **Browser console**: Check browser console for import or runtime errors
-3. **Dependencies**: Verify all required dependencies are in `package.json`
+1. **Dependencies**: Ensure all dependencies are in `frontend/package.json`
+2. **Build command**: Verify the build command in `vercel.json` is correct
+3. **Node version**: Check Node.js version compatibility (18+ recommended)
+
+### Environment variables not working
+
+1. **Prefix**: Ensure variables start with `VITE_` to be exposed to the client
+2. **Rebuild**: Redeploy after adding environment variables
+3. **Access**: Use `import.meta.env.VITE_BACKEND_URL` in your code
 
 ### Database connection issues
 
 1. **Neon integration**: Verify Neon integration is connected in Vercel project settings
 2. **Environment variables**: Check that database environment variables are set
 3. **Backend connection**: Test database connection from your backend deployment
-
-### Build failures
-
-1. **Missing components**: Ensure all frontend components are migrated to `components/frontend/`
-2. **TypeScript errors**: Check for type errors in the build logs
-3. **Dependencies**: Run `npm install` to ensure all dependencies are installed
 
 ## Monitoring
 
@@ -204,19 +216,20 @@ document-a11y-acclerator/
 
 ## Performance Optimization
 
-### Next.js Benefits
+### Vite Build Optimization
 
-- Server-side rendering for faster initial loads
-- Automatic code splitting
-- Image optimization
-- Built-in caching strategies
+The build is configured with:
+- Code splitting for vendor, charts, and PDF libraries
+- Tree shaking for unused code
+- Minification and compression
+- Optimized chunk sizes
 
 ### Recommendations
 
-1. Use Next.js Image component for images
+1. Use lazy loading for heavy components
 2. Implement proper loading states
 3. Use React.memo for expensive components
-4. Monitor Core Web Vitals in Vercel Analytics
+4. Monitor bundle size with Vite's build analysis
 
 ## Support
 

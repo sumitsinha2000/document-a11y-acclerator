@@ -16,7 +16,7 @@ Automated PDF accessibility scanning and remediation tool with WCAG 2.1, PDF/UA,
 
 ## Tech Stack
 
-- **Frontend**: Next.js 16, React 19, TypeScript, Tailwind CSS
+- **Frontend**: React 18, Vite, Axios, Tailwind CSS
 - **Backend**: Python Flask, PDF Extract Kit
 - **Database**: Neon PostgreSQL
 - **Deployment**: Vercel
@@ -41,6 +41,7 @@ cd document-a11y-acclerator
 
 2. **Install frontend dependencies**
 \`\`\`bash
+cd frontend
 npm install
 \`\`\`
 
@@ -51,9 +52,15 @@ pip install -r requirements.txt
 \`\`\`
 
 4. **Set up environment variables**
-\`\`\`bash
-cp .env.example .env
-# Edit .env with your configuration
+
+Create `frontend/.env.local`:
+\`\`\`env
+VITE_BACKEND_URL=http://localhost:5000
+\`\`\`
+
+Create `backend/.env`:
+\`\`\`env
+NEON_DATABASE_URL=your_neon_database_url
 \`\`\`
 
 5. **Set up the database**
@@ -74,6 +81,7 @@ cd backend
 python app.py
 
 # Terminal 2: Frontend
+cd frontend
 npm run dev
 \`\`\`
 
@@ -86,28 +94,29 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
 ### Quick Deploy to Vercel
 
 1. Deploy backend to your preferred platform (Vercel, Railway, Render)
-2. Set `NEXT_PUBLIC_BACKEND_URL` in Vercel environment variables
-3. Update `vercel.json` with your backend URL
+2. Set `VITE_BACKEND_URL` in Vercel environment variables
+3. Update `vercel.json` rewrites with your backend URL
 4. Push to main branch or run `vercel --prod`
 
 ## Project Structure
 
 \`\`\`
 document-a11y-acclerator/
-├── app/                    # Next.js app directory
-│   ├── page.tsx           # Main application page
-│   ├── layout.tsx         # Root layout
-│   └── globals.css        # Global styles
-├── components/
-│   └── frontend/          # React components (to be migrated)
-├── contexts/              # React contexts
-│   └── NotificationContext.tsx
-├── backend/               # Flask backend
-│   ├── app.py            # Main Flask application
-│   └── requirements.txt  # Python dependencies
-├── scripts/              # Database setup scripts
-├── public/               # Static assets
-└── vercel.json           # Vercel configuration
+├── frontend/              # React + Vite main application
+│   ├── src/
+│   │   ├── App.jsx       # Main application component
+│   │   ├── components/   # React components
+│   │   ├── contexts/     # React contexts
+│   │   └── main.jsx      # Entry point
+│   ├── dist/             # Build output
+│   ├── package.json      # Frontend dependencies
+│   └── vite.config.js    # Vite configuration
+├── backend/              # Flask backend
+│   ├── app.py           # Main Flask application
+│   └── requirements.txt # Python dependencies
+├── scripts/             # Database setup scripts
+├── app/                 # Next.js (not used for main app)
+└── vercel.json          # Vercel configuration
 \`\`\`
 
 ## Accessibility Standards
@@ -177,7 +186,7 @@ The tool validates PDFs against:
 If you see "ERR_CONNECTION_REFUSED" errors:
 
 1. Make sure the backend server is running on port 5000
-2. Check that `NEXT_PUBLIC_BACKEND_URL` is set correctly
+2. Check that `VITE_BACKEND_URL` is set correctly (use `import.meta.env.VITE_BACKEND_URL` in code)
 3. Verify your database configuration
 
 ### Database Issues
