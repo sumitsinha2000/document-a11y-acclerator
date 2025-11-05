@@ -21,10 +21,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes("node_modules")) {
-            // Split React and React-DOM separately
-            if (id.includes("react") || id.includes("react-dom")) {
-              return "react-vendor"
-            }
+            // Don't split React separately - keep it with vendor to avoid initialization issues
             // Split PDF libraries
             if (id.includes("pdfjs") || id.includes("pdf-lib")) {
               return "pdf-libs"
@@ -37,21 +34,13 @@ export default defineConfig({
             if (id.includes("recharts") || id.includes("d3")) {
               return "chart-libs"
             }
-            // Split axios
-            if (id.includes("axios")) {
-              return "axios"
-            }
-            // Split icons
-            if (id.includes("lucide") || id.includes("react-icons")) {
-              return "icons"
-            }
-            // All other node_modules
+            // All other node_modules including React
             return "vendor"
           }
         },
       },
     },
-    chunkSizeWarningLimit: 600, // Lower threshold to catch large chunks earlier
+    chunkSizeWarningLimit: 1000,
   },
   optimizeDeps: {
     include: ["react", "react-dom", "axios"],
