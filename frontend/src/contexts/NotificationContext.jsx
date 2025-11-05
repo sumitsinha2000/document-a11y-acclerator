@@ -1,8 +1,6 @@
 "use client"
 
 import { createContext, useContext, useState, useCallback } from "react"
-import Toast from "../components/Toast"
-import ConfirmDialog from "../components/ConfirmDialog"
 
 const NotificationContext = createContext(null)
 
@@ -49,27 +47,12 @@ export function NotificationProvider({ children }) {
         showWarning,
         showInfo,
         confirm,
+        toasts,
+        confirmDialog,
+        removeToast,
       }}
     >
       {children}
-
-      {/* Toast Container */}
-      <div className="fixed top-4 right-4 z-50 flex flex-col gap-3 max-w-md w-full pointer-events-none">
-        <div className="flex flex-col gap-3 pointer-events-auto">
-          {toasts.map((toast) => (
-            <Toast
-              key={toast.id}
-              message={toast.message}
-              type={toast.type}
-              duration={toast.duration}
-              onClose={() => removeToast(toast.id)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Confirm Dialog */}
-      {confirmDialog && <ConfirmDialog {...confirmDialog} />}
     </NotificationContext.Provider>
   )
 }
