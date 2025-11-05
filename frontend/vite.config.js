@@ -16,7 +16,7 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
-    minify: "esbuild", // default, safe
+    minify: false, // default, safe
     rollupOptions: {
       output: {
         manualChunks: undefined,
@@ -27,9 +27,9 @@ export default defineConfig({
     },
   },
   esbuild: {
-    exclude: [/installHook\.js$/],
-    exclude: [/index-DtUSLKaq\.js$/]
-  },
+  exclude: [/installHook\.js$/, /react-debug-tools/],
+  keepNames: true, // prevents name mangling of React internal vars
+},
   optimizeDeps: {
     include: ["react", "react-dom", "axios"],
   },
