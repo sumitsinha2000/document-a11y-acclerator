@@ -2540,6 +2540,21 @@ def create_group():
         c = conn.cursor()
 
         try:
+            # Ensure name uniqueness (case-insensitive) before attempting insert
+            c.execute(
+                """
+                SELECT id FROM groups
+                WHERE LOWER(name) = LOWER(%s)
+                LIMIT 1
+            """,
+                (name,),
+            )
+
+            if c.fetchone():
+                c.close()
+                conn.close()
+                return jsonify({"error": "A group with this name already exists"}), 409
+
             # Insert group with explicit file_count initialization
             c.execute(
                 """
