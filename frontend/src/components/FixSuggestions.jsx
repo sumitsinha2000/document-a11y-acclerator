@@ -26,10 +26,17 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [showProgressStepper, setShowProgressStepper] = useState(false)
   const [currentFixType, setCurrentFixType] = useState("")
 
-  const [autoExpanded, setAutoExpanded] = useState(false)
-  const [semiExpanded, setSemiExpanded] = useState(false)
-  const [manualExpanded, setManualExpanded] = useState(false)
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" })
+  const [expandedFixes, setExpandedFixes] = useState({
+    automated: new Set(),
+    semiAutomated: new Set(),
+    manual: new Set(),
+  })
+  const [showMore, setShowMore] = useState({
+    automated: false,
+    semiAutomated: false,
+    manual: false,
+  })
 
   const safeRender = (value, fallback = "N/A") => {
     if (value === null || value === undefined) return fallback
@@ -56,6 +63,40 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       estimatedTime: formatTimeEstimate(fix.estimatedTime || fix.timeEstimate),
     }
   }
+
+  const toggleFixExpansion = (category, index) => {
+    setExpandedFixes((prev) => {
+      const nextState = {
+        automated: new Set(prev.automated),
+        semiAutomated: new Set(prev.semiAutomated),
+        manual: new Set(prev.manual),
+      }
+      const categorySet = nextState[category]
+
+      if (categorySet.has(index)) {
+        categorySet.delete(index)
+      } else {
+        categorySet.add(index)
+      }
+
+      return nextState
+    })
+  }
+
+  const toggleViewMore = (category) => {
+    setShowMore((prev) => ({
+      ...prev,
+      [category]: !prev[category],
+    }))
+  }
+
+  const visibleFixes = (category, fixesArray) => {
+    if (showMore[category]) return fixesArray
+    return fixesArray.slice(0, 5)
+  }
+
+  const listIdFor = (category) => `${category}-fix-list-${scanId}`
+  const descriptionIdFor = (category, index) => `${category}-fix-description-${scanId}-${index}`
 
   const handleApplyTraditionalFixes = async () => {
     setApplyingTraditional(true)
@@ -293,7 +334,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   }
 
   const validAutomated = Array.isArray(fixes?.automated) ? fixes.automated.map(cleanFix).filter(Boolean) : []
-  const autoVisible = autoExpanded ? validAutomated : validAutomated.slice(0, 5)
   const validSemiAutomated = Array.isArray(fixes?.semiAutomated)
     ? fixes.semiAutomated.map(cleanFix).filter(Boolean)
     : []
@@ -303,9 +343,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const hasSemiAutomated = validSemiAutomated.length > 0
   const hasManual = validManual.length > 0
   const hasAnyFixes = hasAutomated || hasSemiAutomated || hasManual
-  const semiVisible = semiExpanded ? validSemiAutomated : validSemiAutomated.slice(0, 5)
-  const manualVisible = manualExpanded ? validManual : validManual.slice(0, 5)
-
   if (!fixes) {
     return (
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 text-center border border-gray-200 dark:border-gray-700">
@@ -405,37 +442,66 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             <h4 className="text-sm font-semibold text-green-600 dark:text-green-400 mb-1">Automated Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Can be applied automatically</p>
             <div
-              className="flex-1 overflow-y-auto max-h-96 space-y-2 mb-3 pr-2"
+              id={listIdFor("automated")}
+              className="flex-1 space-y-2 mb-3"
               role="list"
-              style={{ scrollbarWidth: "thin" }}
+              aria-live="polite"
             >
-              {autoVisible.map((fix, idx) => (
-                <div
-                  key={idx}
-                  className="flex gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800"
-                  role="listitem"
-                >
-                  <div className="text-lg" aria-hidden="true">
-                    ⚙️
+              {visibleFixes("automated", validAutomated).map((fix, idx) => {
+                const isExpanded = expandedFixes.automated.has(idx)
+                const descriptionId = descriptionIdFor("automated", idx)
+
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 focus-within:ring-2 focus-within:ring-green-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-900"
+                    role="listitem"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleFixExpansion("automated", idx)}
+                      className="w-full text-left flex gap-2 p-3 focus:outline-none"
+                      aria-expanded={isExpanded}
+                      aria-controls={descriptionId}
+                    >
+                      <div className="text-lg" aria-hidden="true">
+                        ⚙️
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">{fix.title}</div>
+                        <div
+                          id={descriptionId}
+                          className={`text-xs text-gray-600 dark:text-gray-400 mt-0.5 ${
+                            isExpanded ? "" : "line-clamp-2"
+                          }`}
+                        >
+                          {fix.description}
+                        </div>
+                        <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <span className="font-medium capitalize">{fix.severity}</span>
+                          {fix.estimatedTime && (
+                            <>
+                              <span aria-hidden="true">•</span>
+                              <span>{fix.estimatedTime} min</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{fix.title}</div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-2">
-                      {fix.description}
-                    </div>
-                    <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      <span className="font-medium capitalize">{fix.severity}</span>
-                      {fix.estimatedTime && (
-                        <>
-                          <span aria-hidden="true">•</span>
-                          <span>{fix.estimatedTime} min</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
+            {validAutomated.length > 5 && (
+              <button
+                type="button"
+                aria-expanded={showMore.automated}
+                onClick={() => toggleViewMore("automated")}
+                className="w-full mb-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+              >
+                {showMore.automated ? "View less" : `View more (${validAutomated.length - 5})`}
+              </button>
+            )}
             <div className="space-y-2 mt-auto">
               <button
                 className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
@@ -479,37 +545,66 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             <h4 className="text-sm font-semibold text-yellow-600 dark:text-yellow-400 mb-1">Semi-Automated Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Require review & confirmation</p>
             <div
-              className="flex-1 overflow-y-auto max-h-96 space-y-2 mb-3 pr-2"
+              id={listIdFor("semiAutomated")}
+              className="flex-1 space-y-2 mb-3"
               role="list"
-              style={{ scrollbarWidth: "thin" }}
+              aria-live="polite"
             >
-              {semiVisible.map((fix, idx) => (
-                <div
-                  key={idx}
-                  className="flex gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800"
-                  role="listitem"
-                >
-                  <div className="text-lg" aria-hidden="true">
-                    🔍
+              {visibleFixes("semiAutomated", validSemiAutomated).map((fix, idx) => {
+                const isExpanded = expandedFixes.semiAutomated.has(idx)
+                const descriptionId = descriptionIdFor("semiAutomated", idx)
+
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 focus-within:ring-2 focus-within:ring-yellow-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-900"
+                    role="listitem"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleFixExpansion("semiAutomated", idx)}
+                      className="w-full text-left flex gap-2 p-3 focus:outline-none"
+                      aria-expanded={isExpanded}
+                      aria-controls={descriptionId}
+                    >
+                      <div className="text-lg" aria-hidden="true">
+                        🔍
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">{fix.title}</div>
+                        <div
+                          id={descriptionId}
+                          className={`text-xs text-gray-600 dark:text-gray-400 mt-0.5 ${
+                            isExpanded ? "" : "line-clamp-2"
+                          }`}
+                        >
+                          {fix.description}
+                        </div>
+                        <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <span className="font-medium capitalize">{fix.severity}</span>
+                          {fix.estimatedTime && (
+                            <>
+                              <span aria-hidden="true">•</span>
+                              <span>{fix.estimatedTime} min</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{fix.title}</div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-2">
-                      {fix.description}
-                    </div>
-                    <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      <span className="font-medium capitalize">{fix.severity}</span>
-                      {fix.estimatedTime && (
-                        <>
-                          <span aria-hidden="true">•</span>
-                          <span>{fix.estimatedTime} min</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
+            {validSemiAutomated.length > 5 && (
+              <button
+                type="button"
+                aria-expanded={showMore.semiAutomated}
+                onClick={() => toggleViewMore("semiAutomated")}
+                className="w-full mb-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+              >
+                {showMore.semiAutomated ? "View less" : `View more (${validSemiAutomated.length - 5})`}
+              </button>
+            )}
             <div className="space-y-2 mt-auto">
               <button
                 className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
@@ -559,37 +654,66 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             <h4 className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-1">Manual Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Require manual intervention</p>
             <div
-              className="flex-1 overflow-y-auto max-h-96 space-y-2 pr-2"
+              id={listIdFor("manual")}
+              className="flex-1 space-y-2"
               role="list"
-              style={{ scrollbarWidth: "thin" }}
+              aria-live="polite"
             >
-              {manualVisible.map((fix, idx) => (
-                <div
-                  key={idx}
-                  className="flex gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800"
-                  role="listitem"
-                >
-                  <div className="text-lg" aria-hidden="true">
-                    👤
+              {visibleFixes("manual", validManual).map((fix, idx) => {
+                const isExpanded = expandedFixes.manual.has(idx)
+                const descriptionId = descriptionIdFor("manual", idx)
+
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-900"
+                    role="listitem"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleFixExpansion("manual", idx)}
+                      className="w-full text-left flex gap-2 p-3 focus:outline-none"
+                      aria-expanded={isExpanded}
+                      aria-controls={descriptionId}
+                    >
+                      <div className="text-lg" aria-hidden="true">
+                        👤
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">{fix.title}</div>
+                        <div
+                          id={descriptionId}
+                          className={`text-xs text-gray-600 dark:text-gray-400 mt-0.5 ${
+                            isExpanded ? "" : "line-clamp-2"
+                          }`}
+                        >
+                          {fix.description}
+                        </div>
+                        <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <span className="font-medium capitalize">{fix.severity}</span>
+                          {fix.estimatedTime && (
+                            <>
+                              <span aria-hidden="true">•</span>
+                              <span>{fix.estimatedTime} min</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{fix.title}</div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-2">
-                      {fix.description}
-                    </div>
-                    <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      <span className="font-medium capitalize">{fix.severity}</span>
-                      {fix.estimatedTime && (
-                        <>
-                          <span aria-hidden="true">•</span>
-                          <span>{fix.estimatedTime} min</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
+            {validManual.length > 5 && (
+              <button
+                type="button"
+                aria-expanded={showMore.manual}
+                onClick={() => toggleViewMore("manual")}
+                className="w-full mb-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+              >
+                {showMore.manual ? "View less" : `View more (${validManual.length - 5})`}
+              </button>
+            )}
           </div>
         )}
       </div>
