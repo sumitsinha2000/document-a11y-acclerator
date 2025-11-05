@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, lazy, Suspense } from "react"
+import { useState, useEffect, lazy, Suspense, useCallback } from "react"
 import axios from "axios"
 import "./App.css"
 import LoadingScreen from "./components/LoadingScreen"
@@ -35,10 +35,20 @@ function AppContent() {
   const [currentBatch, setCurrentBatch] = useState(null)
   const [loading, setLoading] = useState(false)
 
+  const fetchScanHistory = useCallback(async () => {
+    try {
+      console.log("[v0] Fetching scan history...")
+      const response = await axios.get("/api/scans")
+      setScanHistory(response.data.scans)
+    } catch (error) {
+      console.error("[v0] Error fetching scan history:", error)
+    }
+  }, [])
+
   useEffect(() => {
     console.log("[v0] AppContent mounted, fetching scan history")
     fetchScanHistory()
-  }, [])
+  }, [fetchScanHistory])
 
   const handleLoadingComplete = () => {
     console.log("[v0] Loading complete")
@@ -47,16 +57,6 @@ function AppContent() {
 
   if (isLoading) {
     return <LoadingScreen onComplete={handleLoadingComplete} />
-  }
-
-  const fetchScanHistory = async () => {
-    try {
-      console.log("[v0] Fetching scan history...")
-      const response = await axios.get("/api/scans")
-      setScanHistory(response.data.scans)
-    } catch (error) {
-      console.error("[v0] Error fetching scan history:", error)
-    }
   }
 
   const handleScanComplete = (scanDataArray) => {
