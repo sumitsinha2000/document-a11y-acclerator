@@ -23,9 +23,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Doc A11y Accelerator API")
 
+# Allow only your frontend domains in production
+origins = [
+    "https://document-a11y-accelerator.vercel.app",  # your live Vercel frontend
+    "http://localhost:5000",  # local Vite dev
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # or specify frontend domain
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

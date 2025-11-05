@@ -3,5 +3,8 @@ services:
     name: doca11y-backend
     env: docker
     plan: free
+    envVars:
+      - key: PORT
+        value: 5000
     region: oregon
     healthCheckPath: /api/health
