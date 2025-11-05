@@ -2,8 +2,23 @@ services:
   - type: web
     name: doca11y-backend
     env: python
+    region: oregon
+    plan: free
     buildCommand: |
-      apt-get update && apt-get install -y libqpdf-dev
-      pip install --upgrade pip
+      apt-get update
+      apt-get install -y \
+        qpdf \
+        libqpdf-dev \
+        libjpeg-dev \
+        libtiff-dev \
+        libpng-dev \
+        libfreetype6-dev \
+        pkg-config \
+        build-essential \
+        python3-dev \
+        g++ \
+        gcc
+      pip install --upgrade pip setuptools wheel
       pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
