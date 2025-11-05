@@ -1,3 +1,5 @@
+"use client"
+
 import { useState, useEffect, lazy, Suspense } from "react"
 import axios from "axios"
 import "./App.css"
@@ -5,6 +7,7 @@ import LoadingScreen from "./components/LoadingScreen"
 import UploadArea from "./components/UploadArea"
 import ThemeToggle from "./components/ThemeToggle"
 import { NotificationProvider, useNotification } from "./contexts/NotificationContext"
+import NotificationContainer from "./components/NotificationContainer"
 
 const History = lazy(() => import("./components/History"))
 const ReportViewer = lazy(() => import("./components/ReportViewer"))
@@ -360,6 +363,7 @@ function App() {
   return (
     <NotificationProvider>
       <AppContent />
+      <NotificationContainer />
     </NotificationProvider>
   )
 }
