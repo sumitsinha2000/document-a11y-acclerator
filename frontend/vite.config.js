@@ -18,17 +18,18 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          // Split node_modules into vendor chunk
-          if (id.includes("node_modules")) {
-            return "vendor"
-          }
-        },
+        // Let Vite handle chunking automatically
       },
     },
     chunkSizeWarningLimit: 1000,
+    minify: "terser",
+    terserOptions: {
+      compress: {
+        drop_console: true,
+      },
+    },
   },
   optimizeDeps: {
-    include: ["react", "react-dom", "axios"],
+    include: ["react", "react-dom", "axios", "lucide-react", "recharts"],
   },
 })

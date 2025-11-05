@@ -46,12 +46,8 @@ function AppContent() {
   }
 
   const handleScanComplete = (scanDataArray) => {
-    console.log("[v0] handleScanComplete called with:", scanDataArray)
-    console.log("[v0] scanDataArray length:", scanDataArray.length)
-    console.log("[v0] scanDataArray[0]:", scanDataArray[0])
-
     if (!scanDataArray || scanDataArray.length === 0) {
-      console.error("[v0] ERROR: scanDataArray is empty or invalid")
+      console.error("ERROR: scanDataArray is empty or invalid")
       showError("No scan results received. Please check the console for errors.")
       return
     }
@@ -59,14 +55,12 @@ function AppContent() {
     setScanResults(scanDataArray)
 
     if (scanDataArray.length > 1 && scanDataArray[0].batchId) {
-      console.log("[v0] Multiple files with batchId detected, switching to batch view")
       setCurrentBatch({
         batchId: scanDataArray[0].batchId,
         scans: scanDataArray,
       })
       setCurrentView("batch")
     } else if (scanDataArray.length > 1) {
-      console.log("[v0] Multiple files without batchId, creating temporary batch")
       const tempBatchId = `temp_batch_${Date.now()}`
       const scansWithBatchId = scanDataArray.map((scan) => ({
         ...scan,
@@ -79,7 +73,6 @@ function AppContent() {
       setScanResults(scansWithBatchId)
       setCurrentView("batch")
     } else {
-      console.log("[v0] Single file, switching to report view")
       setCurrentView("report")
     }
 
@@ -91,20 +84,13 @@ function AppContent() {
   }
 
   const handleSelectScan = async (scan) => {
-    console.log("[v0] Selected scan from history:", scan)
-
     try {
       setLoading(true)
-      console.log("[v0] Fetching scan details from:", `/api/scan/${scan.id}`)
       const response = await axios.get(`/api/scan/${scan.id}`)
-      console.log("[v0] API Response received:", response)
-      console.log("[v0] Response data:", response.data)
-
       setScanResults([response.data])
       setCurrentView("report")
     } catch (error) {
-      console.error("[v0] Error loading scan details:", error)
-      console.error("[v0] Error response:", error.response)
+      console.error("Error loading scan details:", error)
       showError("Failed to load scan details: " + (error.response?.data?.error || error.message))
     } finally {
       setLoading(false)
@@ -112,21 +98,16 @@ function AppContent() {
   }
 
   const handleSelectBatch = async (batchId) => {
-    console.log("[v0] Selected batch from history:", batchId)
-
     try {
       setLoading(true)
-      console.log("[v0] Fetching batch details from:", `/api/batch/${batchId}`)
       const response = await axios.get(`/api/batch/${batchId}`)
-      console.log("[v0] Batch data received:", response.data)
-
       setCurrentBatch({
         batchId: batchId,
         scans: response.data.scans || [],
       })
       setCurrentView("batch")
     } catch (error) {
-      console.error("[v0] Error loading batch details:", error)
+      console.error("Error loading batch details:", error)
       showError("Failed to load batch details: " + (error.response?.data?.error || error.message))
     } finally {
       setLoading(false)
@@ -145,16 +126,13 @@ function AppContent() {
 
   const handleBatchUpdate = async (batchId) => {
     try {
-      console.log("[v0] Refreshing batch data:", batchId)
       const response = await axios.get(`/api/batch/${batchId}`)
-      console.log("[v0] Updated batch data received:", response.data)
-
       setCurrentBatch({
         batchId: batchId,
         scans: response.data.scans || [],
       })
     } catch (error) {
-      console.error("[v0] Error refreshing batch data:", error)
+      console.error("Error refreshing batch data:", error)
     }
   }
 
