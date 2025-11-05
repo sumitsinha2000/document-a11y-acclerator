@@ -19,8 +19,17 @@ from backend.fix_progress_tracker import create_progress_tracker, get_progress_t
 from backend.pdf_generator import PDFGenerator
 from werkzeug.utils import secure_filename
 
-app = FastAPI()
-CORS(app)  # Enable CORS for all routes
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="Doc A11y Accelerator API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or specify frontend domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
