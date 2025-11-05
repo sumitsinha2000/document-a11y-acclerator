@@ -3,7 +3,7 @@
 import { useState, useEffect, lazy, Suspense } from "react"
 import axios from "axios"
 import "./App.css"
-import LoadingScreen from "./components/LoadingScreen"
+//import LoadingScreen from "./components/LoadingScreen"
 import UploadArea from "./components/UploadArea"
 import ThemeToggle from "./components/ThemeToggle"
 import { NotificationProvider, useNotification } from "./contexts/NotificationContext"
@@ -24,24 +24,24 @@ const ComponentLoader = () => (
 function AppContent() {
   const { showError } = useNotification()
 
-  const [isLoading, setIsLoading] = useState(true)
+  //const [isLoading, setIsLoading] = useState(true)
   const [currentView, setCurrentView] = useState("upload")
   const [scanHistory, setScanHistory] = useState([])
   const [scanResults, setScanResults] = useState([])
   const [currentBatch, setCurrentBatch] = useState(null)
-  const [loading, setLoading] = useState(false)
+ // const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     fetchScanHistory()
   }, [])
 
-  const handleLoadingComplete = () => {
-    setIsLoading(false)
-  }
+  //const handleLoadingComplete = () => {
+  //  setIsLoading(false)
+  //}
 
-  if (isLoading) {
-    return <LoadingScreen onComplete={handleLoadingComplete} />
-  }
+  //if (isLoading) {
+   // return <LoadingScreen onComplete={handleLoadingComplete} />
+  //}
 
   const fetchScanHistory = async () => {
     try {
