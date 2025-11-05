@@ -1,3 +1,5 @@
+"use client"
+
 import { useState, useEffect, lazy, Suspense } from "react"
 import axios from "axios"
 import "./App.css"
@@ -6,6 +8,7 @@ import UploadArea from "./components/UploadArea"
 import ThemeToggle from "./components/ThemeToggle"
 import { NotificationProvider, useNotification } from "./contexts/NotificationContext"
 import NotificationContainer from "./components/NotificationContainer"
+import ErrorBoundary from "./components/ErrorBoundary"
 
 const History = lazy(() => import("./components/History"))
 const ReportViewer = lazy(() => import("./components/ReportViewer"))
@@ -23,6 +26,8 @@ const ComponentLoader = () => (
 function AppContent() {
   const { showError } = useNotification()
 
+  console.log("[v0] AppContent rendering")
+
   const [isLoading, setIsLoading] = useState(true)
   const [currentView, setCurrentView] = useState("upload")
   const [scanHistory, setScanHistory] = useState([])
@@ -31,10 +36,12 @@ function AppContent() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    console.log("[v0] AppContent mounted, fetching scan history")
     fetchScanHistory()
   }, [])
 
   const handleLoadingComplete = () => {
+    console.log("[v0] Loading complete")
     setIsLoading(false)
   }
 
@@ -44,10 +51,11 @@ function AppContent() {
 
   const fetchScanHistory = async () => {
     try {
+      console.log("[v0] Fetching scan history...")
       const response = await axios.get("/api/scans")
       setScanHistory(response.data.scans)
     } catch (error) {
-      console.error("Error fetching scan history:", error)
+      console.error("[v0] Error fetching scan history:", error)
     }
   }
 
@@ -358,11 +366,15 @@ function AppContent() {
 }
 
 function App() {
+  console.log("[v0] App component rendering")
+
   return (
-    <NotificationProvider>
-      <AppContent />
-      <NotificationContainer />
-    </NotificationProvider>
+    <ErrorBoundary>
+      <NotificationProvider>
+        <AppContent />
+        <NotificationContainer />
+      </NotificationProvider>
+    </ErrorBoundary>
   )
 }
 
