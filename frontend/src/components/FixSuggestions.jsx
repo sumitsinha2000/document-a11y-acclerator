@@ -25,6 +25,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [showAIPanel, setShowAIPanel] = useState(false)
   const [showProgressStepper, setShowProgressStepper] = useState(false)
   const [currentFixType, setCurrentFixType] = useState("")
+  const [pendingProgressResult, setPendingProgressResult] = useState(null)
 
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" })
   const [expandedFixes, setExpandedFixes] = useState({
@@ -101,6 +102,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyTraditionalFixes = async () => {
     setApplyingTraditional(true)
     setShowProgressStepper(true)
+    setPendingProgressResult(null)
     setCurrentFixType("Traditional Automated Fixes")
     setFixedFile(null)
 
@@ -122,6 +124,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyAIFixes = async () => {
     setApplyingAI(true)
     setShowProgressStepper(true)
+    setPendingProgressResult(null)
     setCurrentFixType("AI-Powered Automated Fixes")
     setFixedFile(null)
 
@@ -143,6 +146,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyTraditionalSemiFixes = async () => {
     setApplyingTraditionalSemi(true)
     setShowProgressStepper(true)
+    setPendingProgressResult(null)
     setCurrentFixType("Traditional Semi-Automated Fixes")
     setFixedFile(null)
 
@@ -164,6 +168,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyAISemiFixes = async () => {
     setApplyingAISemi(true)
     setShowProgressStepper(true)
+    setPendingProgressResult(null)
     setCurrentFixType("AI-Powered Semi-Automated Fixes")
     setFixedFile(null)
 
@@ -250,9 +255,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
-  const handleProgressComplete = async (success, newScanData) => {
-    console.log("[v0] FixSuggestions - Progress complete:", { success, hasNewData: !!newScanData })
-    setShowProgressStepper(false)
+  const processProgressOutcome = async (outcome) => {
+    if (!outcome) {
+      return
+    }
+
+    const { success, newScanData } = outcome
 
     if (success) {
       const updatedFileName = newScanData?.fixedFile || filename || `${scanId}.pdf`
@@ -268,13 +276,13 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         summary: newScanData?.summary,
       })
 
-      console.log("[v0] FixSuggestions - Fixes applied successfully, triggering refresh")
+      console.log("[v0] FixSuggestions - Fixes applied successfully, preparing refresh")
 
       await new Promise((resolve) => setTimeout(resolve, 1500))
 
       if (onRefresh && newScanData) {
         try {
-          console.log("[v0] FixSuggestions - Calling onRefresh...")
+          console.log("[v0] FixSuggestions - Calling onRefresh with new scan data...")
           await onRefresh(
             newScanData?.summary,
             newScanData?.results || newScanData?.scanResults?.results,
@@ -298,7 +306,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         }
       } else if (onRefresh) {
         try {
-          console.log("[v0] FixSuggestions - Calling onRefresh without new data...")
+          console.log("[v0] FixSuggestions - Calling onRefresh without new scan payload...")
           await onRefresh()
           console.log("[v0] FixSuggestions - Refresh completed successfully")
           showAlert(setAlertModal)(
@@ -330,6 +338,35 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         "The fix process encountered errors. Please review the error details and try again.",
         "error",
       )
+    }
+  }
+
+  const handleProgressComplete = async (success, newScanData) => {
+    console.log("[v0] FixSuggestions - Progress complete:", { success, hasNewData: !!newScanData })
+    const outcome = { success, newScanData }
+
+    if (showProgressStepper) {
+      setPendingProgressResult(outcome)
+      return
+    }
+
+    setPendingProgressResult(null)
+    await processProgressOutcome(outcome)
+  }
+
+  const handleProgressModalClose = async () => {
+    setShowProgressStepper(false)
+
+    if (!pendingProgressResult) {
+      return
+    }
+
+    const outcome = pendingProgressResult
+
+    try {
+      await processProgressOutcome(outcome)
+    } finally {
+      setPendingProgressResult(null)
     }
   }
 
@@ -365,7 +402,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       <FixProgressStepper
         scanId={scanId}
         isOpen={showProgressStepper}
-        onClose={() => setShowProgressStepper(false)}
+        onClose={handleProgressModalClose}
         onComplete={handleProgressComplete}
       />
 
