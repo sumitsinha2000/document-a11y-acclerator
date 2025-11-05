@@ -22,7 +22,7 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
@@ -35,7 +35,7 @@ GENERATED_PDFS_FOLDER = pdf_generator.output_dir
 # === Database Connection ===
 def get_db_connection():
     try:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(NEON_DATABASE_URL, cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
