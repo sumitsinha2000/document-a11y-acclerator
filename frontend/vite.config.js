@@ -16,6 +16,7 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
+    minify: "esbuild",
     rollupOptions: {
       output: {
         manualChunks(id) {
