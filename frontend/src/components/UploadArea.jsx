@@ -15,6 +15,7 @@ export default function UploadArea({ onScanComplete }) {
   const uploadAreaRef = useRef(null)
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [selectedFiles, setSelectedFiles] = useState([])
+  const [autoScan, setAutoScan] = useState(true)
 
   useEffect(() => {
     if (uploadProgress.length > 0) {
@@ -113,7 +114,7 @@ export default function UploadArea({ onScanComplete }) {
     }))
     setUploadProgress(initialProgress)
 
-    if (files.length > 1) {
+    if (files.length > 1 && autoScan) {
       try {
         console.log("[v0] Uploading batch of", files.length, "files to group:", selectedGroup)
 
@@ -409,6 +410,29 @@ export default function UploadArea({ onScanComplete }) {
                     </ul>
                   </div>
 
+                  <div className="bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg p-4">
+                    <label className="flex items-start gap-3 cursor-pointer group">
+                      <div className="flex items-center h-5">
+                        <input
+                          type="checkbox"
+                          checked={autoScan}
+                          onChange={(e) => setAutoScan(e.target.checked)}
+                          className="w-5 h-5 text-primary-600 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 cursor-pointer transition-colors"
+                          aria-describedby="auto-scan-description"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <span className="text-sm font-semibold text-gray-900 dark:text-white group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
+                          Auto-scan files for accessibility issues
+                        </span>
+                        <p id="auto-scan-description" className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                          Automatically scan uploaded files for accessibility issues. Uncheck to upload files without
+                          scanning.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
                   <button
                     onClick={handleUploadWithGroup}
                     disabled={!selectedGroup}
@@ -416,7 +440,7 @@ export default function UploadArea({ onScanComplete }) {
                     aria-label={
                       !selectedGroup
                         ? "Select a group before uploading"
-                        : `Upload ${selectedFiles.length} file${selectedFiles.length > 1 ? "s" : ""} to selected group`
+                        : `${autoScan ? "Upload and scan" : "Upload"} ${selectedFiles.length} file${selectedFiles.length > 1 ? "s" : ""} to selected group`
                     }
                   >
                     {!selectedGroup ? (
@@ -446,7 +470,8 @@ export default function UploadArea({ onScanComplete }) {
                             d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
                           />
                         </svg>
-                        Upload {selectedFiles.length} file{selectedFiles.length > 1 ? "s" : ""}
+                        {autoScan ? "Upload & Scan" : "Upload"} {selectedFiles.length} file
+                        {selectedFiles.length > 1 ? "s" : ""}
                       </span>
                     )}
                   </button>
@@ -469,7 +494,7 @@ export default function UploadArea({ onScanComplete }) {
                     >
                       <path
                         fillRule="evenodd"
-                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm8.707-7.293a1 1 0 00-1.414-1.414L11 12.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 12.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
                         clipRule="evenodd"
                       />
                     </svg>
