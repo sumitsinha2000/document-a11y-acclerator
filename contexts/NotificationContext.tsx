@@ -1,5 +1,3 @@
-"use client"
-
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react"
 import Toast from "@/components/frontend/Toast"
 import ConfirmDialog from "@/components/frontend/ConfirmDialog"
