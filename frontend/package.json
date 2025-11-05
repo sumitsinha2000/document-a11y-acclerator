@@ -16,7 +16,8 @@
     "react-pdf": "^7.5.1",
     "recharts": "^2.10.0",
     "jspdf": "3.0.3",
-    "jspdf-autotable": "5.0.2"
+    "jspdf-autotable": "5.0.2",
+    "terser": "^5.44.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",
