@@ -1,0 +1,32 @@
+Flask==2.3.3
+Flask-CORS==4.0.0
+PyPDF2==3.0.1
+pdfplumber==0.10.3
+Pillow>=11.0.0
+pytesseract==0.3.10
+pdf2image==1.16.3
+fpdf==1.7.2
+pikepdf==8.10.1
+psycopg2-binary==2.9.9
+python-dotenv==1.0.0
+fastapi
+mangum
+uvicorn
+python-multipart
+# PDF-Extract-Kit (installed via conda)
+# Installation instructions in PDF_EXTRACT_KIT_SETUP.md
+# When available, provides enhanced PDF analysis:
+# - Advanced layout analysis
+# - Better table detection and structure extraction
+# - Improved form field detection
+# - Document structure analysis (headings, reading order)
+# - More accurate image and alt text detection
+
+# veraPDF (installed separately)
+# Installation instructions in VERAPDF_SETUP.md
+# When available, provides industry-standard validation:
+# - WCAG 2.1 Level A and AA compliance checking
+# - PDF/UA (ISO 14289-1) validation
+# - Section 508 compliance verification
+# - Detailed accessibility issue reporting with clause references
+sambanova>=1.0.0
