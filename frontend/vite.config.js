@@ -19,18 +19,41 @@ export default defineConfig({
     minify: "esbuild",
     rollupOptions: {
       output: {
-        // Let Vite handle chunking automatically
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            // Split React and React-DOM separately
+            if (id.includes("react") || id.includes("react-dom")) {
+              return "react-vendor"
+            }
+            // Split PDF libraries
+            if (id.includes("pdfjs") || id.includes("pdf-lib")) {
+              return "pdf-libs"
+            }
+            // Split jsPDF and html2canvas
+            if (id.includes("jspdf") || id.includes("html2canvas")) {
+              return "export-libs"
+            }
+            // Split chart libraries
+            if (id.includes("recharts") || id.includes("d3")) {
+              return "chart-libs"
+            }
+            // Split axios
+            if (id.includes("axios")) {
+              return "axios"
+            }
+            // Split icons
+            if (id.includes("lucide") || id.includes("react-icons")) {
+              return "icons"
+            }
+            // All other node_modules
+            return "vendor"
+          }
+        },
       },
     },
-    chunkSizeWarningLimit: 1000,
-    minify: "terser",
-    terserOptions: {
-      compress: {
-        drop_console: true,
-      },
-    },
+    chunkSizeWarningLimit: 600, // Lower threshold to catch large chunks earlier
   },
   optimizeDeps: {
-    include: ["react", "react-dom", "axios", "lucide-react", "recharts"],
+    include: ["react", "react-dom", "axios"],
   },
 })

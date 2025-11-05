@@ -1,18 +1,25 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, lazy, Suspense } from "react"
 import axios from "axios"
 import "./App.css"
 import LoadingScreen from "./components/LoadingScreen"
 import UploadArea from "./components/UploadArea"
-import History from "./components/History"
-import ReportViewer from "./components/ReportViewer"
 import ThemeToggle from "./components/ThemeToggle"
-import PDFGenerator from "./components/PDFGenerator"
-import BatchReportViewer from "./components/BatchReportViewer"
-import GroupDashboard from "./components/GroupDashboard"
-import GroupMaster from "./components/GroupMaster"
 import { NotificationProvider, useNotification } from "./contexts/NotificationContext"
+
+const History = lazy(() => import("./components/History"))
+const ReportViewer = lazy(() => import("./components/ReportViewer"))
+const PDFGenerator = lazy(() => import("./components/PDFGenerator"))
+const BatchReportViewer = lazy(() => import("./components/BatchReportViewer"))
+const GroupDashboard = lazy(() => import("./components/GroupDashboard"))
+const GroupMaster = lazy(() => import("./components/GroupMaster"))
+
+const ComponentLoader = () => (
+  <div className="flex items-center justify-center h-64">
+    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+  </div>
+)
 
 function AppContent() {
   const { showError } = useNotification()
@@ -301,33 +308,49 @@ function AppContent() {
       <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 max-w-full">
         <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-full">
           {currentView === "upload" && <UploadArea onScanComplete={handleScanComplete} />}
-          {currentView === "groups" && <GroupMaster onBack={handleBackToUpload} />}
-          {currentView === "dashboard" && (
-            <GroupDashboard
-              onSelectScan={handleSelectScan}
-              onSelectBatch={handleSelectBatch}
-              onBack={handleBackToUpload}
-            />
+          {currentView === "groups" && (
+            <Suspense fallback={<ComponentLoader />}>
+              <GroupMaster onBack={handleBackToUpload} />
+            </Suspense>
           )}
-          {currentView === "generator" && <PDFGenerator />}
+          {currentView === "dashboard" && (
+            <Suspense fallback={<ComponentLoader />}>
+              <GroupDashboard
+                onSelectScan={handleSelectScan}
+                onSelectBatch={handleSelectBatch}
+                onBack={handleBackToUpload}
+              />
+            </Suspense>
+          )}
+          {currentView === "generator" && (
+            <Suspense fallback={<ComponentLoader />}>
+              <PDFGenerator />
+            </Suspense>
+          )}
           {currentView === "history" && (
-            <History
-              scans={scanHistory}
-              onSelectScan={handleSelectScan}
-              onSelectBatch={handleSelectBatch}
-              onBack={handleBackToUpload}
-            />
+            <Suspense fallback={<ComponentLoader />}>
+              <History
+                scans={scanHistory}
+                onSelectScan={handleSelectScan}
+                onSelectBatch={handleSelectBatch}
+                onBack={handleBackToUpload}
+              />
+            </Suspense>
           )}
           {currentView === "batch" && currentBatch && (
-            <BatchReportViewer
-              batchId={currentBatch.batchId}
-              scans={currentBatch.scans}
-              onBack={handleBackToUpload}
-              onBatchUpdate={handleBatchUpdate}
-            />
+            <Suspense fallback={<ComponentLoader />}>
+              <BatchReportViewer
+                batchId={currentBatch.batchId}
+                scans={currentBatch.scans}
+                onBack={handleBackToUpload}
+                onBatchUpdate={handleBatchUpdate}
+              />
+            </Suspense>
           )}
           {currentView === "report" && scanResults.length > 0 && (
-            <ReportViewer scans={scanResults} onBack={handleBackToUpload} />
+            <Suspense fallback={<ComponentLoader />}>
+              <ReportViewer scans={scanResults} onBack={handleBackToUpload} />
+            </Suspense>
           )}
         </div>
       </main>
