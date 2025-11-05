@@ -1,5 +1,3 @@
-"use client"
-
 import { useState, useEffect, useRef } from "react"
 import { Document, Page, pdfjs } from "react-pdf"
 import axios from "axios"

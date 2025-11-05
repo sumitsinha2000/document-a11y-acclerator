@@ -1,5 +1,3 @@
-"use client"
-
 export default function Breadcrumb({ items }) {
   return (
     <nav className="mb-4" aria-label="Breadcrumb">

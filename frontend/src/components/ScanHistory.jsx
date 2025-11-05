@@ -1,5 +1,3 @@
-"use client"
-
 export default function ScanHistory({ scans, onSelectScan, onBack }) {
   if (scans.length === 0) {
     return (

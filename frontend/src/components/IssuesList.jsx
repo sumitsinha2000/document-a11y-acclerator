@@ -1,5 +1,3 @@
-"use client"
-
 export default function IssuesList({ results, selectedCategory, onSelectCategory }) {
   console.log("[v0] IssuesList received results:", results)
   console.log("[v0] Results type:", typeof results)

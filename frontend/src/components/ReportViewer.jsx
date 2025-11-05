@@ -1,5 +1,3 @@
-"use client"
-
 import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import IssuesList from "./IssuesList"

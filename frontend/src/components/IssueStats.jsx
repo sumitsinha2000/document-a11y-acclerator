@@ -1,5 +1,3 @@
-"use client"
-
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
 
 export default function IssueStats({ results }) {

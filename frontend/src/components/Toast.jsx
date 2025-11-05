@@ -1,5 +1,3 @@
-"use client"
-
 import { useEffect } from "react"
 
 export default function Toast({ message, type = "info", onClose, duration = 5000 }) {

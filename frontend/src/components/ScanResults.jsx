@@ -1,5 +1,3 @@
-"use client"
-
 import { useCallback, useState } from "react"
 import axios from "axios"
 import FixSuggestions from "./FixSuggestions" // Ensure this path is correct

@@ -1,5 +1,3 @@
-"use client"
-
 export default function UploadProgressToast({ uploads, onRemove }) {
   if (!uploads || uploads.length === 0) return null
 

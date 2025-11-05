@@ -1,5 +1,3 @@
-"use client"
-
 import { useState, useRef, useEffect } from "react"
 import axios from "axios"
 import GroupSelector from "./GroupSelector"

@@ -1,5 +1,3 @@
-"use client"
-
 import { useState, useEffect } from "react"
 import { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"

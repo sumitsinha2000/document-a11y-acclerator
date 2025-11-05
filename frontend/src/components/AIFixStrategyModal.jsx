@@ -1,5 +1,3 @@
-"use client"
-
 import { useState } from "react"
 
 export default function AIFixStrategyModal({ isOpen, onClose, strategy, issueType, fixCategory }) {
