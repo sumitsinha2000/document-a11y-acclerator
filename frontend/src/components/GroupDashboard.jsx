@@ -5,7 +5,7 @@ import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 import GroupTreeSidebar from "./GroupTreeSidebar"
 
-export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack }) {
+export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, initialGroupId }) {
   const { showError, showSuccess } = useNotification()
 
   const [selectedNode, setSelectedNode] = useState(null)
@@ -37,9 +37,20 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack }) 
     try {
       if (node.type === "group") {
         const response = await axios.get(`/api/groups/${node.id}/details`)
+        const groupDetails = response.data
+
         setNodeData({
           type: "group",
-          ...response.data,
+          ...groupDetails,
+        })
+
+        setSelectedNode({
+          ...node,
+          data: {
+            ...(node.data || {}),
+            name: groupDetails.name,
+            description: groupDetails.description,
+          },
         })
       } else if (node.type === "file") {
         const response = await axios.get(`/api/scan/${node.id}`)
@@ -84,7 +95,12 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack }) 
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
-      <GroupTreeSidebar onNodeSelect={handleNodeSelect} selectedNode={selectedNode} onRefresh={loadInitialData} />
+      <GroupTreeSidebar
+        onNodeSelect={handleNodeSelect}
+        selectedNode={selectedNode}
+        onRefresh={loadInitialData}
+        initialGroupId={initialGroupId}
+      />
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">

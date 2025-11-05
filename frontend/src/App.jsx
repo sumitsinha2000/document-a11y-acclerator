@@ -21,6 +21,7 @@ function AppContent() {
   const [scanResults, setScanResults] = useState([])
   const [currentBatch, setCurrentBatch] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [selectedGroupId, setSelectedGroupId] = useState(null)
 
   useEffect(() => {
     fetchScanHistory()
@@ -146,6 +147,11 @@ function AppContent() {
     } catch (error) {
       console.error("[v0] Error refreshing batch data:", error)
     }
+  }
+
+  const handleOpenGroupDashboard = (groupId) => {
+    setSelectedGroupId(groupId)
+    setCurrentView("dashboard")
   }
 
   return (
@@ -313,12 +319,13 @@ function AppContent() {
       <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 max-w-full">
         <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-full">
           {currentView === "upload" && <UploadArea onScanComplete={handleScanComplete} />}
-          {currentView === "groups" && <GroupMaster onBack={handleBackToUpload} />}
+          {currentView === "groups" && <GroupMaster onBack={handleBackToUpload} onOpenGroupDashboard={handleOpenGroupDashboard} />}
           {currentView === "dashboard" && (
             <GroupDashboard
               onSelectScan={handleSelectScan}
               onSelectBatch={handleSelectBatch}
               onBack={handleBackToUpload}
+              initialGroupId={selectedGroupId}
             />
           )}
           {currentView === "generator" && <PDFGenerator />}

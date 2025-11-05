@@ -3,10 +3,13 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 
+const normalizeId = (id) => (id === null || id === undefined ? "" : String(id));
+
 export default function GroupTreeSidebar({
   onNodeSelect,
   selectedNode,
   onRefresh,
+  initialGroupId,
 }) {
   const [groups, setGroups] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
@@ -43,7 +46,8 @@ export default function GroupTreeSidebar({
       }
 
       let batchesByGroup = normalizedGroups.reduce((acc, group) => {
-        acc[group.id] = [];
+        const key = normalizeId(group.id);
+        acc[key] = [];
         return acc;
       }, {});
 
@@ -52,13 +56,14 @@ export default function GroupTreeSidebar({
         const allBatches = historyResponse.data.batches || [];
 
         batchesByGroup = allBatches.reduce((acc, batch) => {
-          if (!batch.groupId) {
+          const groupKey = normalizeId(batch.groupId);
+          if (!groupKey) {
             return acc;
           }
-          if (!acc[batch.groupId]) {
-            acc[batch.groupId] = [];
+          if (!acc[groupKey]) {
+            acc[groupKey] = [];
           }
-          acc[batch.groupId].push(batch);
+          acc[groupKey].push(batch);
           return acc;
         }, batchesByGroup);
       } catch (historyError) {
@@ -67,25 +72,31 @@ export default function GroupTreeSidebar({
 
       setGroupBatches(batchesByGroup);
 
-      const groupsWithCounts = normalizedGroups.map((group) => ({
-        ...group,
-        batchCount: batchesByGroup[group.id]?.length || group.batchCount || 0,
-      }));
+      const groupsWithCounts = normalizedGroups.map((group) => {
+        const key = normalizeId(group.id);
+        return {
+          ...group,
+          batchCount: batchesByGroup[key]?.length || group.batchCount || 0,
+        };
+      });
 
       setGroups(groupsWithCounts);
 
-      const firstGroup = groupsWithCounts[0];
-      const firstGroupId = firstGroup.id;
+      const preferredGroup =
+        (initialGroupId &&
+          groupsWithCounts.find((group) => normalizeId(group.id) === normalizeId(initialGroupId))) ||
+        groupsWithCounts[0];
+      const preferredGroupId = normalizeId(preferredGroup.id);
 
-      setExpandedGroups(new Set([firstGroupId]));
+      setExpandedGroups(new Set([preferredGroupId]));
 
-      await fetchGroupData(firstGroupId, batchesByGroup[firstGroupId]);
+      await fetchGroupData(preferredGroup.id, batchesByGroup[preferredGroupId]);
 
       if (onNodeSelect) {
         onNodeSelect({
           type: "group",
-          id: firstGroupId,
-          data: firstGroup,
+          id: preferredGroup.id,
+          data: preferredGroup,
         });
       }
     } catch (error) {
@@ -96,13 +107,50 @@ export default function GroupTreeSidebar({
     }
   };
 
+  useEffect(() => {
+    const normalizedInitialId = normalizeId(initialGroupId);
+
+    if (!normalizedInitialId || groups.length === 0) {
+      return;
+    }
+
+    if (selectedNode?.type === "group" && normalizeId(selectedNode.id) === normalizedInitialId) {
+      return;
+    }
+
+    const targetGroup = groups.find((group) => normalizeId(group.id) === normalizedInitialId);
+
+    if (!targetGroup) {
+      return;
+    }
+
+    setExpandedGroups((prev) => {
+      if (prev.has(normalizedInitialId)) {
+        return prev;
+      }
+      const updated = new Set(prev);
+      updated.add(normalizedInitialId);
+      return updated;
+    });
+
+    const targetKey = normalizeId(targetGroup.id);
+    fetchGroupData(targetGroup.id, groupBatches[targetKey] || null);
+
+    handleNodeClick({
+      type: "group",
+      id: targetGroup.id,
+      data: targetGroup,
+    });
+  }, [initialGroupId, groups]);
+
   const fetchGroupData = async (groupId, prefetchedBatches = null) => {
     try {
       const filesResponse = await axios.get(`/api/groups/${groupId}/files`);
       const files = filesResponse.data.files || [];
+      const normalizedId = normalizeId(groupId);
       setGroupFiles((prev) => ({
         ...prev,
-        [groupId]: files,
+        [normalizedId]: files,
       }));
 
       let batchesForGroup = Array.isArray(prefetchedBatches)
@@ -113,17 +161,17 @@ export default function GroupTreeSidebar({
         const historyResponse = await axios.get(`/api/history`);
         const allBatches = historyResponse.data.batches || [];
         batchesForGroup = allBatches.filter(
-          (batch) => batch.groupId === groupId
+          (batch) => normalizeId(batch.groupId) === normalizedId
         );
       }
 
       setGroupBatches((prev) => ({
         ...prev,
-        [groupId]: batchesForGroup,
+        [normalizedId]: batchesForGroup,
       }));
       setGroups((prev) =>
         prev.map((g) =>
-          g.id === groupId
+          normalizeId(g.id) === normalizedId
             ? {
                 ...g,
                 fileCount: files.length,
@@ -138,12 +186,13 @@ export default function GroupTreeSidebar({
   };
 
   const toggleGroup = async (groupId) => {
+    const normalizedId = normalizeId(groupId);
     const newExpanded = new Set(expandedGroups);
-    if (newExpanded.has(groupId)) {
-      newExpanded.delete(groupId);
+    if (newExpanded.has(normalizedId)) {
+      newExpanded.delete(normalizedId);
     } else {
-      newExpanded.add(groupId);
-      await fetchGroupData(groupId, groupBatches[groupId] || null);
+      newExpanded.add(normalizedId);
+      await fetchGroupData(groupId, groupBatches[normalizedId] || null);
     }
     setExpandedGroups(newExpanded);
   };
@@ -260,11 +309,13 @@ export default function GroupTreeSidebar({
         ) : (
           <div className="space-y-1">
             {groups.map((group) => {
-              const isExpanded = expandedGroups.has(group.id);
-              const files = groupFiles[group.id] || [];
-              const batches = groupBatches[group.id] || [];
+              const normalizedGroupId = normalizeId(group.id);
+              const isExpanded = expandedGroups.has(normalizedGroupId);
+              const files = groupFiles[normalizeId(group.id)] || [];
+              const batches = groupBatches[normalizeId(group.id)] || [];
               const isSelected =
-                selectedNode?.type === "group" && selectedNode?.id === group.id;
+                selectedNode?.type === "group" &&
+                normalizeId(selectedNode?.id) === normalizedGroupId;
 
               return (
                 <div key={group.id} className="space-y-1">
@@ -354,7 +405,7 @@ export default function GroupTreeSidebar({
                           {batches.map((batch) => {
                             const isBatchSelected =
                               selectedNode?.type === "batch" &&
-                              selectedNode?.id === batch.batchId;
+                              normalizeId(selectedNode?.id) === normalizeId(batch.batchId);
 
                             return (
                               <button
@@ -426,7 +477,7 @@ export default function GroupTreeSidebar({
                           {files.map((file) => {
                             const isFileSelected =
                               selectedNode?.type === "file" &&
-                              selectedNode?.id === file.id;
+                              normalizeId(selectedNode?.id) === normalizeId(file.id);
 
                             return (
                               <button

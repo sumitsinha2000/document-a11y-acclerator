@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 
-export default function GroupMaster({ onBack }) {
+export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
   const { showSuccess, showError, confirm } = useNotification()
 
   const [groups, setGroups] = useState([])
@@ -313,7 +313,12 @@ export default function GroupMaster({ onBack }) {
               {groups.map((group) => (
                 <div key={group.id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => onOpenGroupDashboard && onOpenGroupDashboard(group.id)}
+                      className="flex-1 min-w-0 text-left"
+                      aria-label={`Open dashboard for ${group.name}`}
+                    >
                       <h3 className="text-base font-semibold text-gray-900 dark:text-white truncate">{group.name}</h3>
                       {group.description && (
                         <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
@@ -340,7 +345,7 @@ export default function GroupMaster({ onBack }) {
                         </span>
                         <span>Created {new Date(group.created_at).toLocaleDateString()}</span>
                       </div>
-                    </div>
+                    </button>
 
                     <div className="flex items-center gap-2">
                       <button
