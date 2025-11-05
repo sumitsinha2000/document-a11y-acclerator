@@ -1,5 +1,3 @@
-"use client"
-
 import { useNotification } from "../contexts/NotificationContext"
 import Toast from "./Toast"
 import ConfirmDialog from "./ConfirmDialog"

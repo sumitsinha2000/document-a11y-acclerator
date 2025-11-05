@@ -1,5 +1,3 @@
-"use client"
-
 import { useState, useEffect, lazy, Suspense } from "react"
 import axios from "axios"
 import "./App.css"
