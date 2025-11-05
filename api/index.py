@@ -1,116 +1,150 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
-from typing import List
+import tempfile
+import os
+import traceback
 
-app = FastAPI(title="DocA11y API (Vercel Serverless)")
+# Import your backend modules
+from backend.pdf_analyzer import PDFAccessibilityAnalyzer
+from backend.pdfa_validator import PDFAValidator
+from backend.auto_fix_engine import AutoFixEngine
+from backend.fix_progress_tracker import FixProgressTracker
 
-# Enable CORS for frontend on Vercel
+app = FastAPI(title="DocA11y Vercel Backend")
+
+# Allow frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # or ["https://your-frontend.vercel.app"]
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---- Health Check ----
+
+# --- Utility function to save uploaded file ---
+def _save_temp_pdf(upload_file: UploadFile):
+    """Save uploaded file temporarily"""
+    suffix = os.path.splitext(upload_file.filename)[-1]
+    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_file.write(upload_file.file.read())
+    tmp_file.close()
+    return tmp_file.name
+
+
+# --- Health check ---
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "message": "Backend running successfully on Vercel"}
 
-# ---- PDF Scan APIs ----
+
+# --- PDF Accessibility Scan ---
 @app.post("/api/scan")
 async def scan_pdf(file: UploadFile = File(...)):
-    """
-    Upload a single PDF for scanning.
-    Replace this stub with your actual PDF analysis logic.
-    """
-    # Example response
-    return {"message": f"File '{file.filename}' scanned successfully.", "scan_id": "12345"}
+    """Analyze uploaded PDF for accessibility and PDF/A compliance"""
+    try:
+        pdf_path = _save_temp_pdf(file)
+        analyzer = PDFAccessibilityAnalyzer()
+        results = analyzer.analyze(pdf_path)
 
-@app.post("/api/scan-batch")
-async def scan_batch(files: List[UploadFile] = File(...)):
-    """Handle batch uploads."""
-    return {"message": f"Scanned {len(files)} PDFs successfully."}
+        # Run PDF/A validation as well
+        validator = PDFAValidator(None)
+        import pikepdf
+        pdf = pikepdf.open(pdf_path)
+        validator = PDFAValidator(pdf)
+        pdfa_results = validator.validate()
+        pdf.close()
 
-@app.get("/api/scans")
-def list_scans():
-    """Return list of all scans (placeholder)."""
-    return {"scans": [{"id": "123", "name": "Report.pdf", "status": "complete"}]}
+        results["pdfaResults"] = pdfa_results
 
-@app.get("/api/scan/{scan_id}")
-def get_scan_details(scan_id: str):
-    """Fetch details for a single scan."""
-    return {"scan_id": scan_id, "issues": [], "summary": "No major issues"}
+        return {
+            "filename": file.filename,
+            "totalIssues": sum(len(v) for v in results.values() if isinstance(v, list)),
+            "results": results,
+        }
 
-@app.get("/api/history")
-def get_history():
-    """Return scan history list."""
-    return {"history": [{"id": 1, "file": "report.pdf", "status": "done"}]}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error analyzing PDF: {e}")
 
-# ---- Batch Fix APIs ----
-@app.get("/api/batch/{batch_id}")
-def get_batch_details(batch_id: str):
-    return {"batch_id": batch_id, "status": "processed"}
 
-@app.post("/api/batch/{batch_id}/fix-all")
-def fix_all(batch_id: str):
-    return {"batch_id": batch_id, "fixed": True}
+# --- Apply Automatic Fixes ---
+@app.post("/api/apply-fixes")
+async def apply_fixes(file: UploadFile = File(...)):
+    """Run automated PDF fixes"""
+    try:
+        pdf_path = _save_temp_pdf(file)
+        tracker = FixProgressTracker(scan_id=file.filename, total_steps=6)
+        tracker.add_step("Initialize AutoFix Engine", "Preparing fix engine")
+        tracker.start_step(1)
 
-@app.post("/api/batch/{batch_id}/fix-file/{scan_id}")
-def fix_specific_file(batch_id: str, scan_id: str):
-    return {"batch_id": batch_id, "scan_id": scan_id, "status": "fixed"}
+        engine = AutoFixEngine()
+        tracker.complete_step(1, "AutoFix Engine initialized")
 
-@app.get("/api/batch/{batch_id}/export")
-def export_batch(batch_id: str):
-    return {"batch_id": batch_id, "export_url": f"/api/download-fixed/{batch_id}.zip"}
+        tracker.add_step("Analyze PDF", "Running PDF accessibility analysis")
+        tracker.start_step(2)
+        analyzer = PDFAccessibilityAnalyzer()
+        results = analyzer.analyze(pdf_path)
+        tracker.complete_step(2, "Analysis complete")
 
-# ---- Fix Operations ----
-@app.post("/api/apply-fixes/{scan_id}")
-def apply_fixes(scan_id: str):
-    return {"scan_id": scan_id, "applied": True}
+        tracker.add_step("Generate Fix Plan", "Creating automatic fix suggestions")
+        tracker.start_step(3)
+        fixes = engine.generate_fixes(results)
+        tracker.complete_step(3, "Fix plan generated", result_data=fixes)
 
+        tracker.add_step("Apply Fixes", "Applying automated fixes to PDF")
+        tracker.start_step(4)
+        fixed_data = engine.pdfa_engine.apply_pdfa_fixes(pdf_path)
+        tracker.complete_step(4, "Fixes applied successfully")
+
+        tracker.add_step("Re-analyze", "Verifying fixed PDF")
+        tracker.start_step(5)
+        post_analysis = engine._analyze_fixed_pdf(fixed_data["fixed_pdf_path"])
+        tracker.complete_step(5, "Post-analysis complete")
+
+        tracker.complete_all()
+
+        return {
+            "filename": file.filename,
+            "fixSummary": tracker.__dict__,
+            "analysisBefore": results,
+            "analysisAfter": post_analysis,
+            "fixes": fixes,
+        }
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error applying fixes: {e}")
+
+
+# --- AI Fix Strategy (placeholder for your AI module) ---
+@app.post("/api/ai-fix-strategy")
+async def ai_fix_strategy(file: UploadFile = File(...)):
+    """Return AI-based fix strategy (to integrate later)"""
+    return {"message": "AI fix strategy endpoint available, integrate OpenAI later"}
+
+
+# --- PDF/A Validation Only ---
+@app.post("/api/pdfa-validate")
+async def pdfa_validate(file: UploadFile = File(...)):
+    """Validate PDF/A conformance"""
+    try:
+        pdf_path = _save_temp_pdf(file)
+        import pikepdf
+        pdf = pikepdf.open(pdf_path)
+        validator = PDFAValidator(pdf)
+        results = validator.validate()
+        pdf.close()
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF/A validation failed: {e}")
+
+
+# --- Fix History Placeholder ---
 @app.get("/api/fix-history/{scan_id}")
 def fix_history(scan_id: str):
-    return {"scan_id": scan_id, "history": ["fixed metadata", "embedded fonts"]}
+    return {"scan_id": scan_id, "history": ["Analyzed", "Fixed", "Re-analyzed"]}
 
-@app.get("/api/download-fixed/{filename}")
-def download_fixed(filename: str):
-    return {"message": f"Download initiated for {filename}"}
 
-@app.get("/api/export/{scan_id}")
-def export_scan(scan_id: str):
-    return {"scan_id": scan_id, "export_link": f"/api/download-fixed/{scan_id}.pdf"}
-
-# ---- AI-based endpoints ----
-@app.post("/api/ai-analyze/{scan_id}")
-def ai_analyze(scan_id: str):
-    return {"scan_id": scan_id, "analysis": "AI analyzed content successfully"}
-
-@app.post("/api/ai-fix-strategy/{scan_id}")
-def ai_fix_strategy(scan_id: str):
-    return {"scan_id": scan_id, "strategy": "AI suggests fixing fonts and metadata"}
-
-@app.post("/api/ai-manual-guide")
-def ai_manual_guide(prompt: str = Form(...)):
-    return {"guide": f"Manual remediation steps for {prompt}"}
-
-@app.post("/api/ai-generate-alt-text")
-def ai_generate_alt_text(prompt: str = Form(...)):
-    return {"alt_text": f"Generated alt text for {prompt}"}
-
-@app.post("/api/ai-suggest-structure/{scan_id}")
-def ai_suggest_structure(scan_id: str):
-    return {"scan_id": scan_id, "structure": "AI suggested logical structure"}
-
-@app.post("/api/ai-apply-fixes/{scan_id}")
-def ai_apply_fixes(scan_id: str):
-    return {"scan_id": scan_id, "applied": True, "method": "AI"}
-
-# ---- Default 404 handler ----
-@app.exception_handler(HTTPException)
-async def http_exception_handler(_, exc: HTTPException):
-    return {"error": exc.detail, "status_code": exc.status_code}
-
-# Wrap with Mangum for Vercel Serverless
+# Vercel handler
 handler = Mangum(app)
