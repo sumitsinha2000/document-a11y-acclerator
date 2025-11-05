@@ -4,7 +4,7 @@
 
 The application uses SQLite by default. No configuration needed!
 
-The database file `accessibility_scans.db` will be created automatically when you start the server.
+The database file `accessibility_scans.db` will be created automatically when you start the server.test
 
 ## Option 2: PostgreSQL (Optional)
 
