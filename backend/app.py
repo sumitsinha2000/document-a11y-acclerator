@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 import shutil
 import uuid  # ✅ Added import for unique ID generation
-
+from fastapi import FastAPI
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -19,7 +19,7 @@ from backend.fix_progress_tracker import create_progress_tracker, get_progress_t
 from backend.pdf_generator import PDFGenerator
 from werkzeug.utils import secure_filename
 
-app = Flask(__name__)
+app = FastAPI()
 CORS(app)  # Enable CORS for all routes
 
 NEON_DATABASE_URL = os.getenv("DATABASE_URL")
