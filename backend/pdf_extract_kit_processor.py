@@ -26,7 +26,7 @@ if not os.path.exists(os.path.join(MODEL_DIR, "pdf_extract")):
 sys.path.insert(0, MODEL_DIR)
 
 if TYPE_CHECKING:
-    from pdf_extract import PDFExtractor
+    from backend.pdf_extract_kit_processor  import PDFExtractor
 else:
     PDFExtractor = Any
 

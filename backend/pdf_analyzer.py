@@ -11,21 +11,21 @@ import pdfplumber
 from pathlib import Path
 
 try:
-    from pdf_extract_kit_processor import get_pdf_extract_kit
+    from backend.pdf_extract_kit_processor import get_pdf_extract_kit
     PDF_EXTRACT_KIT_AVAILABLE = True
 except ImportError:
     PDF_EXTRACT_KIT_AVAILABLE = False
     print("[Analyzer] PDF-Extract-Kit processor not available")
 
 try:
-    from wcag_validator import WCAGValidator
+    from backend.wcag_validator import WCAGValidator
     WCAG_VALIDATOR_AVAILABLE = True
 except ImportError:
     WCAG_VALIDATOR_AVAILABLE = False
     print("[Analyzer] WCAG validator not available")
 
 try:
-    from pdfa_validator import validate_pdfa
+    from backend.pdfa_validator import validate_pdfa
     import pikepdf
     PDFA_VALIDATOR_AVAILABLE = True
 except ImportError:

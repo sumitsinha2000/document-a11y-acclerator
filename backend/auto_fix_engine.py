@@ -20,7 +20,7 @@ from backend.pdf_structure_standards import (
 )
 
 try:
-    from sambanova_remediation import SambaNovaRemediationEngine
+    from backend.sambanova_remediation import SambaNovaRemediationEngine
     SAMBANOVA_AVAILABLE = True
 except ImportError:
     SAMBANOVA_AVAILABLE = False

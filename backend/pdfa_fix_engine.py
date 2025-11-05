@@ -13,7 +13,7 @@ from pathlib import Path
 import shutil
 import base64
 
-from pdf_structure_standards import (
+from backend.pdf_structure_standards import (
     STANDARD_STRUCTURE_TYPES,
     COMMON_ROLEMAP_MAPPINGS,
     get_standard_mapping,
