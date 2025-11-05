@@ -118,7 +118,7 @@ export default function PDFGenerator() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center gap-3 mb-6">
             <FileText className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">PDF Generator</h2>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">PDF Generator</h1>
           </div>
 
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
@@ -179,9 +179,9 @@ export default function PDFGenerator() {
 
           {pdfType === "inaccessible" && (
             <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-lg">
-              <h3 className="text-sm font-medium text-red-900 dark:text-red-300 mb-3">
+              <h2 className="text-base font-semibold text-red-900 dark:text-red-300 mb-3">
                 Select Accessibility Issues to Include:
-              </h3>
+              </h2>
               <div className="space-y-2">
                 {[
                   { key: "lowContrast", label: "Low Contrast Text", desc: "Light gray text on white background" },
@@ -317,7 +317,7 @@ export default function PDFGenerator() {
 
           {generatedPdfs.length > 0 && (
             <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Recently Generated PDFs</h3>
+              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-3">Recently Generated PDFs</h2>
               <div className="space-y-2">
                 {generatedPdfs.slice(0, 5).map((pdf, index) => (
                   <div
@@ -341,7 +341,7 @@ export default function PDFGenerator() {
 
         {pdfType === "accessible" ? (
           <div className="mt-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-green-900 dark:text-green-300 mb-2">Accessible PDF Features:</h3>
+            <h2 className="text-base font-semibold text-green-900 dark:text-green-300 mb-2">Accessible PDF Features:</h2>
             <ul className="text-sm text-green-800 dark:text-green-400 space-y-1">
               <li>• High contrast text (WCAG AA compliant)</li>
               <li>• Proper document structure and tagging</li>
@@ -353,7 +353,7 @@ export default function PDFGenerator() {
           </div>
         ) : (
           <div className="mt-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-red-900 dark:text-red-300 mb-2">Selected Accessibility Issues:</h3>
+            <h2 className="text-base font-semibold text-red-900 dark:text-red-300 mb-2">Selected Accessibility Issues:</h2>
             <ul className="text-sm text-red-800 dark:text-red-400 space-y-1">
               {accessibilityOptions.lowContrast && <li>• Low contrast text (light gray on white background)</li>}
               {accessibilityOptions.missingAltText && <li>• Images without alternative text</li>}

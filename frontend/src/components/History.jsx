@@ -297,6 +297,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -344,8 +345,13 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
         </div>
 
         <div className="relative">
+          <label htmlFor="history-search" className="sr-only">
+            Search scans and batches
+          </label>
           <input
             type="text"
+            id="history-search"
+            autoComplete="on"
             placeholder="Search by filename, batch name, group, or ID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -356,6 +362,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -369,7 +376,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
               onClick={() => setSearchQuery("")}
               className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -396,6 +403,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
+                      aria-hidden="true"
                     >
                       <path
                         strokeLinecap="round"
@@ -422,7 +430,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                     {deletingBatch === batch.batchId ? (
                       <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
                     ) : (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -510,6 +518,8 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        
                       >
                         <path
                           strokeLinecap="round"
@@ -519,7 +529,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                         />
                       </svg>
                       <div className="min-w-0">
-                        <h3 className="font-semibold text-gray-900 dark:text-white truncate" title={scan.filename}>
+                        <h3 className="font-semibold text-gray-900 dark:text-white truncate">
                           {scan.filename}
                         </h3>
                         {scan.groupName && (
@@ -536,7 +546,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                       {deletingScan === scan.id ? (
                         <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
                       ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -605,7 +615,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                           </>
                         ) : (
                           <>
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                               <path
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
@@ -635,6 +645,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -657,6 +668,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
