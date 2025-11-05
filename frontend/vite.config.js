@@ -1,6 +1,5 @@
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
-import { terser } from "rollup-plugin-terser"   // 👈 add this import
 
 export default defineConfig({
   plugins: [react()],
@@ -17,25 +16,19 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
-    minify: false, 
+    minify: "esbuild", // default, safe
     rollupOptions: {
-      plugins: [
-        terser({
-          compress: {
-            passes: 2,
-          },
-          mangle: true,
-          format: {
-            comments: false,
-          },
-          exclude: [/installHook\.js$/], // 👈 critical line
-        }),
-      ],
       output: {
         manualChunks: undefined,
       },
     },
-    chunkSizeWarningLimit: 1500,
+    commonjsOptions: {
+      transformMixedEsModules: true,
+    },
+  },
+  esbuild: {
+    exclude: [/installHook\.js$/],
+    exclude: [/index-DtUSLKaq\.js$/]
   },
   optimizeDeps: {
     include: ["react", "react-dom", "axios"],
