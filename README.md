@@ -2,6 +2,14 @@
 
 Automated PDF accessibility scanning and remediation tool with WCAG 2.1, PDF/UA, and Section 508 compliance validation.
 
+## ✨ User Experience
+
+The application features a **professional loading screen** that:
+- Displays a sleek progress bar animation
+- Showcases 4 key features with smooth transitions
+- Takes approximately 10 seconds to complete
+- Automatically transitions to the main upload page
+
 ## Features
 
 - 📄 **PDF Scanning**: Automated accessibility issue detection
@@ -12,16 +20,18 @@ Automated PDF accessibility scanning and remediation tool with WCAG 2.1, PDF/UA,
 - 📈 **Dashboard**: Visual analytics and progress tracking
 - 🌙 **Dark Mode**: Full dark mode support
 - 📱 **Responsive**: Works on desktop, tablet, and mobile
-- ⚡ **Next.js**: Fast, modern web application
+- ⚡ **React + Vite**: Fast, modern web application
 
 ## Tech Stack
 
-- **Frontend**: React 18, Vite, Axios, Tailwind CSS
+- **Frontend (Main App)**: React 18 + Vite, Axios, Tailwind CSS
 - **Backend**: Python Flask, PDF Extract Kit
 - **Database**: Neon PostgreSQL
 - **Deployment**: Vercel
 - **PDF Processing**: PyPDF2, pikepdf, pdfplumber
 - **Validation**: Built-in WCAG 2.1 & PDF/UA-1 validator, veraPDF (optional)
+
+> **Note**: The `app/` directory contains a Next.js setup that is **not used in production**. The main application is the React + Vite frontend in the `frontend/` directory.
 
 ## Quick Start
 
@@ -60,7 +70,7 @@ VITE_BACKEND_URL=http://localhost:5000
 
 Create `backend/.env`:
 \`\`\`env
-NEON_DATABASE_URL=your_neon_database_url
+NEON_NEON_DATABASE_URL=your_neon_database_url
 \`\`\`
 
 5. **Set up the database**
@@ -80,12 +90,12 @@ Run both frontend and backend:
 cd backend
 python app.py
 
-# Terminal 2: Frontend
+# Terminal 2: Frontend (Main App)
 cd frontend
 npm run dev
 \`\`\`
 
-Visit `http://localhost:3000`
+Visit `http://localhost:3000` - you'll see the loading screen with feature showcase, then the main upload page.
 
 ## Deployment
 
@@ -102,10 +112,13 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
 
 \`\`\`
 document-a11y-acclerator/
-├── frontend/              # React + Vite main application
+├── frontend/              # React + Vite main application ⭐
 │   ├── src/
 │   │   ├── App.jsx       # Main application component
 │   │   ├── components/   # React components
+│   │   │   ├── LoadingScreen.jsx  # Professional loading screen
+│   │   │   ├── UploadArea.jsx     # Main upload interface
+│   │   │   └── ...
 │   │   ├── contexts/     # React contexts
 │   │   └── main.jsx      # Entry point
 │   ├── dist/             # Build output
@@ -115,8 +128,8 @@ document-a11y-acclerator/
 │   ├── app.py           # Main Flask application
 │   └── requirements.txt # Python dependencies
 ├── scripts/             # Database setup scripts
-├── app/                 # Next.js (not used for main app)
-└── vercel.json          # Vercel configuration
+├── app/                 # Next.js (not used in production)
+└── vercel.json          # Vercel configuration (deploys frontend/)
 \`\`\`
 
 ## Accessibility Standards
@@ -161,13 +174,14 @@ The tool validates PDFs against:
 
 ## Usage
 
-1. **Upload PDFs**: Upload single or multiple PDF files for accessibility scanning
-2. **View Results**: Review detected accessibility issues organized by severity
-3. **Apply Fixes**: Use automated fixes or manual editing tools to remediate issues
-4. **Export**: Download fixed PDFs or export results as ZIP files
-5. **History**: Access previous scans and batch uploads from the History page
-6. **Groups**: Organize documents by projects or clients
-7. **Dashboard**: Monitor progress and compliance metrics
+1. **Launch**: Professional loading screen showcases key features
+2. **Upload PDFs**: Upload single or multiple PDF files for accessibility scanning
+3. **View Results**: Review detected accessibility issues organized by severity
+4. **Apply Fixes**: Use automated fixes or manual editing tools to remediate issues
+5. **Export**: Download fixed PDFs or export results as ZIP files
+6. **History**: Access previous scans and batch uploads from the History page
+7. **Groups**: Organize documents by projects or clients
+8. **Dashboard**: Monitor progress and compliance metrics
 
 ## Documentation
 

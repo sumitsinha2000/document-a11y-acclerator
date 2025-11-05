@@ -18,12 +18,17 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ["react", "react-dom", "axios"],
-          charts: ["recharts"],
-          pdf: ["react-pdf", "jspdf", "jspdf-autotable"],
+        manualChunks(id) {
+          // Split node_modules into vendor chunk
+          if (id.includes("node_modules")) {
+            return "vendor"
+          }
         },
       },
     },
+    chunkSizeWarningLimit: 1000,
+  },
+  optimizeDeps: {
+    include: ["react", "react-dom", "axios"],
   },
 })
