@@ -19,28 +19,10 @@ export default defineConfig({
     minify: "esbuild",
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes("node_modules")) {
-            // Don't split React separately - keep it with vendor to avoid initialization issues
-            // Split PDF libraries
-            if (id.includes("pdfjs") || id.includes("pdf-lib")) {
-              return "pdf-libs"
-            }
-            // Split jsPDF and html2canvas
-            if (id.includes("jspdf") || id.includes("html2canvas")) {
-              return "export-libs"
-            }
-            // Split chart libraries
-            if (id.includes("recharts") || id.includes("d3")) {
-              return "chart-libs"
-            }
-            // All other node_modules including React
-            return "vendor"
-          }
-        },
+        manualChunks: undefined,
       },
     },
-    chunkSizeWarningLimit: 1000,
+    chunkSizeWarningLimit: 1500,
   },
   optimizeDeps: {
     include: ["react", "react-dom", "axios"],
