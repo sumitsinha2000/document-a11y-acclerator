@@ -1,12 +1,7 @@
 services:
   - type: web
     name: doca11y-backend
-    env: python
-    runtime: python-3.12.3       # ensures prebuilt pikepdf wheel
+    env: docker
     plan: free
     region: oregon
-    buildCommand: |
-      pip install --upgrade pip setuptools wheel
-      pip install -r requirements.txt
-    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
