@@ -339,7 +339,7 @@ function AppContent() {
             />
           )}
           {currentView === "report" && scanResults.length > 0 && (
-            <ReportViewer scans={scanResults} onBack={handleBackToUpload} />
+            <ReportViewer scans={scanResults} onBack={handleBackToUpload} sidebarOpen={false} />
           )}
         </div>
       </main>
