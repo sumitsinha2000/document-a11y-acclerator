@@ -1,91 +1,123 @@
 # Document A11y Accelerator
 
-An automated PDF accessibility scanning and remediation tool with WCAG 2.1, PDF/UA, and Section 508 compliance validation.
+Automated PDF accessibility scanning and remediation tool with WCAG 2.1, PDF/UA, and Section 508 compliance validation.
 
 ## Features
 
-- Scan PDFs for accessibility issues
-- **Built-in WCAG 2.1 and PDF/UA-1 validator** (no external dependencies required)
-- **Enhanced validation with veraPDF** (optional)
-- Batch processing support
-- Automated fix suggestions
-- Manual PDF editing capabilities
-- PostgreSQL or SQLite database support
-- Upload history tracking
+- 📄 **PDF Scanning**: Automated accessibility issue detection
+- 🔧 **Auto-Fix**: Intelligent remediation of common issues
+- 📊 **Compliance Reports**: WCAG 2.1, PDF/UA, Section 508 validation
+- 📁 **Batch Processing**: Handle multiple documents simultaneously
+- 🎯 **Group Management**: Organize documents by projects/clients
+- 📈 **Dashboard**: Visual analytics and progress tracking
+- 🌙 **Dark Mode**: Full dark mode support
+- 📱 **Responsive**: Works on desktop, tablet, and mobile
+- ⚡ **Next.js**: Fast, modern web application
 
-## Setup
+## Tech Stack
 
-### Backend Setup
+- **Frontend**: React 18, Vite, Axios, Tailwind CSS
+- **Backend**: Python Flask, PDF Extract Kit
+- **Database**: Neon PostgreSQL
+- **Deployment**: Vercel
+- **PDF Processing**: PyPDF2, pikepdf, pdfplumber
+- **Validation**: Built-in WCAG 2.1 & PDF/UA-1 validator, veraPDF (optional)
 
-1. Navigate to the backend directory:
+## Quick Start
 
-   \`\`\`bash
-   cd backend
-   \`\`\`
+### Prerequisites
 
-2. Install Python dependencies:
+- Node.js 18+ and npm
+- Python 3.8+
+- PostgreSQL (or Neon account)
 
-   \`\`\`bash
-   pip install -r requirements.txt
-   \`\`\`
+### Installation
 
-3. (Optional) Configure PostgreSQL:
-   - Create a `.env` file in the backend directory
-   - Add your database credentials:
+1. **Clone the repository**
+\`\`\`bash
+git clone https://github.com/yourusername/document-a11y-acclerator.git
+cd document-a11y-acclerator
+\`\`\`
 
-   \`\`\`markdown
-   DATABASE_TYPE=postgresql
-   DATABASE_URL=postgresql://username:password@localhost:5432/database_name
-   \`\`\`
+2. **Install frontend dependencies**
+\`\`\`bash
+cd frontend
+npm install
+\`\`\`
 
-   - If not configured, the app will use SQLite by default
+3. **Install backend dependencies**
+\`\`\`bash
+cd backend
+pip install -r requirements.txt
+\`\`\`
 
-4. **(Optional) Install veraPDF for Enhanced Validation**:
-   - veraPDF provides industry-standard WCAG 2.1 and PDF/UA compliance checking
-   - See [VERAPDF_SETUP.md](backend/VERAPDF_SETUP.md) for installation instructions
-   - **Note**: The app includes a built-in WCAG validator and works perfectly without veraPDF
+4. **Set up environment variables**
 
-5. **(Optional) Install PDF-Extract-Kit for Advanced Analysis**:
-   - See [PDF_EXTRACT_KIT_SETUP.md](backend/PDF_EXTRACT_KIT_SETUP.md) for installation instructions
-   - Provides enhanced table detection, form analysis, and document structure analysis
+Create `frontend/.env.local`:
+\`\`\`env
+VITE_BACKEND_URL=http://localhost:5000
+\`\`\`
 
-6. Start the backend server:
+Create `backend/.env`:
+\`\`\`env
+NEON_DATABASE_URL=your_neon_database_url
+\`\`\`
 
-   \`\`\`bash
-   python app.py
-   \`\`\`
+5. **Set up the database**
+\`\`\`bash
+# Run the SQL scripts in order
+psql -U your_user -d your_database -f scripts/01_create_schemas.sql
+psql -U your_user -d your_database -f scripts/02_create_auth_tables.sql
+# ... continue with remaining scripts
+\`\`\`
 
-The backend will run on `http://localhost:5000`
+### Development
 
-### Frontend Setup
+Run both frontend and backend:
 
-1. Navigate to the frontend directory:
+\`\`\`bash
+# Terminal 1: Backend
+cd backend
+python app.py
 
-   \`\`\`bash
-   cd frontend
-   \`\`\`
+# Terminal 2: Frontend
+cd frontend
+npm run dev
+\`\`\`
 
-2. Install dependencies:
+Visit `http://localhost:3000`
 
-   \`\`\`bash
-   npm install
-   \`\`\`
+## Deployment
 
-3. Start the development server:
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
 
-   \`\`\`bash
-   npm run dev
-   \`\`\`
+### Quick Deploy to Vercel
 
-The frontend will run on `http://localhost:3000`
+1. Deploy backend to your preferred platform (Vercel, Railway, Render)
+2. Set `VITE_BACKEND_URL` in Vercel environment variables
+3. Update `vercel.json` rewrites with your backend URL
+4. Push to main branch or run `vercel --prod`
 
-## Usage
+## Project Structure
 
-1. **Upload PDFs**: Upload single or multiple PDF files for accessibility scanning
-2. **View Results**: Review detected accessibility issues organized by severity
-3. **Apply Fixes**: Use automated fixes or manual editing tools to remediate issues
-4. **Export**: Download fixed PDFs or export results as ZIP files
-5. **History**: Access previous scans and batch uploads from the History page
+\`\`\`
+document-a11y-acclerator/
+├── frontend/              # React + Vite main application
+│   ├── src/
+│   │   ├── App.jsx       # Main application component
+│   │   ├── components/   # React components
+│   │   ├── contexts/     # React contexts
+│   │   └── main.jsx      # Entry point
+│   ├── dist/             # Build output
+│   ├── package.json      # Frontend dependencies
+│   └── vite.config.js    # Vite configuration
+├── backend/              # Flask backend
+│   ├── app.py           # Main Flask application
+│   └── requirements.txt # Python dependencies
+├── scripts/             # Database setup scripts
+├── app/                 # Next.js (not used for main app)
+└── vercel.json          # Vercel configuration
+\`\`\`
 
 ## Accessibility Standards
 
@@ -104,7 +136,6 @@ The tool validates PDFs against:
    - PDF/UA-1 structure and tagging validation
    - Detailed issue reports with WCAG criterion references
    - Remediation recommendations for each issue
-   - See [WCAG_VALIDATOR_INFO.md](backend/WCAG_VALIDATOR_INFO.md) for details
 
 2. **Core Analysis** (Always Active):
    - Metadata validation
@@ -127,18 +158,26 @@ The tool validates PDFs against:
    - Most comprehensive WCAG 2.1 compliance checking
    - PDF/UA validation with detailed clause references
    - Section 508 compliance verification
-   - Industry-standard validation results
 
-### Which Validator Should I Use?
+## Usage
 
-| Validator | Setup Required | Accuracy | Speed | Recommendation |
-|-----------|---------------|----------|-------|----------------|
-| **Built-in** | None | Good | Fast | **Recommended for most users** |
-| **veraPDF** | Java + veraPDF | Excellent | Slower | Optional for maximum accuracy |
+1. **Upload PDFs**: Upload single or multiple PDF files for accessibility scanning
+2. **View Results**: Review detected accessibility issues organized by severity
+3. **Apply Fixes**: Use automated fixes or manual editing tools to remediate issues
+4. **Export**: Download fixed PDFs or export results as ZIP files
+5. **History**: Access previous scans and batch uploads from the History page
+6. **Groups**: Organize documents by projects or clients
+7. **Dashboard**: Monitor progress and compliance metrics
 
-**For most users**: The built-in validator provides comprehensive WCAG 2.1 and PDF/UA-1 validation without any setup. It's fast, reliable, and covers all major accessibility requirements.
+## Documentation
 
-**For maximum accuracy**: Install veraPDF CLI for the official PDF Association validator with the most comprehensive validation available.
+- [Deployment Guide](./DEPLOYMENT.md) - Complete deployment instructions
+- [Database Setup](./backend/DATABASE_SETUP.md) - Database configuration
+- [Built-in WCAG Validator Info](./backend/WCAG_VALIDATOR_INFO.md) - Validation details
+- [veraPDF Setup Guide](./backend/VERAPDF_SETUP.md) - Optional enhanced validation
+- [PDF Extract Kit Setup](./backend/PDF_EXTRACT_KIT_SETUP.md) - Advanced PDF analysis
+- [PostgreSQL Setup](./backend/POSTGRESQL_SETUP.md) - Database configuration
+- [Installation Troubleshooting](./backend/INSTALLATION_TROUBLESHOOTING.md) - Common issues
 
 ## Troubleshooting
 
@@ -146,53 +185,34 @@ The tool validates PDFs against:
 
 If you see "ERR_CONNECTION_REFUSED" errors:
 
-1. Make sure the backend server is running:
-
-   \`\`\`bash
-   cd backend
-   python app.py
-   \`\`\`
-
-2. Check that the backend is running on port 5000
-
-3. Verify your database configuration (PostgreSQL or SQLite)
+1. Make sure the backend server is running on port 5000
+2. Check that `VITE_BACKEND_URL` is set correctly (use `import.meta.env.VITE_BACKEND_URL` in code)
+3. Verify your database configuration
 
 ### Database Issues
 
-- **PostgreSQL**: Ensure PostgreSQL is running and credentials are correct in `.env`
-- **SQLite**: The app will automatically create `accessibility_scans.db` in the backend directory
+- **PostgreSQL**: Ensure PostgreSQL is running and credentials are correct
+- **Neon**: Verify Neon integration is connected in Vercel
 
 ### Installation Issues
 
-If you encounter errors during `pip install -r requirements.txt`:
+See [INSTALLATION_TROUBLESHOOTING.md](./backend/INSTALLATION_TROUBLESHOOTING.md) for common solutions.
 
-1. See [INSTALLATION_TROUBLESHOOTING.md](backend/INSTALLATION_TROUBLESHOOTING.md) for common solutions
-2. Most issues are related to Pillow build dependencies
-3. Try installing Pillow separately first: `pip install Pillow`
+## Contributing
 
-### veraPDF Not Detected
+Contributions are welcome! Please read our contributing guidelines before submitting PRs.
 
-If veraPDF validation is not running (optional):
+## License
 
-1. Verify veraPDF is installed: `verapdf --version` or `java -jar /path/to/verapdf.jar --version`
-2. Ensure veraPDF is in your system PATH or set `VERAPDF_JAR` environment variable
-3. Restart the backend server after installing veraPDF
-4. Check backend logs for veraPDF initialization messages
-5. **Note**: The app works perfectly without veraPDF using the built-in validator
+[Your License Here]
 
-## Technology Stack
+## Support
 
-- **Frontend**: React, Vite, Tailwind CSS
-- **Backend**: Python, Flask, PostgreSQL/SQLite
-- **PDF Processing**: PyPDF2, pikepdf, pdfplumber
-- **Built-in Validation**: Custom WCAG 2.1 & PDF/UA-1 validator (based on veraPDF algorithms)
-- **Enhanced Analysis**: PDF-Extract-Kit (optional)
-- **Standards Validation**: veraPDF (optional)
+For issues and questions:
+- Open an issue on GitHub
+- Check the documentation in the `/backend` directory
+- Review the [DEPLOYMENT.md](./DEPLOYMENT.md) guide
 
-## Documentation
+## Acknowledgments
 
-- [Built-in WCAG Validator Info](backend/WCAG_VALIDATOR_INFO.md) - Comprehensive validation details
-- [veraPDF Setup Guide](backend/VERAPDF_SETUP.md) - Optional enhanced validation
-- [PDF-Extract-Kit Setup Guide](backend/PDF_EXTRACT_KIT_SETUP.md) - Advanced PDF analysis
-- [PostgreSQL Setup Guide](backend/POSTGRESQL_SETUP.md) - Database configuration
-- [Installation Troubleshooting](backend/INSTALLATION_TROUBLESHOOTING.md) - Common setup issues
+Built with modern web technologies and accessibility best practices.
