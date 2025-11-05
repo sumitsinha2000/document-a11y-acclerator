@@ -1,5 +1,5 @@
 // API configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || ""
+const API_BASE_URL = "https://document-a11y-acclerator.onrender.com" || "http://0.0.0.0:5000"
 
 export const API_ENDPOINTS = {
   health: `${API_BASE_URL}/api/health`,
