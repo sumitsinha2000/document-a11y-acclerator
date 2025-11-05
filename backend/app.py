@@ -12,11 +12,11 @@ import uuid  # ✅ Added import for unique ID generation
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-from pdf_analyzer import PDFAccessibilityAnalyzer
-from fix_suggestions import generate_fix_suggestions
-from auto_fix_engine import AutoFixEngine
-from fix_progress_tracker import create_progress_tracker, get_progress_tracker
-from pdf_generator import PDFGenerator
+from backend.pdf_analyzer import PDFAccessibilityAnalyzer
+from backend.fix_suggestions import generate_fix_suggestions
+from backend.auto_fix_engine import AutoFixEngine
+from backend.fix_progress_tracker import create_progress_tracker, get_progress_tracker
+from backend.pdf_generator import PDFGenerator
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)

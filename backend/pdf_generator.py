@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw
 from pikepdf import Array, Dictionary, Name, Stream, String
 from werkzeug.utils import secure_filename
 
-from pdfa_fix_engine import SRGB_ICC_PROFILE_BASE64
+from backend.pdfa_fix_engine import SRGB_ICC_PROFILE_BASE64
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 

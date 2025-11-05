@@ -7,10 +7,10 @@ import tempfile
 import pdfplumber
 from datetime import datetime
 import re
-from pdfa_fix_engine import PDFAFixEngine  # Import the class instead of the function
-from pdf_analyzer import PDFAccessibilityAnalyzer
-from fix_suggestions import generate_fix_suggestions
-from pdf_structure_standards import (
+from backend.pdfa_fix_engine import PDFAFixEngine  # Import the class instead of the function
+from backend.pdf_analyzer import PDFAccessibilityAnalyzer
+from backend.fix_suggestions import generate_fix_suggestions
+from backend.pdf_structure_standards import (
     STANDARD_STRUCTURE_TYPES,
     COMMON_ROLEMAP_MAPPINGS,
     WCAG_PDF_REQUIREMENTS,

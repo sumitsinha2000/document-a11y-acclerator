@@ -8,9 +8,9 @@ from enum import Enum
 import pikepdf
 import logging
 
-from wcag_validator import WCAGValidator
-from pdfa_validator import PDFAValidator
-from matterhorn_protocol import MatterhornProtocol
+from backend.wcag_validator import WCAGValidator
+from backend.pdfa_validator import PDFAValidator
+from backend.matterhorn_protocol import MatterhornProtocol
 
 logger = logging.getLogger(__name__)
 
