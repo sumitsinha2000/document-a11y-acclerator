@@ -1,5 +1,6 @@
+"use client"
+
 import { useState, useEffect } from "react"
-import "./LoadingScreen.css"
 
 const features = [
   {
@@ -15,6 +16,7 @@ const features = [
         />
       </svg>
     ),
+    image: "/automated-pdf-scanning-accessibility-detection.jpg",
   },
   {
     title: "Intelligent Auto-Fix",
@@ -24,6 +26,7 @@ const features = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
       </svg>
     ),
+    image: "/ai-powered-automatic-fix-accessibility.jpg",
   },
   {
     title: "Batch Processing",
@@ -38,6 +41,7 @@ const features = [
         />
       </svg>
     ),
+    image: "/batch-processing-multiple-documents-management.jpg",
   },
   {
     title: "Comprehensive Reports",
@@ -52,6 +56,7 @@ const features = [
         />
       </svg>
     ),
+    image: "/accessibility-reports-compliance-scores-analytics.jpg",
   },
 ]
 
@@ -98,83 +103,142 @@ export default function LoadingScreen({ onComplete }) {
   }, [onComplete])
 
   return (
-    <div className="loading-screen">
-      <div className="loading-container">
-        {/* Logo and Title */}
-        <div className="loading-header">
-          <div className="loading-logo">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="logo-icon"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-              <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-            </svg>
+    <div className="fixed inset-0 w-full h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 overflow-hidden">
+      <div className="flex h-full">
+        {/* Left Side - Content */}
+        <div className="w-full lg:w-1/2 flex flex-col justify-center px-8 md:px-16 lg:px-24 py-12">
+          {/* Logo and Title */}
+          <div className="mb-12">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="w-7 h-7 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+                  <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+                </svg>
+              </div>
+              <h1 className="text-3xl font-bold text-gray-900">Document A11y Accelerator</h1>
+            </div>
+            <p className="text-lg text-gray-600">Making PDFs accessible for everyone</p>
           </div>
-          <h1 className="loading-title">Document A11y Accelerator</h1>
-          <p className="loading-subtitle">Making PDFs accessible for everyone</p>
+
+          {/* Features List with Progress */}
+          <div className="space-y-6 mb-12">
+            {features.map((feature, index) => (
+              <div
+                key={index}
+                className={`transition-all duration-500 ${
+                  index === currentFeature
+                    ? "opacity-100 scale-100"
+                    : index < currentFeature
+                      ? "opacity-40 scale-95"
+                      : "opacity-30 scale-95"
+                }`}
+              >
+                <div className="flex items-start gap-4">
+                  {/* Icon */}
+                  <div
+                    className={`flex-shrink-0 w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-500 ${
+                      index === currentFeature
+                        ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200"
+                        : index < currentFeature
+                          ? "bg-indigo-100 text-indigo-600"
+                          : "bg-gray-100 text-gray-400"
+                    }`}
+                  >
+                    {feature.icon}
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <h3
+                      className={`text-xl font-semibold mb-2 transition-colors duration-500 ${
+                        index === currentFeature ? "text-gray-900" : "text-gray-500"
+                      }`}
+                    >
+                      {feature.title}
+                    </h3>
+                    <p
+                      className={`text-sm leading-relaxed transition-colors duration-500 ${
+                        index === currentFeature ? "text-gray-600" : "text-gray-400"
+                      }`}
+                    >
+                      {feature.description}
+                    </p>
+
+                    {/* Individual Progress Bar */}
+                    {index === currentFeature && (
+                      <div className="mt-3 h-1 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-indigo-600 rounded-full transition-all"
+                          style={{
+                            animation: `slideProgress ${featureDuration}ms linear forwards`,
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Overall Progress */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600 font-medium">
+                {isComplete ? "Ready to start!" : `Loading ${currentFeature + 1} of ${features.length}`}
+              </span>
+              <span className="text-indigo-600 font-bold">{Math.round(progress)}%</span>
+            </div>
+            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full transition-all duration-100"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
         </div>
 
-        {/* Features Slideshow */}
-        <div className="features-container">
-          {features.map((feature, index) => (
-            <div
-              key={index}
-              className={`feature-card ${index === currentFeature ? "active" : ""} ${
-                index < currentFeature ? "completed" : ""
-              }`}
-            >
-              <div className="feature-icon">{feature.icon}</div>
-              <div className="feature-content">
-                <h3 className="feature-title">{feature.title}</h3>
-                <p className="feature-description">{feature.description}</p>
-              </div>
-              {/* Individual progress bar for active feature */}
-              {index === currentFeature && (
-                <div className="feature-progress-bar">
-                  <div
-                    className="feature-progress-fill"
-                    style={{
-                      animation: `fillProgress ${featureDuration}ms linear forwards`,
-                    }}
+        {/* Right Side - Images */}
+        <div className="hidden lg:flex w-1/2 items-center justify-center p-12 bg-gradient-to-br from-indigo-100 to-purple-100">
+          <div className="relative w-full h-full max-w-2xl max-h-[600px]">
+            {features.map((feature, index) => (
+              <div
+                key={index}
+                className={`absolute inset-0 transition-all duration-700 ${
+                  index === currentFeature ? "opacity-100 scale-100 z-10" : "opacity-0 scale-95 z-0"
+                }`}
+              >
+                <div className="w-full h-full bg-white rounded-3xl shadow-2xl overflow-hidden">
+                  <img
+                    src={feature.image || "/placeholder.svg"}
+                    alt={feature.title}
+                    className="w-full h-full object-cover"
                   />
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Overall Progress Bar */}
-        <div className="progress-container">
-          <div className="progress-bar">
-            <div
-              className="progress-fill"
-              style={{
-                width: `${progress}%`,
-                transition: "width 0.05s linear",
-              }}
-            />
-          </div>
-          <div className="progress-text">
-            <span className="progress-percentage">{Math.round(progress)}%</span>
-            <span className="progress-label">
-              {isComplete ? "Ready!" : `Loading feature ${currentFeature + 1} of ${features.length}`}
-            </span>
+              </div>
+            ))}
           </div>
         </div>
-
-        {/* Loading Dots Animation */}
-        {!isComplete && (
-          <div className="loading-dots">
-            <span className="dot"></span>
-            <span className="dot"></span>
-            <span className="dot"></span>
-          </div>
-        )}
       </div>
+
+      {/* CSS Animation Keyframes */}
+      <style>{`
+        @keyframes slideProgress {
+          from {
+            width: 0%;
+          }
+          to {
+            width: 100%;
+          }
+        }
+      `}</style>
     </div>
   )
 }
