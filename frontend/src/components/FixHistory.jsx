@@ -66,14 +66,43 @@ export default function FixHistory({ scanId, onRefresh }) {
 
       console.log("[v0] Fix history response:", response.data)
 
-      const transformedHistory = (response.data.history || []).map((item) => ({
-        id: item.id,
-        timestamp: item.appliedAt,
-        fixedFile: item.fixedFilename,
-        originalFile: item.originalFilename,
-        fixesApplied: item.fixesApplied || [],
-        successCount: Array.isArray(item.fixesApplied) ? item.fixesApplied.length : 0,
-      }))
+      const historyData = response.data.history || []
+      const latestVersion = response.data.latestVersion
+
+      const transformedHistory = historyData.map((item, index) => {
+        const fixesApplied = item.fixesApplied || []
+        const hasExplicitVersion = typeof item.version === "number" && !Number.isNaN(item.version)
+        const fallbackFromLatest =
+          typeof latestVersion === "number" ? latestVersion - index : null
+        const fallbackFromLength = historyData.length - index
+        const versionNumber = hasExplicitVersion
+          ? item.version
+          : fallbackFromLatest !== null
+          ? fallbackFromLatest
+          : null
+        const versionLabel =
+          item.versionLabel ||
+          (versionNumber !== null ? `V${versionNumber}` : `V${Math.max(fallbackFromLength, 1)}`)
+        const isLatestVersion =
+          typeof latestVersion === "number" && versionNumber !== null
+            ? versionNumber === latestVersion
+            : Boolean(item.isLatest)
+
+        return {
+          id: item.id,
+          timestamp: item.appliedAt,
+          fixedFile: item.fixedFilePath || item.fixedFilename,
+          originalFile: item.originalFilename,
+          fixesApplied,
+          successCount: Array.isArray(fixesApplied) ? fixesApplied.length : 0,
+          version: versionNumber,
+          versionLabel,
+          downloadable:
+            typeof item.downloadable === "boolean"
+              ? item.downloadable
+              : isLatestVersion,
+        }
+      })
 
       console.log("[v0] Transformed fix history:", transformedHistory)
       setHistory(transformedHistory)
@@ -86,7 +115,21 @@ export default function FixHistory({ scanId, onRefresh }) {
     }
   }
 
+  const handlePreview = (item) => {
+    if (!item || !item.fixedFile) {
+      return
+    }
+
+    const versionParam = typeof item.version === "number" ? item.version : undefined
+    const previewUrl = API_ENDPOINTS.previewPdf(scanId, versionParam)
+    window.open(previewUrl, "_blank", "noopener,noreferrer")
+  }
+
   const handleDownload = async (filename) => {
+    if (!filename) {
+      return
+    }
+
     try {
       const response = await axios.get(API_ENDPOINTS.downloadFixed(filename), {
         responseType: "blob",
@@ -95,7 +138,8 @@ export default function FixHistory({ scanId, onRefresh }) {
       const url = window.URL.createObjectURL(new Blob([response.data]))
       const link = document.createElement("a")
       link.href = url
-      link.setAttribute("download", filename)
+      const downloadName = filename.split("/").pop() || filename
+      link.setAttribute("download", downloadName)
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -204,7 +248,7 @@ export default function FixHistory({ scanId, onRefresh }) {
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-3">
                     <span className="px-3 py-1.5 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded-md text-sm font-bold">
-                      Version {history.length - index}
+                      Version {item.versionLabel || history.length - index}
                     </span>
                     <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
                       {new Date(item.timestamp).toLocaleString()}
@@ -229,20 +273,39 @@ export default function FixHistory({ scanId, onRefresh }) {
                 </div>
 
                 {item.fixedFile && (
-                  <button
-                    onClick={() => handleDownload(item.fixedFile)}
-                    className="flex items-center gap-2 px-4 py-2.5 text-base font-semibold text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-lg transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                      />
-                    </svg>
-                    Download
-                  </button>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      onClick={() => handlePreview(item)}
+                      className="flex items-center gap-2 px-4 py-2.5 text-base font-semibold text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 rounded-lg transition-colors"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14m0-4v4m-4 4a4 4 0 110-8 4 4 0 010 8z"
+                        />
+                      </svg>
+                      View PDF
+                    </button>
+
+                    {item.downloadable && (
+                      <button
+                        onClick={() => handleDownload(item.fixedFile)}
+                        className="flex items-center gap-2 px-4 py-2.5 text-base font-semibold text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-lg transition-colors"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                          />
+                        </svg>
+                        Download
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
 

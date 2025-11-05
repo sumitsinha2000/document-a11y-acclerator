@@ -16,6 +16,13 @@ export const API_ENDPOINTS = {
   applyFixes: (scanId) => `${API_BASE_URL}/api/apply-fixes/${scanId}`,
   fixHistory: (scanId) => `${API_BASE_URL}/api/fix-history/${scanId}`,
   downloadFixed: (filename) => `${API_BASE_URL}/api/download-fixed/${filename}`,
+  previewPdf: (scanId, version) => {
+    const base = `${API_BASE_URL}/api/pdf-file/${scanId}`
+    if (version || version === 0) {
+      return `${base}?version=${encodeURIComponent(version)}`
+    }
+    return base
+  },
   export: (scanId) => `${API_BASE_URL}/api/export/${scanId}`,
   aiAnalyze: (scanId) => `${API_BASE_URL}/api/ai-analyze/${scanId}`,
   aiFixStrategy: (scanId) => `${API_BASE_URL}/api/ai-fix-strategy/${scanId}`,

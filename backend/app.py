@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 import shutil
 import uuid  # ✅ Added import for unique ID generation
+import re
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -30,6 +31,133 @@ UPLOAD_FOLDER = "uploads"
 FIXED_FOLDER = "fixed"
 pdf_generator = PDFGenerator()
 GENERATED_PDFS_FOLDER = pdf_generator.output_dir
+
+
+VERSION_FILENAME_PATTERN = re.compile(r"_v(\d+)\.pdf$", re.IGNORECASE)
+
+
+def _truthy(value):
+    """Small helper to interpret truthy string query params."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _fixed_scan_dir(scan_id, ensure_exists=False):
+    """Return the directory that stores versioned fixed PDFs for the scan."""
+    path = Path(FIXED_FOLDER) / str(scan_id)
+    if ensure_exists:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _sanitize_version_base(original_name, fallback):
+    """Generate a safe base filename for versioned PDFs."""
+    candidate = ""
+    if original_name:
+        candidate = Path(original_name).stem
+    candidate = secure_filename(candidate) if candidate else ""
+    if not candidate:
+        candidate = secure_filename(str(fallback)) or str(fallback)
+    return candidate
+
+
+def _extract_version_from_path(path_obj):
+    """Extract numeric version from filename like *_v3.pdf."""
+    match = VERSION_FILENAME_PATTERN.search(path_obj.name)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def get_versioned_files(scan_id):
+    """List all stored fixed PDF versions for a scan."""
+    scan_dir = _fixed_scan_dir(scan_id, ensure_exists=False)
+    if not scan_dir.exists():
+        return []
+
+    base_dir = Path(FIXED_FOLDER)
+    entries = []
+    for path in scan_dir.glob("*.pdf"):
+        version_number = _extract_version_from_path(path)
+        if version_number is None:
+            continue
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        entries.append(
+            {
+                "version": version_number,
+                "absolute_path": path,
+                "relative_path": str(path.relative_to(base_dir)),
+                "filename": path.name,
+                "size": stat.st_size,
+                "created_at": datetime.fromtimestamp(stat.st_mtime),
+            }
+        )
+
+    entries.sort(key=lambda item: item["version"])
+    return entries
+
+
+def get_fixed_version(scan_id, version=None):
+    """Return metadata for the latest or a specific fixed version."""
+    versions = get_versioned_files(scan_id)
+    if not versions:
+        return None
+    if version is None:
+        return versions[-1]
+    for entry in versions:
+        if entry["version"] == version:
+            return entry
+    return None
+
+
+def archive_fixed_pdf_version(scan_id, original_filename, source_path=None):
+    """
+    Copy the latest fixed PDF into the versioned archive directory.
+    Returns metadata with version, filenames, and paths.
+    """
+    source = Path(source_path) if source_path else resolve_uploaded_file_path(scan_id)
+    if not source or not source.exists():
+        print(
+            f"[Backend] ⚠ Cannot archive fixed PDF for {scan_id}; source file missing ({source_path})"
+        )
+        return None
+
+    target_dir = _fixed_scan_dir(scan_id, ensure_exists=True)
+    base_name = _sanitize_version_base(original_filename, scan_id)
+    versions = get_versioned_files(scan_id)
+    next_version = versions[-1]["version"] + 1 if versions else 1
+    destination = target_dir / f"{base_name}_v{next_version}.pdf"
+
+    while destination.exists():
+        next_version += 1
+        destination = target_dir / f"{base_name}_v{next_version}.pdf"
+
+    shutil.copy2(source, destination)
+    print(
+        f"[Backend] ✓ Archived fixed PDF version V{next_version}: {destination}"
+    )
+
+    try:
+        size = destination.stat().st_size
+    except FileNotFoundError:
+        size = None
+
+    return {
+        "version": next_version,
+        "absolute_path": destination,
+        "relative_path": str(destination.relative_to(Path(FIXED_FOLDER))),
+        "filename": destination.name,
+        "size": size,
+    }
 
 
 def should_scan_now(req):
@@ -110,6 +238,11 @@ def resolve_uploaded_file_path(scan_id, scan_record=None):
     for candidate in candidates:
         if candidate and Path(candidate).exists():
             return Path(candidate)
+
+    latest_version = get_fixed_version(scan_id)
+    if latest_version:
+        return latest_version["absolute_path"]
+
     return None
 
 
@@ -1096,20 +1229,28 @@ def get_history():
             # Set default status
             status = scan_dict.get("status") or "unprocessed"
 
-            formatted_scans.append(
-                {
-                    "id": scan_dict["id"],
-                    "filename": scan_dict["filename"],
-                    "uploadDate": scan_dict.get("uploadDate"),
-                    "status": status,
-                    "groupId": scan_dict.get("groupId"),
-                    "groupName": scan_dict.get("groupName"),
-                    "totalIssues": total_issues,
-                    "issuesFixed": scan_dict.get("issuesFixed", 0),
-                    "issuesRemaining": scan_dict.get("issuesRemaining", total_issues),
-                    "batchId": scan_dict.get("batchId"),
-                }
-            )
+            entry = {
+                "id": scan_dict["id"],
+                "filename": scan_dict["filename"],
+                "uploadDate": scan_dict.get("uploadDate"),
+                "status": status,
+                "groupId": scan_dict.get("groupId"),
+                "groupName": scan_dict.get("groupName"),
+                "totalIssues": total_issues,
+                "issuesFixed": scan_dict.get("issuesFixed", 0),
+                "issuesRemaining": scan_dict.get("issuesRemaining", total_issues),
+                "batchId": scan_dict.get("batchId"),
+            }
+
+            latest_entry = get_fixed_version(scan_dict["id"])
+            if latest_entry:
+                entry["latestVersion"] = latest_entry["version"]
+                entry["latestFixedFile"] = latest_entry["relative_path"]
+                entry["hasFixVersions"] = True
+            else:
+                entry["hasFixVersions"] = False
+
+            formatted_scans.append(entry)
 
         print(f"[v0] Returning {len(batches)} batches and {len(formatted_scans)} scans")
         return jsonify(
@@ -1234,8 +1375,33 @@ def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
             is_update=True,
         )
 
+        archive_info = None
+        if changes_detected:
+            archive_info = archive_fixed_pdf_version(
+                scan_id=scan_id,
+                original_filename=original_filename,
+                source_path=resolve_uploaded_file_path(scan_id, scan_data),
+            )
+            if archive_info:
+                fixed_filename = archive_info["relative_path"]
+
         save_success = False
         if changes_detected:
+            metadata_payload = {
+                "engine_version": "1.0",
+                "processing_time": result.get("processingTime"),
+                "success_rate": result.get("successRate"),
+            }
+            if archive_info:
+                metadata_payload.update(
+                    {
+                        "version": archive_info["version"],
+                        "versionLabel": f"V{archive_info['version']}",
+                        "relativePath": archive_info["relative_path"],
+                        "storedFilename": archive_info["filename"],
+                        "fileSize": archive_info["size"],
+                    }
+                )
             save_success = bool(
                 save_fix_history(
                     scan_id=scan_id,
@@ -1252,11 +1418,8 @@ def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
                     high_severity_before=high_severity_before,
                     high_severity_after=high_severity_after,
                     fix_suggestions=result.get("suggestions", []),
-                    fix_metadata={
-                        "engine_version": "1.0",
-                        "processing_time": result.get("processingTime"),
-                        "success_rate": result.get("successRate"),
-                    },
+                    fix_metadata=metadata_payload,
+                    version=archive_info["version"] if archive_info else None,
                 )
             )
         else:
@@ -1283,6 +1446,7 @@ def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
             "success": True,
             "status": "success",
             "fixedFile": fixed_filename,
+            "fixedFilePath": fixed_filename,
             "scanResults": scan_results_after,
             "summary": summary_after,
             "fixesApplied": fixes_applied,
@@ -1291,6 +1455,11 @@ def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
             "successCount": success_count,
             "scanId": scan_id,
         }
+        if archive_info:
+            response["version"] = archive_info["version"]
+            response["versionLabel"] = f"V{archive_info['version']}"
+            response["fixedFile"] = archive_info["relative_path"]
+            response["fixedFilePath"] = archive_info["relative_path"]
 
         return 200, response
 
@@ -1469,8 +1638,32 @@ def apply_semi_automated_fixes(scan_id):
                 is_update=True,
             )
 
+            archive_info = None
+            if changes_detected:
+                archive_info = archive_fixed_pdf_version(
+                    scan_id=scan_id,
+                    original_filename=original_filename,
+                    source_path=resolve_uploaded_file_path(scan_id, scan_data),
+                )
+                if archive_info:
+                    fixed_filename = archive_info["relative_path"]
+
             save_success = False
             if changes_detected:
+                metadata_payload = {
+                    "user_selected_fixes": len(fixes),
+                    "engine_version": "1.0",
+                }
+                if archive_info:
+                    metadata_payload.update(
+                        {
+                            "version": archive_info["version"],
+                            "versionLabel": f"V{archive_info['version']}",
+                            "relativePath": archive_info["relative_path"],
+                            "storedFilename": archive_info["filename"],
+                            "fileSize": archive_info["size"],
+                        }
+                    )
                 save_success = bool(
                     save_fix_history(
                         scan_id=scan_id,
@@ -1487,10 +1680,8 @@ def apply_semi_automated_fixes(scan_id):
                         high_severity_before=high_severity_before,
                         high_severity_after=high_severity_after,
                         fix_suggestions=fixes,
-                        fix_metadata={
-                            "user_selected_fixes": len(fixes),
-                            "engine_version": "1.0",
-                        },
+                        fix_metadata=metadata_payload,
+                        version=archive_info["version"] if archive_info else None,
                     )
                 )
             else:
@@ -1505,17 +1696,23 @@ def apply_semi_automated_fixes(scan_id):
 
             update_scan_status(scan_id)
 
-            return jsonify(
-                {
-                    "status": "success",
-                    "fixedFile": result.get("fixedFile"),
-                    "scanResults": scan_results_after,
-                    "summary": summary_after,
-                    "fixesApplied": fixes_applied,
-                    "historyRecorded": save_success,
-                    "changesDetected": changes_detected,
-                }
-            )
+            response_payload = {
+                "status": "success",
+                "fixedFile": fixed_filename,
+                "fixedFilePath": fixed_filename,
+                "scanResults": scan_results_after,
+                "summary": summary_after,
+                "fixesApplied": fixes_applied,
+                "historyRecorded": save_success,
+                "changesDetected": changes_detected,
+            }
+            if archive_info:
+                response_payload["version"] = archive_info["version"]
+                response_payload["versionLabel"] = f"V{archive_info['version']}"
+                response_payload["fixedFile"] = archive_info["relative_path"]
+                response_payload["fixedFilePath"] = archive_info["relative_path"]
+
+            return jsonify(response_payload)
         else:
             if tracker:
                 tracker.fail_all(result.get("error", "Unknown error"))
@@ -1629,10 +1826,19 @@ def apply_manual_fix(scan_id):
             }
         ]
 
+        archive_info = archive_fixed_pdf_version(
+            scan_id=scan_id,
+            original_filename=original_filename,
+            source_path=pdf_path,
+        )
+        archived_filename = (
+            archive_info["relative_path"] if archive_info else pdf_path.name
+        )
+
         save_fix_history(
             scan_id=scan_id,
             original_filename=original_filename,
-            fixed_filename=pdf_path.name,
+            fixed_filename=archived_filename,
             fixes_applied=fixes_applied,
             fix_type="manual",
             issues_before=issues_before,
@@ -1643,7 +1849,17 @@ def apply_manual_fix(scan_id):
             fix_metadata={
                 "page": page,
                 "manual": True,
+                "version": archive_info["version"] if archive_info else None,
+                "versionLabel": f"V{archive_info['version']}"
+                if archive_info
+                else None,
+                "relativePath": archived_filename,
+                "storedFilename": archive_info["filename"]
+                if archive_info
+                else pdf_path.name,
+                "fileSize": archive_info["size"] if archive_info else None,
             },
+            version=archive_info["version"] if archive_info else None,
         )
 
         update_scan_status(scan_id)
@@ -1654,7 +1870,12 @@ def apply_manual_fix(scan_id):
                 "message": fix_result.get(
                     "message", "Manual fix applied successfully"
                 ),
-                "fixedFile": pdf_path.name,
+                "fixedFile": archived_filename,
+                "fixedFilePath": archived_filename,
+                "version": archive_info["version"] if archive_info else None,
+                "versionLabel": f"V{archive_info['version']}"
+                if archive_info
+                else None,
                 "summary": summary,
                 "results": results,
                 "scanResults": formatted_results,
@@ -1677,23 +1898,45 @@ def apply_manual_fix(scan_id):
 def download_file(scan_id):
     """Download the original or fixed PDF file associated with a scan ID."""
     uploads_dir = Path(UPLOAD_FOLDER)
-    fixed_dir = Path(FIXED_FOLDER)
 
-    file_path = None
-    potential_filenames = [
-        f"{scan_id}.pdf",
-        scan_id,
-    ]  # Try with and without .pdf extension
+    version_param = request.args.get("version")
+    allow_old = _truthy(request.args.get("allowDownload"))
+    selected_version = None
+    versions = get_versioned_files(scan_id)
 
-    # Prefer fixed file if available
-    for filename in potential_filenames:
-        path = fixed_dir / filename
-        if path.exists():
-            file_path = path
-            break
+    if versions:
+        latest = versions[-1]
+        selected_version = latest
+        if version_param:
+            try:
+                requested_version = int(version_param)
+            except (ValueError, TypeError):
+                return jsonify({"error": "Invalid version specified"}), 400
 
-    # If fixed file not found, look for the original upload
-    if not file_path:
+            match = next(
+                (entry for entry in versions if entry["version"] == requested_version),
+                None,
+            )
+            if not match:
+                return jsonify({"error": f"Version {requested_version} not found"}), 404
+
+            if match["version"] != latest["version"] and not allow_old:
+                return (
+                    jsonify(
+                        {
+                            "error": "Only the latest version is downloadable by default",
+                            "latestVersion": latest["version"],
+                            "requestedVersion": match["version"],
+                        }
+                    ),
+                    403,
+                )
+            selected_version = match
+
+        file_path = selected_version["absolute_path"]
+    else:
+        file_path = None
+        potential_filenames = [f"{scan_id}.pdf", scan_id]
         for filename in potential_filenames:
             path = uploads_dir / filename
             if path.exists():
@@ -1710,6 +1953,9 @@ def download_file(scan_id):
         if original_scan_data
         else f"{scan_id}.pdf"
     )
+    if selected_version:
+        stem = Path(download_name).stem
+        download_name = f"{stem}_V{selected_version['version']}.pdf"
 
     return send_file(
         file_path,
@@ -1810,6 +2056,18 @@ def get_fix_history(scan_id):
             fix_metadata = _deserialize_json(row.get("fix_metadata"), {})
             fix_suggestions = _deserialize_json(row.get("fix_suggestions"), [])
 
+            version_number = None
+            version_label = None
+            relative_path = row.get("fixed_filename") or row.get("fixed_file")
+            stored_filename = None
+            file_size = None
+            if isinstance(fix_metadata, dict):
+                version_number = fix_metadata.get("version", version_number)
+                version_label = fix_metadata.get("versionLabel", version_label)
+                relative_path = fix_metadata.get("relativePath", relative_path)
+                stored_filename = fix_metadata.get("storedFilename")
+                file_size = fix_metadata.get("fileSize")
+
             history.append(
                 {
                     "id": row["id"],
@@ -1817,6 +2075,7 @@ def get_fix_history(scan_id):
                     "originalFilename": row.get("original_filename")
                     or row.get("original_file"),
                     "fixedFilename": row.get("fixed_filename") or row.get("fixed_file"),
+                    "fixedFilePath": relative_path,
                     "fixesApplied": fixes_applied,
                     "issuesBefore": issues_before,
                     "issuesAfter": issues_after,
@@ -1830,10 +2089,64 @@ def get_fix_history(scan_id):
                     "totalIssuesAfter": row["total_issues_after"],
                     "complianceBefore": row["compliance_before"],
                     "complianceAfter": row["compliance_after"],
+                    "version": version_number,
+                    "versionLabel": version_label,
+                    "storedFilename": stored_filename,
+                    "fileSize": file_size,
                 }
             )
 
-        return jsonify({"success": True, "history": history})
+        assigned_versions = []
+        for entry in reversed(history):
+            if entry["version"] is None:
+                entry["version"] = len(assigned_versions) + 1
+                entry["versionLabel"] = f"V{entry['version']}"
+            assigned_versions.append(entry["version"])
+
+        latest_version = max(assigned_versions) if assigned_versions else None
+        version_files = {
+            info["version"]: info for info in get_versioned_files(scan_id)
+        }
+
+        for entry in history:
+            info = version_files.get(entry["version"])
+            if info:
+                entry["storedFilename"] = entry["storedFilename"] or info["filename"]
+                entry["fixedFilePath"] = entry["fixedFilePath"] or info["relative_path"]
+                entry["fileSize"] = entry["fileSize"] or info["size"]
+                entry["versionCreatedAt"] = (
+                    info["created_at"].isoformat() if info["created_at"] else None
+                )
+            entry["isLatest"] = (
+                latest_version is not None and entry["version"] == latest_version
+            )
+            entry["downloadable"] = entry["isLatest"]
+            if not entry.get("versionLabel"):
+                entry["versionLabel"] = f"V{entry['version']}"
+
+        version_history = sorted(
+            [
+                {
+                    "version": entry["version"],
+                    "label": entry["versionLabel"],
+                    "appliedAt": entry["appliedAt"],
+                    "downloadable": entry["downloadable"],
+                    "relativePath": entry.get("fixedFilePath"),
+                }
+                for entry in history
+            ],
+            key=lambda item: item["version"],
+            reverse=True,
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "history": history,
+                "latestVersion": latest_version,
+                "versions": version_history,
+            }
+        )
 
     except Exception as e:
         print(f"[Backend] ERROR getting fix history: {e}")
@@ -1843,7 +2156,7 @@ def get_fix_history(scan_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/download-fixed/<filename>", methods=["GET"])
+@app.route("/api/download-fixed/<path:filename>", methods=["GET"])
 def download_fixed_file(filename):
     """Download a fixed PDF file"""
     try:
@@ -1852,28 +2165,129 @@ def download_fixed_file(filename):
         fixed_dir = Path(FIXED_FOLDER)
         uploads_dir = Path(UPLOAD_FOLDER)
 
-        # Try to find the file in fixed folder first, then uploads
+        allow_old = _truthy(request.args.get("allowDownload"))
+        version_param = request.args.get("version")
+        scan_id_param = request.args.get("scanId")
+
         file_path = None
-        for folder in [fixed_dir, uploads_dir]:
-            # Try with and without .pdf extension
-            for ext in ["", ".pdf"]:
-                path = folder / f"{filename}{ext}"
-                if path.exists():
-                    file_path = path
-                    break
-            if file_path:
-                break
+        selected_version = None
+        scan_id_for_version = scan_id_param
+
+        try:
+            requested_path = (fixed_dir / filename).resolve()
+        except Exception:
+            requested_path = None
+
+        base_fixed_resolved = fixed_dir.resolve()
+        if (
+            requested_path
+            and requested_path.exists()
+            and str(requested_path).startswith(str(base_fixed_resolved))
+        ):
+            file_path = requested_path
+            scan_id_for_version = requested_path.parent.name
+            version_number = _extract_version_from_path(requested_path)
+            if scan_id_for_version:
+                versions = get_versioned_files(scan_id_for_version)
+                latest = versions[-1] if versions else None
+                if version_number and latest:
+                    selected_version = next(
+                        (
+                            entry
+                            for entry in versions
+                            if entry["version"] == version_number
+                        ),
+                        None,
+                    )
+                    if (
+                        selected_version
+                        and version_number != latest["version"]
+                        and not allow_old
+                    ):
+                        return (
+                            jsonify(
+                                {
+                                    "error": "Only the latest version is downloadable by default",
+                                    "latestVersion": latest["version"],
+                                    "requestedVersion": version_number,
+                                }
+                            ),
+                            403,
+                        )
+        else:
+            target_scan_id = scan_id_param or filename
+            versions = get_versioned_files(target_scan_id)
+            if versions:
+                latest = versions[-1]
+                selected_version = latest
+                if version_param:
+                    try:
+                        requested_number = int(version_param)
+                    except (ValueError, TypeError):
+                        return jsonify({"error": "Invalid version specified"}), 400
+                    match = next(
+                        (
+                            entry
+                            for entry in versions
+                            if entry["version"] == requested_number
+                        ),
+                        None,
+                    )
+                    if not match:
+                        return jsonify(
+                            {"error": f"Version {requested_number} not found"}
+                        ), 404
+                    if match["version"] != latest["version"] and not allow_old:
+                        return (
+                            jsonify(
+                                {
+                                    "error": "Only the latest version is downloadable by default",
+                                    "latestVersion": latest["version"],
+                                    "requestedVersion": match["version"],
+                                }
+                            ),
+                            403,
+                        )
+                    selected_version = match
+
+                file_path = selected_version["absolute_path"]
+                scan_id_for_version = target_scan_id
+            else:
+                # Legacy fallback: search fixed and upload directories by raw filename
+                for folder in [fixed_dir, uploads_dir]:
+                    for ext in ["", ".pdf"]:
+                        path = folder / f"{filename}{ext}"
+                        if path.exists():
+                            file_path = path
+                            break
+                    if file_path:
+                        break
 
         if not file_path:
             print(f"[Backend] Fixed file not found: {filename}")
             return jsonify({"error": "File not found"}), 404
+
+        original_filename = None
+        if scan_id_for_version:
+            scan_record = get_scan_by_id(scan_id_for_version)
+            if scan_record:
+                original_filename = scan_record.get("filename")
+
+        if selected_version and original_filename:
+            download_name = f"{Path(original_filename).stem}_V{selected_version['version']}.pdf"
+        elif selected_version:
+            download_name = selected_version["filename"]
+        else:
+            download_name = Path(file_path).name
+            if not download_name.lower().endswith(".pdf"):
+                download_name = f"{download_name}.pdf"
 
         print(f"[Backend] ✓ Serving fixed file: {file_path}")
         return send_file(
             file_path,
             mimetype="application/pdf",
             as_attachment=True,
-            download_name=filename if filename.endswith(".pdf") else f"{filename}.pdf",
+            download_name=download_name,
         )
 
     except Exception as e:
@@ -1892,16 +2306,32 @@ def serve_pdf_file(scan_id):
         uploads_dir = Path(UPLOAD_FOLDER)
         fixed_dir = Path(FIXED_FOLDER)
 
-        # Try multiple file path strategies
+        version_param = request.args.get("version")
         file_path = None
-        for folder in [fixed_dir, uploads_dir]:
-            for ext in ["", ".pdf"]:
-                path = folder / f"{scan_id}{ext}"
-                if path.exists():
-                    file_path = path
+
+        if version_param:
+            try:
+                requested_version = int(version_param)
+            except (ValueError, TypeError):
+                return jsonify({"error": "Invalid version parameter"}), 400
+            version_info = get_fixed_version(scan_id, requested_version)
+            if version_info:
+                file_path = version_info["absolute_path"]
+        else:
+            latest_version = get_fixed_version(scan_id)
+            if latest_version:
+                file_path = latest_version["absolute_path"]
+
+        if not file_path:
+            # Try multiple file path strategies (legacy behavior)
+            for folder in [fixed_dir, uploads_dir]:
+                for ext in ["", ".pdf"]:
+                    path = folder / f"{scan_id}{ext}"
+                    if path.exists():
+                        file_path = path
+                        break
+                if file_path:
                     break
-            if file_path:
-                break
 
         if not file_path:
             print(f"[Backend] PDF file not found for scan: {scan_id}")
@@ -2069,6 +2499,9 @@ def get_scan(scan_id):
 
             fix_suggestions = generate_fix_suggestions(results)
 
+            version_entries = get_versioned_files(scan["id"])
+            latest_version = version_entries[-1] if version_entries else None
+
             response_data = {
                 "scanId": scan["id"],
                 "id": scan["id"],
@@ -2090,6 +2523,22 @@ def get_scan(scan_id):
                     + len(results.get("pdfuaIssues", [])),
                 },
             }
+            if latest_version:
+                response_data["latestVersion"] = latest_version["version"]
+                response_data["latestFixedFile"] = latest_version["relative_path"]
+                response_data["versionHistory"] = [
+                    {
+                        "version": entry["version"],
+                        "label": f"V{entry['version']}",
+                        "relativePath": entry["relative_path"],
+                        "createdAt": entry["created_at"].isoformat()
+                        if entry["created_at"]
+                        else None,
+                        "fileSize": entry["size"],
+                        "downloadable": entry["version"] == latest_version["version"],
+                    }
+                    for entry in reversed(version_entries)
+                ]
 
             print(
                 f"[Backend] ✓ Found scan: {scan_id}, Total issues: {summary.get('totalIssues', 0)}, WCAG: {summary.get('wcagCompliance', 0)}%, PDF/UA: {summary.get('pdfuaCompliance', 0)}%"
@@ -2133,6 +2582,13 @@ def delete_scan(scan_id):
                     file_path.unlink()
                     deleted_files += 1
                     print(f"[Backend] Deleted file: {file_path}")
+
+        version_dir = fixed_dir / scan_id
+        if version_dir.exists() and version_dir.is_dir():
+            removed_count = sum(1 for path in version_dir.glob("**/*") if path.is_file())
+            shutil.rmtree(version_dir, ignore_errors=True)
+            deleted_files += removed_count
+            print(f"[Backend] Deleted version history directory: {version_dir}")
 
         # Delete from database
         execute_query(
@@ -2182,6 +2638,7 @@ def save_fix_history(
     high_severity_after=0,
     fix_suggestions=None,
     fix_metadata=None,
+    version=None,
 ):
     """
     Save fix history to the fix_history table.
@@ -2191,6 +2648,12 @@ def save_fix_history(
     try:
         conn = get_db_connection()
         c = conn.cursor()
+
+        fix_metadata = dict(fix_metadata or {})
+        if version is not None:
+            fix_metadata.setdefault("version", version)
+            fix_metadata.setdefault("versionLabel", f"V{version}")
+            fix_metadata.setdefault("relativePath", fixed_filename)
 
         if not original_filename:
             print(
@@ -2801,6 +3264,27 @@ def get_batch_details(batch_id):
             total_high += current_high
             total_compliance += current_compliance
 
+            version_entries = get_versioned_files(scan["scan_id"])
+            latest_version_entry = version_entries[-1] if version_entries else None
+            version_history = (
+                [
+                    {
+                        "version": entry["version"],
+                        "label": f"V{entry['version']}",
+                        "relativePath": entry["relative_path"],
+                        "createdAt": entry["created_at"].isoformat()
+                        if entry["created_at"]
+                        else None,
+                        "downloadable": entry["version"]
+                        == latest_version_entry["version"],
+                        "fileSize": entry["size"],
+                    }
+                    for entry in reversed(version_entries)
+                ]
+                if version_entries
+                else []
+            )
+
             processed_scans.append(
                 {
                     "scanId": scan["scan_id"],
@@ -2825,6 +3309,13 @@ def get_batch_details(batch_id):
                     "results": scan_results.get("results", {})
                     if isinstance(scan_results, dict)
                     else {},
+                    "latestVersion": latest_version_entry["version"]
+                    if latest_version_entry
+                    else None,
+                    "latestFixedFile": latest_version_entry["relative_path"]
+                    if latest_version_entry
+                    else None,
+                    "versionHistory": version_history,
                 }
             )
 
@@ -3177,27 +3668,45 @@ def export_batch(batch_id):
 
                 scan_id = scan_row.get("id")
                 pdf_added = False
-                for folder in [fixed_dir, uploads_dir]:
+                latest_fixed_entry = get_fixed_version(scan_id)
+                if latest_fixed_entry:
+                    arcname = (
+                        f"{safe_batch_name}/files/{latest_fixed_entry['filename']}"
+                    )
+                    zip_file.write(latest_fixed_entry["absolute_path"], arcname)
+                    pdf_added = True
+                    print(
+                        f"[Backend] Added latest fixed PDF to export: {latest_fixed_entry['absolute_path']}"
+                    )
+
+                if not pdf_added:
                     for candidate in [
-                        folder / f"{scan_id}.pdf",
-                        folder / scan_row.get("filename", ""),
+                        uploads_dir / f"{scan_id}.pdf",
+                        uploads_dir / scan_row.get("filename", ""),
                     ]:
                         if candidate and candidate.exists():
                             arcname = f"{safe_batch_name}/files/{candidate.name}"
                             zip_file.write(candidate, arcname)
                             pdf_added = True
-                            print(f"[Backend] Added PDF to export: {candidate}")
+                            print(f"[Backend] Added original PDF to export: {candidate}")
                             break
-                    if pdf_added:
-                        break
 
-                fixed_filename = scan_row.get("fixed_filename")
-                if fixed_filename:
-                    fixed_path = fixed_dir / fixed_filename
-                    if fixed_path.exists():
-                        arcname = f"{safe_batch_name}/fixed/{fixed_filename}"
-                        zip_file.write(fixed_path, arcname)
-                        print(f"[Backend] Added fixed PDF to export: {fixed_path}")
+                version_entries = get_versioned_files(scan_id)
+                if version_entries:
+                    for entry in version_entries:
+                        arcname = f"{safe_batch_name}/fixed/{scan_id}/{entry['filename']}"
+                        zip_file.write(entry["absolute_path"], arcname)
+                        print(
+                            f"[Backend] Added version V{entry['version']} to export: {entry['absolute_path']}"
+                        )
+                else:
+                    fixed_filename = scan_row.get("fixed_filename")
+                    if fixed_filename:
+                        fixed_path = fixed_dir / fixed_filename
+                        if fixed_path.exists():
+                            arcname = f"{safe_batch_name}/fixed/{fixed_filename}"
+                            zip_file.write(fixed_path, arcname)
+                            print(f"[Backend] Added fixed PDF to export: {fixed_path}")
 
         zip_buffer.seek(0)
 
@@ -3445,6 +3954,9 @@ def get_scan_current_state(scan_id):
             },
         }
 
+        version_entries = get_versioned_files(scan_id)
+        latest_version_entry = version_entries[-1] if version_entries else None
+
         # Add latest fix data if exists
         if latest_fix:
             response["currentState"] = {
@@ -3459,6 +3971,11 @@ def get_scan_current_state(scan_id):
                 "highSeverity": latest_fix.get("high_severity_after", 0),
                 "suggestions": latest_fix.get("fix_suggestions", []),
             }
+            if latest_version_entry:
+                response["currentState"]["version"] = latest_version_entry["version"]
+                response["currentState"]["fixedFilePath"] = latest_version_entry[
+                    "relative_path"
+                ]
         else:
             response["currentState"] = {
                 "status": scan.get("status", "scanned"),
@@ -3469,6 +3986,23 @@ def get_scan_current_state(scan_id):
                 "totalIssues": scan.get("total_issues", 0),
                 "highSeverity": scan_results.get("summary", {}).get("highSeverity", 0),
             }
+
+        if latest_version_entry:
+            response["latestVersion"] = latest_version_entry["version"]
+            response["latestFixedFile"] = latest_version_entry["relative_path"]
+            response["versionHistory"] = [
+                {
+                    "version": entry["version"],
+                    "label": f"V{entry['version']}",
+                    "relativePath": entry["relative_path"],
+                    "createdAt": entry["created_at"].isoformat()
+                    if entry["created_at"]
+                    else None,
+                    "downloadable": entry["version"] == latest_version_entry["version"],
+                    "fileSize": entry["size"],
+                }
+                for entry in reversed(version_entries)
+            ]
 
         conn.close()
         return jsonify(response)
