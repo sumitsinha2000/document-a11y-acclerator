@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import axios from "axios"
 import "./App.css"
+import LoadingScreen from "./components/LoadingScreen"
 import UploadArea from "./components/UploadArea"
 import History from "./components/History"
 import ReportViewer from "./components/ReportViewer"
@@ -16,6 +17,7 @@ import { NotificationProvider, useNotification } from "./contexts/NotificationCo
 function AppContent() {
   const { showError } = useNotification()
 
+  const [isLoading, setIsLoading] = useState(true)
   const [currentView, setCurrentView] = useState("upload")
   const [scanHistory, setScanHistory] = useState([])
   const [scanResults, setScanResults] = useState([])
@@ -25,6 +27,14 @@ function AppContent() {
   useEffect(() => {
     fetchScanHistory()
   }, [])
+
+  const handleLoadingComplete = () => {
+    setIsLoading(false)
+  }
+
+  if (isLoading) {
+    return <LoadingScreen onComplete={handleLoadingComplete} />
+  }
 
   const fetchScanHistory = async () => {
     try {
