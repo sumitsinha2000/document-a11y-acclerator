@@ -1,18 +1,25 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, lazy, Suspense } from "react"
 import axios from "axios"
 import "./App.css"
 import LoadingScreen from "./components/LoadingScreen"
 import UploadArea from "./components/UploadArea"
-import History from "./components/History"
-import ReportViewer from "./components/ReportViewer"
 import ThemeToggle from "./components/ThemeToggle"
-import PDFGenerator from "./components/PDFGenerator"
-import BatchReportViewer from "./components/BatchReportViewer"
-import GroupDashboard from "./components/GroupDashboard"
-import GroupMaster from "./components/GroupMaster"
 import { NotificationProvider, useNotification } from "./contexts/NotificationContext"
+
+const History = lazy(() => import("./components/History"))
+const ReportViewer = lazy(() => import("./components/ReportViewer"))
+const PDFGenerator = lazy(() => import("./components/PDFGenerator"))
+const BatchReportViewer = lazy(() => import("./components/BatchReportViewer"))
+const GroupDashboard = lazy(() => import("./components/GroupDashboard"))
+const GroupMaster = lazy(() => import("./components/GroupMaster"))
+
+const ComponentLoader = () => (
+  <div className="flex items-center justify-center h-64">
+    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+  </div>
+)
 
 function AppContent() {
   const { showError } = useNotification()
@@ -46,12 +53,8 @@ function AppContent() {
   }
 
   const handleScanComplete = (scanDataArray) => {
-    console.log("[v0] handleScanComplete called with:", scanDataArray)
-    console.log("[v0] scanDataArray length:", scanDataArray.length)
-    console.log("[v0] scanDataArray[0]:", scanDataArray[0])
-
     if (!scanDataArray || scanDataArray.length === 0) {
-      console.error("[v0] ERROR: scanDataArray is empty or invalid")
+      console.error("ERROR: scanDataArray is empty or invalid")
       showError("No scan results received. Please check the console for errors.")
       return
     }
@@ -59,14 +62,12 @@ function AppContent() {
     setScanResults(scanDataArray)
 
     if (scanDataArray.length > 1 && scanDataArray[0].batchId) {
-      console.log("[v0] Multiple files with batchId detected, switching to batch view")
       setCurrentBatch({
         batchId: scanDataArray[0].batchId,
         scans: scanDataArray,
       })
       setCurrentView("batch")
     } else if (scanDataArray.length > 1) {
-      console.log("[v0] Multiple files without batchId, creating temporary batch")
       const tempBatchId = `temp_batch_${Date.now()}`
       const scansWithBatchId = scanDataArray.map((scan) => ({
         ...scan,
@@ -79,7 +80,6 @@ function AppContent() {
       setScanResults(scansWithBatchId)
       setCurrentView("batch")
     } else {
-      console.log("[v0] Single file, switching to report view")
       setCurrentView("report")
     }
 
@@ -91,20 +91,13 @@ function AppContent() {
   }
 
   const handleSelectScan = async (scan) => {
-    console.log("[v0] Selected scan from history:", scan)
-
     try {
       setLoading(true)
-      console.log("[v0] Fetching scan details from:", `/api/scan/${scan.id}`)
       const response = await axios.get(`/api/scan/${scan.id}`)
-      console.log("[v0] API Response received:", response)
-      console.log("[v0] Response data:", response.data)
-
       setScanResults([response.data])
       setCurrentView("report")
     } catch (error) {
-      console.error("[v0] Error loading scan details:", error)
-      console.error("[v0] Error response:", error.response)
+      console.error("Error loading scan details:", error)
       showError("Failed to load scan details: " + (error.response?.data?.error || error.message))
     } finally {
       setLoading(false)
@@ -112,21 +105,16 @@ function AppContent() {
   }
 
   const handleSelectBatch = async (batchId) => {
-    console.log("[v0] Selected batch from history:", batchId)
-
     try {
       setLoading(true)
-      console.log("[v0] Fetching batch details from:", `/api/batch/${batchId}`)
       const response = await axios.get(`/api/batch/${batchId}`)
-      console.log("[v0] Batch data received:", response.data)
-
       setCurrentBatch({
         batchId: batchId,
         scans: response.data.scans || [],
       })
       setCurrentView("batch")
     } catch (error) {
-      console.error("[v0] Error loading batch details:", error)
+      console.error("Error loading batch details:", error)
       showError("Failed to load batch details: " + (error.response?.data?.error || error.message))
     } finally {
       setLoading(false)
@@ -145,16 +133,13 @@ function AppContent() {
 
   const handleBatchUpdate = async (batchId) => {
     try {
-      console.log("[v0] Refreshing batch data:", batchId)
       const response = await axios.get(`/api/batch/${batchId}`)
-      console.log("[v0] Updated batch data received:", response.data)
-
       setCurrentBatch({
         batchId: batchId,
         scans: response.data.scans || [],
       })
     } catch (error) {
-      console.error("[v0] Error refreshing batch data:", error)
+      console.error("Error refreshing batch data:", error)
     }
   }
 
@@ -323,33 +308,49 @@ function AppContent() {
       <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 max-w-full">
         <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-full">
           {currentView === "upload" && <UploadArea onScanComplete={handleScanComplete} />}
-          {currentView === "groups" && <GroupMaster onBack={handleBackToUpload} />}
-          {currentView === "dashboard" && (
-            <GroupDashboard
-              onSelectScan={handleSelectScan}
-              onSelectBatch={handleSelectBatch}
-              onBack={handleBackToUpload}
-            />
+          {currentView === "groups" && (
+            <Suspense fallback={<ComponentLoader />}>
+              <GroupMaster onBack={handleBackToUpload} />
+            </Suspense>
           )}
-          {currentView === "generator" && <PDFGenerator />}
+          {currentView === "dashboard" && (
+            <Suspense fallback={<ComponentLoader />}>
+              <GroupDashboard
+                onSelectScan={handleSelectScan}
+                onSelectBatch={handleSelectBatch}
+                onBack={handleBackToUpload}
+              />
+            </Suspense>
+          )}
+          {currentView === "generator" && (
+            <Suspense fallback={<ComponentLoader />}>
+              <PDFGenerator />
+            </Suspense>
+          )}
           {currentView === "history" && (
-            <History
-              scans={scanHistory}
-              onSelectScan={handleSelectScan}
-              onSelectBatch={handleSelectBatch}
-              onBack={handleBackToUpload}
-            />
+            <Suspense fallback={<ComponentLoader />}>
+              <History
+                scans={scanHistory}
+                onSelectScan={handleSelectScan}
+                onSelectBatch={handleSelectBatch}
+                onBack={handleBackToUpload}
+              />
+            </Suspense>
           )}
           {currentView === "batch" && currentBatch && (
-            <BatchReportViewer
-              batchId={currentBatch.batchId}
-              scans={currentBatch.scans}
-              onBack={handleBackToUpload}
-              onBatchUpdate={handleBatchUpdate}
-            />
+            <Suspense fallback={<ComponentLoader />}>
+              <BatchReportViewer
+                batchId={currentBatch.batchId}
+                scans={currentBatch.scans}
+                onBack={handleBackToUpload}
+                onBatchUpdate={handleBatchUpdate}
+              />
+            </Suspense>
           )}
           {currentView === "report" && scanResults.length > 0 && (
-            <ReportViewer scans={scanResults} onBack={handleBackToUpload} />
+            <Suspense fallback={<ComponentLoader />}>
+              <ReportViewer scans={scanResults} onBack={handleBackToUpload} />
+            </Suspense>
           )}
         </div>
       </main>
