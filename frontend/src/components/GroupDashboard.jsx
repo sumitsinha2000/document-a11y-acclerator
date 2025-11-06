@@ -13,22 +13,23 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [startingScan, setStartingScan] = useState(false)
+  const [startingBatchScan, setStartingBatchScan] = useState(false)
 
   useEffect(() => {
     loadInitialData()
   }, [])
 
   const loadInitialData = async () => {
-  try {
-    setInitialLoading(true)
-    await axios.get("/api/groups") // no need to handleNodeSelect here
-  } catch (error) {
-    console.error("[v0] Error loading initial data:", error)
-    showError("Failed to load initial data")
-  } finally {
-    setInitialLoading(false)
+    try {
+      setInitialLoading(true)
+      await axios.get("/api/groups") // no need to handleNodeSelect here
+    } catch (error) {
+      console.error("[v0] Error loading initial data:", error)
+      showError("Failed to load initial data")
+    } finally {
+      setInitialLoading(false)
+    }
   }
-}
 
 
   const handleNodeSelect = async (node) => {
@@ -113,6 +114,65 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
     }
   }
 
+  const handleBeginBatchScan = async () => {
+    if (!nodeData || nodeData.type !== "batch") {
+      return
+    }
+
+    const batchId = nodeData.batchId || selectedNode?.id
+    if (!batchId) {
+      showError("Unable to determine which batch to scan.")
+      return
+    }
+
+    const scansToStart =
+      nodeData.scans?.filter((scan) => (scan.status || "").toLowerCase() === "uploaded") || []
+
+    if (scansToStart.length === 0) {
+      showError("All files in this batch have already been sent for scanning.")
+      return
+    }
+
+    try {
+      setStartingBatchScan(true)
+      const failedScans = []
+
+      for (const scan of scansToStart) {
+        try {
+          await axios.post(`/api/scan/${scan.scanId}/start`)
+        } catch (scanError) {
+          console.error("[v0] Error starting deferred scan for batch item:", scanError)
+          failedScans.push(scan.filename || scan.scanId)
+        }
+      }
+
+      if (failedScans.length === scansToStart.length) {
+        showError("Failed to start scanning for files in this batch.")
+        return
+      }
+
+      if (failedScans.length > 0) {
+        showError(`Some files failed to start scanning: ${failedScans.join(", ")}`)
+      } else {
+        showSuccess(
+          `Started scanning ${scansToStart.length} file${scansToStart.length === 1 ? "" : "s"} in this batch.`
+        )
+      }
+
+      const refreshed = await axios.get(`/api/batch/${batchId}`)
+      setNodeData({
+        type: "batch",
+        ...refreshed.data,
+      })
+    } catch (error) {
+      console.error("[v0] Error starting batch scan:", error)
+      const errorMsg = error.response?.data?.error || error.message || "Failed to start batch scan"
+      showError(errorMsg)
+    } finally {
+      setStartingBatchScan(false)
+    }
+  }
+
   if (initialLoading) {
     return (
       <div className="flex h-screen bg-slate-50 dark:bg-slate-900 items-center justify-center">
@@ -127,6 +187,8 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
   const fileIsUploaded = nodeData?.type === "file" && nodeData?.status === "uploaded"
   const fileScanDateLabel = fileIsUploaded ? "Uploaded on" : "Scanned on"
   const fileDateValue = nodeData?.type === "file" ? nodeData?.uploadDate || nodeData?.created_at || nodeData?.timestamp : null
+  const batchHasUploadedFiles =
+    nodeData?.type === "batch" && nodeData?.scans?.some((scan) => (scan.status || "").toLowerCase() === "uploaded")
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
@@ -299,12 +361,27 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                           <span>{nodeData.fileCount || 0} files</span>
                         </div>
                       </div>
-                      <button
-                        onClick={() => onSelectBatch(nodeData.batchId)}
-                        className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors font-medium"
-                      >
-                        View Batch Report
-                      </button>
+                      <div className="flex items-center gap-2" role="group" aria-label="Batch actions">
+                        <button
+                          type="button"
+                          onClick={() => onSelectBatch(nodeData.batchId)}
+                          className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors font-medium"
+                        >
+                          View Batch Report
+                        </button>
+                        {batchHasUploadedFiles && (
+                          <button
+                            type="button"
+                            onClick={handleBeginBatchScan}
+                            disabled={startingBatchScan}
+                            aria-disabled={startingBatchScan}
+                            aria-busy={startingBatchScan}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {startingBatchScan ? "Starting..." : "Begin Scan"}
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-4 gap-4">
