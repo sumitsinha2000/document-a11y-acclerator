@@ -488,13 +488,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                     <div className="flex items-center justify-between mb-4">
                       <div>
                         <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Compliance Score</p>
-                        <div className="flex items-baseline gap-2">
+                        <div className="flex items-baseline">
                           <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.complianceScore}%</p>
-                          <span
-                            className={`text-base font-semibold ${summary.complianceScore >= 70 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
-                          >
-                            {summary.complianceScore >= 70 ? "↑ +20%" : "↓ -10%"}
-                          </span>
                         </div>
                       </div>
                       <div
@@ -555,9 +550,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Total Issues</p>
-                        <div className="flex items-baseline gap-2">
+                        <div className="flex items-baseline">
                           <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.totalIssues}</p>
-                          <span className="text-base font-semibold text-amber-600 dark:text-amber-400">↓ -5%</span>
                         </div>
                       </div>
                       <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
@@ -582,9 +576,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">High Severity</p>
-                        <div className="flex items-baseline gap-2">
+                        <div className="flex items-baseline">
                           <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.highSeverity}</p>
-                          <span className="text-base font-semibold text-rose-600 dark:text-rose-400">↓ -3%</span>
                         </div>
                       </div>
                       <div className="w-16 h-16 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center">
