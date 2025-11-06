@@ -351,9 +351,11 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       <div
         className={`flex-1 transition-all duration-300 ${
           sidebarOpen ? "ml-[240px]" : "ml-0"
-        } ${scans.length > 1 && !isSidebarCollapsed ? "ml-[504px]" : ""} min-h-screen`}
+        } ${scans.length > 1 && !isSidebarCollapsed ? "ml-[504px]" : ""} ${
+          sidebarOpen ? "min-h-screen" : "min-h-0"
+        } bg-white dark:bg-slate-800 border-r border-b border-slate-200 dark:border-slate-700 flex flex-col`}
       >
-        <div className="bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 px-8 py-8">
+        <div className="border-b-2 border-slate-200 dark:border-slate-700 px-8 py-8">
           <div className="flex items-center justify-between mb-4">
             <Breadcrumb items={breadcrumbItems} className="text-slate-600 dark:text-slate-300" />
             <div className="flex items-center gap-3">

@@ -407,8 +407,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
 
   if (selectedScan) {
     return (
-      <div className="flex h-[calc(100vh-3.5rem)]">
-        <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 overflow-y-auto">
+      <div className="flex min-h-[calc(100vh-3.5rem)] bg-slate-50 dark:bg-slate-900">
+        <div className="flex w-64 flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <button
               onClick={() => setSelectedScan(null)}
@@ -419,7 +419,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Batch Files</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{scansState.length} files</p>
           </div>
-          <div className="p-2">
+          <div className="flex-1 overflow-y-auto p-2">
             {scansState.map((scan) => (
               <button
                 key={scan.scanId}
@@ -431,13 +431,17 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                 }`}
               >
                 <div className="font-semibold truncate text-base">{scan.filename}</div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">{scan.scanId?.slice(0, 30)}...</div>
+                {scan.scanId && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate" title={scan.scanId}>
+                    {scan.scanId}
+                  </div>
+                )}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1">
           <ReportViewer scans={[selectedScan]} onBack={() => setSelectedScan(null)} sidebarOpen={false} />
         </div>
       </div>
