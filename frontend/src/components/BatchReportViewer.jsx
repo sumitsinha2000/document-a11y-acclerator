@@ -258,9 +258,9 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
     console.log("[v0] handleFixAll called:", { batchId, scanCount: scansState.length })
 
     const confirmed = await confirm({
-      title: "Fix All Files",
+      title: "Apply Automated Fixes",
       message: `Apply automated fixes to all ${scansState.length} files in this batch?`,
-      confirmText: "Fix All",
+      confirmText: "Apply Automated Fixes",
       cancelText: "Cancel",
       type: "warning",
     })
@@ -508,18 +508,24 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
               onClick={handleFixAll}
               disabled={fixing}
               className="px-6 py-3.5 bg-indigo-700 hover:bg-indigo-800 focus-visible:bg-indigo-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg transition-colors"
+              aria-label={`Apply automated fixes to all ${scansState.length} files in this batch`}
+              aria-busy={fixing}
             >
               {fixing ? (
                 <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Fixing...
+                  <div
+                    className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"
+                    role="status"
+                    aria-label="Applying automated fixes"
+                  ></div>
+                  Applying...
                 </>
               ) : (
                 <>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  Fix All Issues
+                  Apply Automated Fixes
                 </>
               )}
             </button>
