@@ -3232,7 +3232,17 @@ def get_batch_details(batch_id):
         # Fetch batch details
         cur.execute(
             """
-            SELECT id, name, created_at, group_id
+            SELECT 
+                id,
+                name,
+                created_at,
+                group_id,
+                status,
+                total_files,
+                total_issues,
+                fixed_issues,
+                remaining_issues,
+                unprocessed_files
             FROM batches
             WHERE id = %s
         """,
@@ -3375,12 +3385,33 @@ def get_batch_details(batch_id):
             round(total_compliance / len(processed_scans), 2) if processed_scans else 0
         )
 
+        batch_total_issues = batch.get("total_issues")
+        batch_fixed_issues = batch.get("fixed_issues")
+        batch_remaining_issues = batch.get("remaining_issues")
+        batch_unprocessed_files = batch.get("unprocessed_files")
+        batch_total_files = batch.get("total_files")
+
         response = {
             "batchId": batch_id,
             "batchName": batch.get("name"),
+            "name": batch.get("name"),
             "createdAt": batch.get("created_at"),
+            "uploadDate": batch.get("created_at"),
             "groupId": batch.get("group_id"),
-            "totalIssues": total_issues,
+            "status": batch.get("status"),
+            "fileCount": batch_total_files if batch_total_files is not None else len(processed_scans),
+            "totalIssues": batch_total_issues if batch_total_issues is not None else total_issues,
+            "fixedIssues": batch_fixed_issues if batch_fixed_issues is not None else max(
+                (batch_total_issues if batch_total_issues is not None else total_issues) - (batch_remaining_issues or 0), 0
+            ),
+            "remainingIssues": batch_remaining_issues if batch_remaining_issues is not None else max(
+                total_issues - (batch_fixed_issues or 0), 0
+            ),
+            "unprocessedFiles": batch_unprocessed_files if batch_unprocessed_files is not None else sum(
+                1
+                for scan in processed_scans
+                if (scan.get("status") or "").lower() in {"uploaded", "unprocessed", "processing"}
+            ),
             "highSeverity": total_high,
             "avgCompliance": avg_compliance,
             "scans": processed_scans,
@@ -3892,6 +3923,9 @@ def get_group_details(group_id):
         issues_fixed = 0
         total_compliance = 0
         fixed_count = 0
+        severity_totals = {"high": 0, "medium": 0, "low": 0}
+        category_totals = {}
+        status_counts = {}
 
         for scan in scans:
             scan_results = scan.get("scan_results")
@@ -3906,11 +3940,30 @@ def get_group_details(group_id):
                 if isinstance(scan_results, dict)
                 else {}
             )
+            results = (
+                scan_results.get("results", {})
+                if isinstance(scan_results, dict)
+                else {}
+            )
 
             total_issues += summary.get("totalIssues", 0)
             total_compliance += summary.get("complianceScore", 0)
 
-            if scan.get("status") == "fixed":
+            status_key = (scan.get("status") or "unknown").lower()
+            status_counts[status_key] = status_counts.get(status_key, 0) + 1
+
+            for category, issues in results.items():
+                if not isinstance(issues, list):
+                    continue
+                category_totals[category] = category_totals.get(category, 0) + len(issues)
+                for issue in issues:
+                    if not isinstance(issue, dict):
+                        continue
+                    severity = (issue.get("severity") or "").lower()
+                    if severity in severity_totals:
+                        severity_totals[severity] += 1
+
+            if status_key == "fixed":
                 fixed_count += 1
                 # This calculation of issues_fixed is a bit off. It sums up totalIssues of fixed files, not actual fixed issues.
                 # A more accurate way would be to sum (total_issues_before - total_issues_after) from fix_history.
@@ -3930,6 +3983,9 @@ def get_group_details(group_id):
             "issues_fixed": issues_fixed,  # Note: This is total issues in files marked as 'fixed'
             "avg_compliance": avg_compliance,
             "fixed_files": fixed_count,
+            "category_totals": category_totals,
+            "severity_totals": severity_totals,
+            "status_counts": status_counts,
         }
 
         conn.close()

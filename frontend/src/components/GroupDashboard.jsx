@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 import GroupTreeSidebar from "./GroupTreeSidebar"
+import { BatchInsightPanel, FileInsightPanel, GroupInsightPanel } from "./DashboardInsights"
 
 export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, initialGroupId }) {
   const { showError, showSuccess } = useNotification()
@@ -269,6 +270,14 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                       <p className="text-slate-600 dark:text-slate-400">{nodeData.description}</p>
                     </div>
                   )}
+
+                  <GroupInsightPanel
+                    categoryTotals={nodeData.category_totals}
+                    severityTotals={nodeData.severity_totals}
+                    statusCounts={nodeData.status_counts}
+                    totalFiles={nodeData.file_count}
+                    totalIssues={nodeData.total_issues}
+                  />
                 </div>
               )}
 
@@ -349,6 +358,12 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                       </div>
                     </div>
 
+                    {!fileIsUploaded && (
+                      <div className="mt-6">
+                        <FileInsightPanel results={nodeData.results} summary={nodeData.summary} />
+                      </div>
+                    )}
+
                     {fileIsUploaded && (
                       <div className="mt-4 p-4 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400">
                         This file is ready to scan. Use the "Begin Scan" button to generate accessibility results.
@@ -420,14 +435,19 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                         <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                           {nodeData.unprocessedFiles || 0}
                         </div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Unprocessed</div>
+                        <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Unprocessed</div>
+                      </div>
                     </div>
-                  </div>
-                  {batchReadyToScan && (
-                    <div className="mt-4 p-4 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400">
-                      This batch is ready to scan. Use the "Begin Scan" button to generate accessibility results.
+
+                    <div className="mt-6">
+                      <BatchInsightPanel scans={nodeData.scans} />
                     </div>
-                  )}
+
+                    {batchReadyToScan && (
+                      <div className="mt-4 p-4 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400">
+                        This batch is ready to scan. Use the "Begin Scan" button to generate accessibility results.
+                      </div>
+                    )}
                 </div>
               </div>
             )}
