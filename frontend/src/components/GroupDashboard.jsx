@@ -191,6 +191,10 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
     nodeData?.type === "file" ? nodeData.fileName || nodeData.filename || "selected file" : "selected file"
   const batchHasUploadedFiles =
     nodeData?.type === "batch" && nodeData?.scans?.some((scan) => (scan.status || "").toLowerCase() === "uploaded")
+  const batchReadyToScan =
+    nodeData?.type === "batch" &&
+    ((nodeData?.scans?.length || 0) === 0 ||
+      nodeData?.scans?.every((scan) => (scan.status || "").toLowerCase() === "uploaded"))
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
@@ -327,19 +331,19 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                     <div className="grid grid-cols-3 gap-4">
                       <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
                         <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                          {fileIsUploaded ? "—" : `${(nodeData.summary?.complianceScore ?? 0).toLocaleString()}%`}
+                          {fileIsUploaded ? "0" : `${(nodeData.summary?.complianceScore ?? 0).toLocaleString()}%`}
                         </div>
                         <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Compliance Score</div>
                       </div>
                       <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
                         <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                          {fileIsUploaded ? "—" : (nodeData.summary?.totalIssues ?? 0)}
+                          {fileIsUploaded ? "0" : (nodeData.summary?.totalIssues ?? 0)}
                         </div>
                         <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Total Issues</div>
                       </div>
                       <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
                         <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">
-                          {fileIsUploaded ? "—" : (nodeData.summary?.highSeverity ?? 0)}
+                          {fileIsUploaded ? "0" : (nodeData.summary?.highSeverity ?? 0)}
                         </div>
                         <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">High Severity</div>
                       </div>
@@ -416,12 +420,17 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                         <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                           {nodeData.unprocessedFiles || 0}
                         </div>
-                        <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Unprocessed</div>
-                      </div>
+                      <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Unprocessed</div>
                     </div>
                   </div>
+                  {batchReadyToScan && (
+                    <div className="mt-4 p-4 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400">
+                      This batch is ready to scan. Use the "Begin Scan" button to generate accessibility results.
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
+            )}
             </>
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
