@@ -23,7 +23,6 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const [aiStrategy, setAiStrategy] = useState(null)
   const [aiIssueType, setAiIssueType] = useState("")
   const [aiFixCategory, setAiFixCategory] = useState("")
-  const [aiDirectFixLoading, setAiDirectFixLoading] = useState(false)
   const tabRefs = useRef([])
   const tabContainerRef = useRef(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
@@ -181,41 +180,6 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       showError("Failed to get AI remediation strategy. Please try again.")
     } finally {
       setAiLoading(false)
-    }
-  }
-
-  const handleAiDirectFix = async () => {
-    setAiDirectFixLoading(true)
-    try {
-      const currentScan = scans[selectedFileIndex]
-      const scanId = currentScan.scanId || currentScan.id
-
-      console.log("[v0] Applying AI-powered direct fixes to:", scanId)
-
-      const response = await axios.post(API_ENDPOINTS.aiApplyFixes(scanId))
-
-      if (response.data.success) {
-        console.log("[v0] AI fixes applied successfully:", response.data)
-
-        if (response.data.newResults && response.data.newSummary) {
-          await handleRefresh(response.data.newResults, response.data.newSummary)
-        } else {
-          await handleRefresh()
-        }
-
-        showSuccess(
-          `AI fixes applied successfully! ${response.data.successCount || 0} fixes applied. New compliance score: ${response.data.newSummary?.complianceScore || 0}%`,
-          8000,
-        )
-      } else {
-        throw new Error(response.data.error || "Failed to apply AI fixes")
-      }
-    } catch (error) {
-      console.error("[v0] Error applying AI fixes:", error)
-      const errorMessage = error.response?.data?.error || error.message || "Failed to apply AI fixes"
-      showError(`Error: ${errorMessage}`)
-    } finally {
-      setAiDirectFixLoading(false)
     }
   }
 
@@ -394,37 +358,6 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
             <Breadcrumb items={breadcrumbItems} className="text-slate-600 dark:text-slate-300" />
             <div className="flex items-center gap-3">
               <button
-                onClick={handleAiDirectFix}
-                disabled={aiDirectFixLoading || isUploaded}
-                className="px-5 py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-base"
-              >
-                {aiDirectFixLoading ? (
-                  <>
-                    <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-                    <span>Applying...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
-                      />
-                    </svg>
-                    <span>AI Direct Fix</span>
-                  </>
-                )}
-              </button>
-              <button
                 onClick={handleRefresh}
                 className="px-5 py-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-2 font-semibold text-base border border-slate-200 dark:border-slate-600"
               >
@@ -484,7 +417,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
               </div>
           </div>
 
-          {verapdfStatus.isActive && (
+          {/* {verapdfStatus.isActive && (
             <div className="flex items-center gap-2 px-5 py-3 bg-blue-50 dark:bg-blue-500/20 border-2 border-blue-200 dark:border-blue-400/30 rounded-lg">
               <svg className="w-6 h-6 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
                   <path
@@ -495,7 +428,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                 </svg>
                 <span className="font-bold text-blue-700 dark:text-blue-300 text-base">veraPDF Validated</span>
               </div>
-          )}
+          )} */}
         </div>
 
         {isUploaded && (
