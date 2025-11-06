@@ -31,13 +31,13 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 # Business logic modules (preserve exact imports and names)
-from pdf_analyzer import PDFAccessibilityAnalyzer
-from fix_suggestions import generate_fix_suggestions
-from auto_fix_engine import AutoFixEngine
-from fix_progress_tracker import create_progress_tracker, get_progress_tracker
+from backend.pdf_analyzer import PDFAccessibilityAnalyzer
+from backend.fix_suggestions import generate_fix_suggestions
+from backend.auto_fix_engine import AutoFixEngine
+from backend.fix_progress_tracker import create_progress_tracker, get_progress_tracker
 # The original used PDFGenerator; keep it
 try:
-    from pdf_generator import PDFGenerator
+    from backend.pdf_generator import PDFGenerator
 except Exception:
     # If pdf_generator missing, create a minimal stub to avoid import errors
     class PDFGenerator:
