@@ -119,18 +119,20 @@ db_lock = threading.Lock()
 # ----------------------
 app = FastAPI(title="Doc A11y Accelerator API")
 
+
+# === Allow frontend (Vercel) to call backend (Render) ===
 origins = [
-    FRONTEND_URL,
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    "https://document-a11y-accelerator.vercel.app",  # your Vercel frontend
+    "https://document-a11y-accelerator.onrender.com",  # backend Render domain
+    "http://localhost:3000",  # local dev
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=origins,         # exact origins allowed
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],           # allow all HTTP verbs
+    allow_headers=["*"],           # allow all headers
 )
 
 # serve uploaded files (development/test)
