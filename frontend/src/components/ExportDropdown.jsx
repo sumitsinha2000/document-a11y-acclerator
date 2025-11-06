@@ -1,4 +1,6 @@
-import { useState, useRef, useEffect } from "react"
+"use client"
+
+import { useState, useRef, useEffect, useId } from "react"
 import axios from "axios"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
@@ -18,6 +20,9 @@ export default function ExportDropdown({ scanId, filename }) {
 
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef(null)
+  const dropdownId = useId()
+  const menuId = `${dropdownId}-menu`
+  const buttonId = `${dropdownId}-button`
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -28,6 +33,17 @@ export default function ExportDropdown({ scanId, filename }) {
 
     document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener("keydown", handleEscape)
+    return () => document.removeEventListener("keydown", handleEscape)
   }, [])
 
   const handleExport = async (format) => {
@@ -427,9 +443,13 @@ export default function ExportDropdown({ scanId, filename }) {
   return (
     <div className="relative" ref={dropdownRef}>
       <button
+        id={buttonId}
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300"
-        aria-label="Export options"
+        type="button"
+        className="flex items-center gap-2 px-5 py-3 text-base font-semibold text-white bg-violet-600 rounded-lg shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-400"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? menuId : undefined}
       >
         <span>Export</span>
         <svg
@@ -443,41 +463,50 @@ export default function ExportDropdown({ scanId, filename }) {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-2 z-50">
-          <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
-            <div className="text-sm font-semibold text-gray-900 dark:text-white">Export Report</div>
+        <div
+          id={menuId}
+          role="menu"
+          aria-labelledby={buttonId}
+          className="absolute right-0 z-50 mt-2 w-56 rounded-lg border border-slate-200 bg-white py-2 shadow-xl dark:border-slate-700 dark:bg-slate-800"
+        >
+          <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700">
+            <div className="text-sm font-semibold text-slate-900 dark:text-white">Export Report</div>
           </div>
 
           <button
             onClick={() => handleExport("json")}
-            className="w-full px-4 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+            role="menuitem"
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700 dark:focus:bg-slate-700"
           >
             <span className="text-lg">📄</span>
-            <span className="text-sm text-gray-700 dark:text-gray-300">Export as JSON</span>
+            <span>Export as JSON</span>
           </button>
 
           <button
             onClick={() => handleExport("csv")}
-            className="w-full px-4 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+            role="menuitem"
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700 dark:focus:bg-slate-700"
           >
             <span className="text-lg">📊</span>
-            <span className="text-sm text-gray-700 dark:text-gray-300">Export as CSV</span>
+            <span>Export as CSV</span>
           </button>
 
           <button
             onClick={() => handleExport("html")}
-            className="w-full px-4 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+            role="menuitem"
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700 dark:focus:bg-slate-700"
           >
             <span className="text-lg">🌐</span>
-            <span className="text-sm text-gray-700 dark:text-gray-300">Export as HTML</span>
+            <span>Export as HTML</span>
           </button>
 
           <button
             onClick={() => handleExport("pdf")}
-            className="w-full px-4 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+            role="menuitem"
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700 dark:focus:bg-slate-700"
           >
             <span className="text-lg">📕</span>
-            <span className="text-sm text-gray-700 dark:text-gray-300">Export as PDF</span>
+            <span>Export as PDF</span>
           </button>
         </div>
       )}

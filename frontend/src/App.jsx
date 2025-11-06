@@ -22,7 +22,7 @@ const ComponentLoader = () => (
 )
 
 function AppContent() {
-  const { showError } = useNotification()
+  const { showError, showSuccess } = useNotification()
 
   console.log("[v0] AppContent rendering")
 
@@ -32,6 +32,7 @@ function AppContent() {
   const [scanResults, setScanResults] = useState([])
   const [currentBatch, setCurrentBatch] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [selectedGroupId, setSelectedGroupId] = useState(null)
 
   const fetchScanHistory = useCallback(async () => {
     try {
@@ -88,6 +89,19 @@ function AppContent() {
       setCurrentView("report")
     }
 
+    fetchScanHistory()
+  }
+
+  const handleUploadDeferred = (details) => {
+    const count = details?.scanIds?.length ?? 0
+    const hasBatch = Boolean(details?.batchId)
+    const message =
+      count > 1
+        ? `${count} files uploaded${hasBatch ? " in the batch" : ""}. Begin scanning whenever you're ready from the dashboard or history view.`
+        : count === 1
+          ? "File uploaded successfully. Start the scan when you're ready from the dashboard or history view."
+          : "Upload completed. Start scanning whenever you're ready from the dashboard or history view."
+    showSuccess(message)
     fetchScanHistory()
   }
 
@@ -148,6 +162,11 @@ function AppContent() {
     }
   }
 
+  const handleOpenGroupDashboard = (groupId) => {
+    setSelectedGroupId(groupId)
+    setCurrentView("dashboard")
+  }
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-900 overflow-x-hidden max-w-full">
       {/* Top Navigation Bar */}
@@ -164,13 +183,14 @@ function AppContent() {
                     fill="none"
                     stroke="currentColor"
                     strokeWidth={2}
+                    aria-hidden="true"
                   >
                     <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
                     <path d="M14 2v4a2 2 0 0 0 2 2h4" />
                   </svg>
                 </div>
                 <div className="min-w-0">
-                  <h1 className="text-xl font-bold text-slate-900 dark:text-white truncate">Doc A11y Accelerator</h1>
+                  <p className="text-xl font-bold text-slate-900 dark:text-white truncate">Doc A11y Accelerator</p>
                   <p className="text-sm text-slate-600 dark:text-slate-400 truncate">PDF Accessibility Scanner</p>
                 </div>
               </div>
@@ -186,12 +206,13 @@ function AppContent() {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
                         d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                        aria-hidden="true"
                       />
                     </svg>
                     Upload
@@ -207,7 +228,7 @@ function AppContent() {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -228,7 +249,7 @@ function AppContent() {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -270,7 +291,7 @@ function AppContent() {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -288,8 +309,9 @@ function AppContent() {
             <div className="flex items-center gap-3 flex-shrink-0">
               {/* Beta Badge */}
               <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-lg">
-                <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M21.6,9.84A4.57,4.57,0,0,1,21.18,9,4,4,0,0,1,21,8.07a4.21,4.21,0,0,0-.64-2.16,4.25,4.25,0,0,0-1.87-1.28,4.77,4.77,0,0,1-.85-.43A5.11,5.11,0,0,1,17,3.54a4.2,4.2,0,0,0-1.8-1.4A4.22,4.22,0,0,0,13,2.07,4.2,4.2,0,0,0,11,2.14,4.2,4.2,0,0,0,9,2.07,4.22,4.22,0,0,0,6.76,2.14,4.2,4.2,0,0,0,4.96,3.54a5.11,5.11,0,0,1-.66.66,4.77,4.77,0,0,1-.85.43A4.25,4.25,0,0,0,1.58,5.91,4.21,4.21,0,0,0,.94,8.07,4,4,0,0,1,.76,9a4.57,4.57,0,0,1-.42.82A4.3,4.3,0,0,0,.57,12a4.3,4.3,0,0,0,.77,2.16,4,4,0,0,1,.42.82,4.11,4.11,0,0,1,.15.95,4.19,4.19,0,0,0,.64,2.16,4.25,4.25,0,0,0,1.87,1.28,4.77,4.77,0,0,1,.85.43,5.11,5.11,0,0,1,.66.66,4.12,4.12,0,0,0,1.8,1.4,3,3,0,0,0,.87.13A6.66,6.66,0,0,0,9.94,21.81a4,4,0,0,1,1.94,0,4.33,4.33,0,0,0,2.24.06,4.12,4.12,0,0,0,1.8-1.4,5.11,5.11,0,0,1,.66-.66,4.77,4.77,0,0,1,.85-.43,4.25,4.25,0,0,0,1.87-1.28A4.19,4.19,0,0,0,19.94,15.94a4.11,4.11,0,0,1,.15-.95,4.57,4.57,0,0,1,.42-.82Zm-4.89.87-5,5a1,1,0,0,1-1.42,0l-3-3a1,1,0,1,1,1.42-1.42L11,13.59l4.29-4.3a1,1,0,0,1,1.42,1.42Z" />
+
+                <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M21.6,9.84A4.57,4.57,0,0,1,21.18,9,4,4,0,0,1,21,8.07a4.21,4.21,0,0,0-.64-2.16,4.25,4.25,0,0,0-1.87-1.28,4.77,4.77,0,0,1-.85-.43A5.11,5.11,0,0,1,17,3.54a4.2,4.2,0,0,0-1.8-1.4A4.22,4.22,0,0,0,13,2.07,4.2,4.2,0,0,0,11,2.14,4.2,4.2,0,0,0,9,2.07,4.22,4.22,0,0,0,6.76,2.14,4.2,4.2,0,0,0,4.96,3.54a5.11,5.11,0,0,1-.66.66,4.77,4.77,0,0,1-.85.43A4.25,4.25,0,0,0,1.58,5.91,4.21,4.21,0,0,0,.94,8.07,4,4,0,0,1,.76,9a4.57,4.57,0,0,1-.42.82A4.3,4.3,0,0,0,.57,12a4.3,4.3,0,0,0,.77,2.16,4,4,0,0,1,.42.82,4.11,4.11,0,0,1,.15.95,4.19,4.19,0,0,0,.64,2.16,4.25,4.25,0,0,0,1.87,1.28,4.77,4.77,0,0,1,.85.43,5.11,5.11,0,0,1,.66.66,4.12,4.12,0,0,0,1.8,1.4,3,3,0,0,0,.87.13A6.66,6.66,0,0,0,9.94,21.81a4,4,0,0,1,1.94,0,4.33,4.33,0,0,0,2.24.06,4.12,4.12,0,0,0,1.8-1.4,5.11,5.11,0,0,1,.66-.66,4.77,4.77,0,0,1,.85-.43,4.25,4.25,0,0,0,1.87-1.28A4.19,4.19,0,0,0,19.94,15.94a4.11,4.11,0,0,1,.15-.95,4.57,4.57,0,0,1,.42-.82A4.3,4.3,0,0,0,21.28,12,4.3,4.3,0,0,0,21.6,9.84Zm-4.89.87-5,5a1,1,0,0,1-1.42,0l-3-3a1,1,0,1,1,1.42-1.42L11,13.59l4.29-4.3a1,1,0,0,1,1.42,1.42Z" />
                 </svg>
                 <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">Beta 1.0</span>
               </div>
@@ -299,8 +321,8 @@ function AppContent() {
 
               {/* User Menu */}
               <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg">
-                <div className="w-9 h-9 rounded-full bg-gradient-indigo flex items-center justify-center text-white text-base font-bold">
-                  U
+                <div className="w-9 h-9 rounded-full bg-indigo-700 text-white flex items-center justify-center">
+                  <span className="text-base font-bold">U</span>
                 </div>
                 <span className="text-base font-semibold text-slate-800 dark:text-slate-200">User</span>
               </div>
@@ -312,25 +334,19 @@ function AppContent() {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 max-w-full">
         <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-full">
-          {currentView === "upload" && <UploadArea onScanComplete={handleScanComplete} />}
-          {currentView === "groups" && (
-            <Suspense fallback={<ComponentLoader />}>
-              <GroupMaster onBack={handleBackToUpload} />
-            </Suspense>
+
+          {currentView === "upload" && (
+            <UploadArea onScanComplete={handleScanComplete} onUploadDeferred={handleUploadDeferred} />
           )}
+          {currentView === "groups" && <GroupMaster onBack={handleBackToUpload} onOpenGroupDashboard={handleOpenGroupDashboard} />}
           {currentView === "dashboard" && (
-            <Suspense fallback={<ComponentLoader />}>
-              <GroupDashboard
-                onSelectScan={handleSelectScan}
-                onSelectBatch={handleSelectBatch}
-                onBack={handleBackToUpload}
-              />
-            </Suspense>
-          )}
-          {currentView === "generator" && (
-            <Suspense fallback={<ComponentLoader />}>
-              <PDFGenerator />
-            </Suspense>
+            <GroupDashboard
+              onSelectScan={handleSelectScan}
+              onSelectBatch={handleSelectBatch}
+              onBack={handleBackToUpload}
+              initialGroupId={selectedGroupId}
+            />
+
           )}
           {currentView === "history" && (
             <Suspense fallback={<ComponentLoader />}>
@@ -353,9 +369,7 @@ function AppContent() {
             </Suspense>
           )}
           {currentView === "report" && scanResults.length > 0 && (
-            <Suspense fallback={<ComponentLoader />}>
-              <ReportViewer scans={scanResults} onBack={handleBackToUpload} />
-            </Suspense>
+            <ReportViewer scans={scanResults} onBack={handleBackToUpload} sidebarOpen={false} />
           )}
         </div>
       </main>

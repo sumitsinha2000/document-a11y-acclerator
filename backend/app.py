@@ -9,6 +9,8 @@ from pathlib import Path
 import shutil
 import uuid  # ✅ Added import for unique ID generation
 from fastapi import FastAPI
+import re
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -45,6 +47,219 @@ UPLOAD_FOLDER = "uploads"
 FIXED_FOLDER = "fixed"
 pdf_generator = PDFGenerator()
 GENERATED_PDFS_FOLDER = pdf_generator.output_dir
+
+
+VERSION_FILENAME_PATTERN = re.compile(r"_v(\d+)\.pdf$", re.IGNORECASE)
+
+
+def _truthy(value):
+    """Small helper to interpret truthy string query params."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _fixed_scan_dir(scan_id, ensure_exists=False):
+    """Return the directory that stores versioned fixed PDFs for the scan."""
+    path = Path(FIXED_FOLDER) / str(scan_id)
+    if ensure_exists:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _sanitize_version_base(original_name, fallback):
+    """Generate a safe base filename for versioned PDFs."""
+    candidate = ""
+    if original_name:
+        candidate = Path(original_name).stem
+    candidate = secure_filename(candidate) if candidate else ""
+    if not candidate:
+        candidate = secure_filename(str(fallback)) or str(fallback)
+    return candidate
+
+
+def _extract_version_from_path(path_obj):
+    """Extract numeric version from filename like *_v3.pdf."""
+    match = VERSION_FILENAME_PATTERN.search(path_obj.name)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def get_versioned_files(scan_id):
+    """List all stored fixed PDF versions for a scan."""
+    scan_dir = _fixed_scan_dir(scan_id, ensure_exists=False)
+    if not scan_dir.exists():
+        return []
+
+    base_dir = Path(FIXED_FOLDER)
+    entries = []
+    for path in scan_dir.glob("*.pdf"):
+        version_number = _extract_version_from_path(path)
+        if version_number is None:
+            continue
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        entries.append(
+            {
+                "version": version_number,
+                "absolute_path": path,
+                "relative_path": str(path.relative_to(base_dir)),
+                "filename": path.name,
+                "size": stat.st_size,
+                "created_at": datetime.fromtimestamp(stat.st_mtime),
+            }
+        )
+
+    entries.sort(key=lambda item: item["version"])
+    return entries
+
+
+def get_fixed_version(scan_id, version=None):
+    """Return metadata for the latest or a specific fixed version."""
+    versions = get_versioned_files(scan_id)
+    if not versions:
+        return None
+    if version is None:
+        return versions[-1]
+    for entry in versions:
+        if entry["version"] == version:
+            return entry
+    return None
+
+
+def archive_fixed_pdf_version(scan_id, original_filename, source_path=None):
+    """
+    Copy the latest fixed PDF into the versioned archive directory.
+    Returns metadata with version, filenames, and paths.
+    """
+    source = Path(source_path) if source_path else resolve_uploaded_file_path(scan_id)
+    if not source or not source.exists():
+        print(
+            f"[Backend] ⚠ Cannot archive fixed PDF for {scan_id}; source file missing ({source_path})"
+        )
+        return None
+
+    target_dir = _fixed_scan_dir(scan_id, ensure_exists=True)
+    base_name = _sanitize_version_base(original_filename, scan_id)
+    versions = get_versioned_files(scan_id)
+    next_version = versions[-1]["version"] + 1 if versions else 1
+    destination = target_dir / f"{base_name}_v{next_version}.pdf"
+
+    while destination.exists():
+        next_version += 1
+        destination = target_dir / f"{base_name}_v{next_version}.pdf"
+
+    shutil.copy2(source, destination)
+    print(
+        f"[Backend] ✓ Archived fixed PDF version V{next_version}: {destination}"
+    )
+
+    try:
+        size = destination.stat().st_size
+    except FileNotFoundError:
+        size = None
+
+    return {
+        "version": next_version,
+        "absolute_path": destination,
+        "relative_path": str(destination.relative_to(Path(FIXED_FOLDER))),
+        "filename": destination.name,
+        "size": size,
+    }
+
+
+def should_scan_now(req):
+    """Determine whether scan should run immediately based on request form data."""
+    if not req:
+        return True
+
+    candidates = [
+        req.form.get("scan_mode"),
+        req.form.get("scanMode"),
+        req.form.get("scan_now"),
+        req.form.get("scanNow"),
+        req.form.get("start_scan"),
+        req.form.get("startScan"),
+    ]
+
+    for value in candidates:
+        if value is None:
+            continue
+        normalized = str(value).strip().lower()
+        if normalized in {
+            "defer",
+            "deferred",
+            "upload",
+            "upload_only",
+            "upload-only",
+            "no",
+            "false",
+            "0",
+        }:
+            return False
+        if normalized in {
+            "scan",
+            "scan_now",
+            "scan-now",
+            "yes",
+            "true",
+            "1",
+        }:
+            return True
+    return True
+
+
+def build_placeholder_scan_payload():
+    """Create a minimal scan payload for uploads where analysis is deferred."""
+    base_status = build_verapdf_status({})
+    return {
+        "results": {},
+        "summary": {
+            "totalIssues": 0,
+            "highSeverity": 0,
+            "mediumSeverity": 0,
+            "lowSeverity": 0,
+            "complianceScore": 0,
+        },
+        "verapdfStatus": base_status,
+        "fixes": [],
+    }
+
+
+def resolve_uploaded_file_path(scan_id, scan_record=None):
+    """Locate the uploaded PDF for a scan."""
+    uploads_dir = Path(UPLOAD_FOLDER)
+    candidates = [
+        uploads_dir / f"{scan_id}.pdf",
+        uploads_dir / scan_id,
+    ]
+
+    if scan_record:
+        possible_filename = scan_record.get("filename")
+        if possible_filename:
+            candidates.append(uploads_dir / secure_filename(possible_filename))
+
+        stored_path = scan_record.get("file_path") if isinstance(scan_record, dict) else None
+        if stored_path:
+            candidates.append(Path(stored_path))
+
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return Path(candidate)
+
+    latest_version = get_fixed_version(scan_id)
+    if latest_version:
+        return latest_version["absolute_path"]
+
+    return None
 
 
 # === Database Connection ===
@@ -196,7 +411,16 @@ def scan_results_changed(
 
 
 def save_scan_to_db(
-    scan_id, filename, scan_results, batch_id=None, group_id=None, is_update=False
+    scan_id,
+    filename,
+    scan_results,
+    batch_id=None,
+    group_id=None,
+    is_update=False,
+    status=None,
+    total_issues=None,
+    issues_remaining=None,
+    issues_fixed=None,
 ):
     """
     Unified save logic with group support:
@@ -242,6 +466,27 @@ def save_scan_to_db(
         else:
             formatted_results = scan_results
 
+        # Ensure summary/results keys exist for downstream consumers
+        if not isinstance(formatted_results, dict):
+            formatted_results = {}
+        formatted_results.setdefault("results", {})
+        formatted_results.setdefault("summary", {})
+        formatted_results.setdefault("verapdfStatus", build_verapdf_status({}))
+
+        status_value = status or ("fixed" if is_update else "completed")
+        total_issues_value = total_issues
+        issues_remaining_value = issues_remaining
+        issues_fixed_value = issues_fixed
+
+        summary_data = formatted_results.get("summary") or {}
+        if total_issues_value is None:
+            total_issues_value = summary_data.get("totalIssues")
+        if issues_remaining_value is None:
+            issues_remaining_value = summary_data.get("totalIssues")
+        if issues_fixed_value is None and summary_data:
+            # Prefer stored value, otherwise derive from existing columns later
+            issues_fixed_value = summary_data.get("issuesFixed")
+
         if is_update:
             # === UPDATE EXISTING SCAN ===
             print(f"[Backend] 🔄 Updating scan record: {scan_id}")
@@ -249,10 +494,23 @@ def save_scan_to_db(
                 UPDATE scans
                 SET scan_results = %s,
                     upload_date = NOW(),
-                    status = 'fixed'
+                    status = %s,
+                    total_issues = COALESCE(%s, total_issues),
+                    issues_remaining = COALESCE(%s, issues_remaining),
+                    issues_fixed = COALESCE(%s, issues_fixed)
                 WHERE id = %s
             """
-            c.execute(query, (json.dumps(formatted_results), scan_id))
+            c.execute(
+                query,
+                (
+                    json.dumps(formatted_results),
+                    status_value,
+                    total_issues_value,
+                    issues_remaining_value,
+                    issues_fixed_value,
+                    scan_id,
+                ),
+            )
             conn.commit()
             print(f"[Backend] ✅ Updated existing scan successfully: {scan_id}")
             return scan_id
@@ -267,9 +525,11 @@ def save_scan_to_db(
                     SET scan_results = EXCLUDED.scan_results,
                         status = EXCLUDED.status,
                         group_id = EXCLUDED.group_id,
+                        total_issues = COALESCE(EXCLUDED.total_issues, scans.total_issues),
+                        issues_remaining = COALESCE(EXCLUDED.issues_remaining, scans.issues_remaining),
+                        issues_fixed = COALESCE(EXCLUDED.issues_fixed, scans.issues_fixed),
                         created_at = NOW()
                 """
-                status = "completed"
                 c.execute(
                     query,
                     (
@@ -278,11 +538,35 @@ def save_scan_to_db(
                         json.dumps(formatted_results),
                         batch_id,
                         group_id,
-                        status,
+                        status_value,
                     ),
                 )
+                if any(
+                    value is not None
+                    for value in (
+                        total_issues_value,
+                        issues_remaining_value,
+                        issues_fixed_value,
+                    )
+                ):
+                    c.execute(
+                        """
+                        UPDATE scans
+                        SET total_issues = COALESCE(%s, total_issues),
+                            issues_remaining = COALESCE(%s, issues_remaining),
+                            issues_fixed = COALESCE(%s, issues_fixed)
+                        WHERE id = %s
+                    """,
+                        (
+                            total_issues_value,
+                            issues_remaining_value,
+                            issues_fixed_value,
+                            scan_id,
+                        ),
+                    )
                 conn.commit()
 
+                issues_for_log = summary_data.get("totalIssues")
                 if group_id:
                     update_group_count_query = """
                         UPDATE groups 
@@ -293,7 +577,7 @@ def save_scan_to_db(
                     conn.commit()
 
                 print(
-                    f"[Backend] ✅ Inserted new scan record: {scan_id} ({filename}) in group {group_id} with {formatted_results['summary']['totalIssues']} issues"
+                    f"[Backend] ✅ Inserted new scan record: {scan_id} ({filename}) in group {group_id} with {issues_for_log or 0} issues"
                 )
                 return scan_id
 
@@ -391,6 +675,7 @@ def scan_pdf():
     if not group_id:
         return jsonify({"error": "Group ID is required"}), 400
 
+    scan_now = should_scan_now(request)
     scan_id = f"scan_{uuid.uuid4().hex}"
     upload_dir = Path(UPLOAD_FOLDER)
     upload_dir.mkdir(exist_ok=True)
@@ -398,6 +683,36 @@ def scan_pdf():
     file_path = upload_dir / f"{scan_id}.pdf"
     file.save(str(file_path))
     print(f"[Backend] ✓ File saved: {file_path}")
+
+    if not scan_now:
+        placeholder_results = build_placeholder_scan_payload()
+        saved_id = save_scan_to_db(
+            scan_id,
+            file.filename,
+            placeholder_results,
+            group_id=group_id,
+            status="uploaded",
+            total_issues=0,
+            issues_remaining=0,
+            issues_fixed=0,
+        )
+        print(
+            f"[Backend] ✓ Deferred scan created for {saved_id} (group {group_id})"
+        )
+        return jsonify(
+            {
+                "scanId": saved_id,
+                "filename": file.filename,
+                "groupId": group_id,
+                "status": "uploaded",
+                "summary": placeholder_results.get("summary", {}),
+                "results": placeholder_results.get("results", {}),
+                "fixes": placeholder_results.get("fixes", []),
+                "timestamp": datetime.now().isoformat(),
+                "verapdfStatus": placeholder_results.get("verapdfStatus"),
+                "scanDeferred": True,
+            }
+        )
 
     analyzer = PDFAccessibilityAnalyzer()
     scan_results = analyzer.analyze(str(file_path))
@@ -417,7 +732,14 @@ def scan_pdf():
     }
 
     saved_id = save_scan_to_db(
-        scan_id, file.filename, formatted_results, group_id=group_id
+        scan_id,
+        file.filename,
+        formatted_results,
+        group_id=group_id,
+        status="completed",
+        total_issues=summary.get("totalIssues", 0),
+        issues_remaining=summary.get("totalIssues", 0),
+        issues_fixed=0,
     )
     total_issues = formatted_results.get("summary", {}).get("totalIssues", 0)
     print(
@@ -436,6 +758,95 @@ def scan_pdf():
             "verapdfStatus": verapdf_status,
         }
     )
+
+
+@app.route("/api/scan/<scan_id>/start", methods=["POST"])
+def start_deferred_scan(scan_id):
+    """Trigger analysis for an existing upload that was previously deferred."""
+    try:
+        scan_record = get_scan_by_id(scan_id)
+        if not scan_record:
+            return jsonify({"error": "Scan not found"}), 404
+
+        file_path = resolve_uploaded_file_path(scan_id, scan_record)
+        if not file_path or not file_path.exists():
+            return jsonify({"error": "Original file not found for scanning"}), 404
+
+        analyzer = PDFAccessibilityAnalyzer()
+        scan_results = analyzer.analyze(str(file_path))
+        verapdf_status = build_verapdf_status(scan_results, analyzer)
+        summary = analyzer.calculate_summary(scan_results, verapdf_status)
+        if isinstance(summary, dict) and verapdf_status:
+            summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+            summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+
+        fix_suggestions = generate_fix_suggestions(scan_results)
+        formatted_results = {
+            "results": scan_results,
+            "summary": summary,
+            "verapdfStatus": verapdf_status,
+            "fixes": fix_suggestions,
+        }
+
+        total_issues = summary.get("totalIssues", 0) if isinstance(summary, dict) else 0
+        issues_remaining = total_issues
+
+        save_scan_to_db(
+            scan_id,
+            scan_record.get("filename"),
+            formatted_results,
+            batch_id=scan_record.get("batch_id"),
+            group_id=scan_record.get("group_id"),
+            is_update=True,
+            status="completed",
+            total_issues=total_issues,
+            issues_remaining=issues_remaining,
+            issues_fixed=0,
+        )
+
+        # For batch scans, maintain the 'unprocessed' state for downstream flows
+        batch_id = scan_record.get("batch_id")
+        if batch_id:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE scans
+                SET status = 'unprocessed',
+                    total_issues = %s,
+                    issues_remaining = %s
+                WHERE id = %s
+            """,
+                (total_issues, issues_remaining, scan_id),
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            update_batch_statistics(batch_id)
+
+        response_status = "unprocessed" if batch_id else "completed"
+
+        return jsonify(
+            {
+                "scanId": scan_id,
+                "filename": scan_record.get("filename"),
+                "groupId": scan_record.get("group_id"),
+                "batchId": batch_id,
+                "summary": summary,
+                "results": scan_results,
+                "fixes": fix_suggestions,
+                "verapdfStatus": verapdf_status,
+                "status": response_status,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+
+    except Exception as e:
+        print(f"[Backend] ✗ Error starting deferred scan {scan_id}: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 # === Scan History ===
@@ -476,15 +887,24 @@ def scan_batch():
 
         # Create batch record
         batch_id = f"batch_{uuid.uuid4().hex}"
+        scan_now = should_scan_now(request)
+        batch_initial_status = "processing" if scan_now else "uploaded"
 
         conn = get_db_connection()
         c = conn.cursor()
         c.execute(
             """
             INSERT INTO batches (id, name, group_id, created_at, status, total_files, total_issues, unprocessed_files)
-            VALUES (%s, %s, %s, NOW(), 'processing', %s, 0, %s)
+            VALUES (%s, %s, %s, NOW(), %s, %s, 0, %s)
         """,
-            (batch_id, batch_name, group_id, len(pdf_files), len(pdf_files)),
+            (
+                batch_id,
+                batch_name,
+                group_id,
+                batch_initial_status,
+                len(pdf_files),
+                len(pdf_files),
+            ),
         )
         conn.commit()
         c.close()
@@ -510,6 +930,39 @@ def scan_batch():
             scan_id = f"scan_{uuid.uuid4().hex}"
             file_path = upload_dir / f"{scan_id}.pdf"
             file.save(str(file_path))
+
+            if not scan_now:
+                placeholder_results = build_placeholder_scan_payload()
+                saved_id = save_scan_to_db(
+                    scan_id,
+                    file.filename,
+                    placeholder_results,
+                    batch_id=batch_id,
+                    group_id=group_id,
+                    status="uploaded",
+                    total_issues=0,
+                    issues_remaining=0,
+                    issues_fixed=0,
+                )
+
+                if not saved_id:
+                    continue
+
+                scan_results.append(
+                    {
+                        "scanId": saved_id,
+                        "filename": file.filename,
+                        "totalIssues": 0,
+                        "status": "uploaded",
+                        "summary": placeholder_results.get("summary", {}),
+                        "results": placeholder_results.get("results", {}),
+                        "verapdfStatus": placeholder_results.get("verapdfStatus"),
+                        "fixes": placeholder_results.get("fixes", []),
+                        "groupId": group_id,
+                        "batchId": batch_id,
+                    }
+                )
+                continue
 
             # Analyze PDF
             scan_data = analyzer.analyze(str(file_path))
@@ -542,6 +995,10 @@ def scan_batch():
                 formatted_results,
                 batch_id=batch_id,
                 group_id=group_id,
+                status="completed",
+                total_issues=total_issues,
+                issues_remaining=total_issues,
+                issues_fixed=0,
             )
 
             if not saved_id:
@@ -581,13 +1038,17 @@ def scan_batch():
         # Update batch with total issues
         conn = get_db_connection()
         c = conn.cursor()
-        unprocessed_files = max(len(pdf_files) - successful_scans, 0)
-        if successful_scans == len(pdf_files):
-            batch_status = "completed"
-        elif successful_scans == 0:
-            batch_status = "failed"
+        if not scan_now:
+            unprocessed_files = len(pdf_files)
+            batch_status = "uploaded"
         else:
-            batch_status = "partial"
+            unprocessed_files = max(len(pdf_files) - successful_scans, 0)
+            if successful_scans == len(pdf_files):
+                batch_status = "completed"
+            elif successful_scans == 0:
+                batch_status = "failed"
+            else:
+                batch_status = "partial"
 
         c.execute(
             """
@@ -624,6 +1085,7 @@ def scan_batch():
                 "processedFiles": processed_files,
                 "successfulScans": successful_scans,
                 "skippedFiles": skipped_files,
+                "scanDeferred": not scan_now,
             }
         )
 
@@ -650,8 +1112,9 @@ def update_batch_statistics(batch_id):
                 COALESCE(SUM(total_issues), 0) AS total_issues,
                 COALESCE(SUM(issues_remaining), 0) AS remaining_issues,
                 COALESCE(SUM(issues_fixed), 0) AS fixed_issues,
-                SUM(CASE WHEN status IN ('unprocessed', 'processing') THEN 1 ELSE 0 END) AS unprocessed_files,
-                SUM(CASE WHEN status = 'fixed' THEN 1 ELSE 0 END) AS fixed_files
+                SUM(CASE WHEN status IN ('unprocessed', 'processing', 'uploaded') THEN 1 ELSE 0 END) AS unprocessed_files,
+                SUM(CASE WHEN status = 'fixed' THEN 1 ELSE 0 END) AS fixed_files,
+                SUM(CASE WHEN status = 'uploaded' THEN 1 ELSE 0 END) AS uploaded_files
             FROM scans
             WHERE batch_id = %s
         """,
@@ -668,9 +1131,14 @@ def update_batch_statistics(batch_id):
             fixed_issues = max(total_issues - remaining_issues, 0)
         unprocessed_files = stats.get("unprocessed_files") or 0
         fixed_files = stats.get("fixed_files") or 0
+        uploaded_files = stats.get("uploaded_files") or 0
 
         if total_files == 0:
             batch_status = "empty"
+        elif uploaded_files == total_files:
+            batch_status = "uploaded"
+        elif uploaded_files > 0:
+            batch_status = "partial"
         elif remaining_issues == 0:
             batch_status = "completed"
         elif fixed_files == 0 and unprocessed_files == total_files:
@@ -777,20 +1245,28 @@ def get_history():
             # Set default status
             status = scan_dict.get("status") or "unprocessed"
 
-            formatted_scans.append(
-                {
-                    "id": scan_dict["id"],
-                    "filename": scan_dict["filename"],
-                    "uploadDate": scan_dict.get("uploadDate"),
-                    "status": status,
-                    "groupId": scan_dict.get("groupId"),
-                    "groupName": scan_dict.get("groupName"),
-                    "totalIssues": total_issues,
-                    "issuesFixed": scan_dict.get("issuesFixed", 0),
-                    "issuesRemaining": scan_dict.get("issuesRemaining", total_issues),
-                    "batchId": scan_dict.get("batchId"),
-                }
-            )
+            entry = {
+                "id": scan_dict["id"],
+                "filename": scan_dict["filename"],
+                "uploadDate": scan_dict.get("uploadDate"),
+                "status": status,
+                "groupId": scan_dict.get("groupId"),
+                "groupName": scan_dict.get("groupName"),
+                "totalIssues": total_issues,
+                "issuesFixed": scan_dict.get("issuesFixed", 0),
+                "issuesRemaining": scan_dict.get("issuesRemaining", total_issues),
+                "batchId": scan_dict.get("batchId"),
+            }
+
+            latest_entry = get_fixed_version(scan_dict["id"])
+            if latest_entry:
+                entry["latestVersion"] = latest_entry["version"]
+                entry["latestFixedFile"] = latest_entry["relative_path"]
+                entry["hasFixVersions"] = True
+            else:
+                entry["hasFixVersions"] = False
+
+            formatted_scans.append(entry)
 
         print(f"[v0] Returning {len(batches)} batches and {len(formatted_scans)} scans")
         return jsonify(
@@ -809,6 +1285,9 @@ def get_history():
 def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
     tracker = None
     payload = data or {}
+    if payload.get("useAI"):
+        print("[Backend] AI-powered automated fixes requested but feature is disabled.")
+        return 400, {"success": False, "error": "AI-powered automated fixes are no longer available."}
     try:
         filename = payload.get("filename", "fixed_document.pdf")
 
@@ -915,8 +1394,33 @@ def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
             is_update=True,
         )
 
+        archive_info = None
+        if changes_detected:
+            archive_info = archive_fixed_pdf_version(
+                scan_id=scan_id,
+                original_filename=original_filename,
+                source_path=resolve_uploaded_file_path(scan_id, scan_data),
+            )
+            if archive_info:
+                fixed_filename = archive_info["relative_path"]
+
         save_success = False
         if changes_detected:
+            metadata_payload = {
+                "engine_version": "1.0",
+                "processing_time": result.get("processingTime"),
+                "success_rate": result.get("successRate"),
+            }
+            if archive_info:
+                metadata_payload.update(
+                    {
+                        "version": archive_info["version"],
+                        "versionLabel": f"V{archive_info['version']}",
+                        "relativePath": archive_info["relative_path"],
+                        "storedFilename": archive_info["filename"],
+                        "fileSize": archive_info["size"],
+                    }
+                )
             save_success = bool(
                 save_fix_history(
                     scan_id=scan_id,
@@ -933,11 +1437,8 @@ def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
                     high_severity_before=high_severity_before,
                     high_severity_after=high_severity_after,
                     fix_suggestions=result.get("suggestions", []),
-                    fix_metadata={
-                        "engine_version": "1.0",
-                        "processing_time": result.get("processingTime"),
-                        "success_rate": result.get("successRate"),
-                    },
+                    fix_metadata=metadata_payload,
+                    version=archive_info["version"] if archive_info else None,
                 )
             )
         else:
@@ -964,6 +1465,7 @@ def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
             "success": True,
             "status": "success",
             "fixedFile": fixed_filename,
+            "fixedFilePath": fixed_filename,
             "scanResults": scan_results_after,
             "summary": summary_after,
             "fixesApplied": fixes_applied,
@@ -972,6 +1474,11 @@ def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
             "successCount": success_count,
             "scanId": scan_id,
         }
+        if archive_info:
+            response["version"] = archive_info["version"]
+            response["versionLabel"] = f"V{archive_info['version']}"
+            response["fixedFile"] = archive_info["relative_path"]
+            response["fixedFilePath"] = archive_info["relative_path"]
 
         return 200, response
 
@@ -1057,8 +1564,19 @@ def apply_batch_fix_all(batch_id):
 def apply_semi_automated_fixes(scan_id):
     tracker = None
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         fixes = data.get("fixes", [])
+        if data.get("useAI"):
+            print("[Backend] AI-powered semi-automated fixes requested but feature is disabled.")
+            return (
+                jsonify(
+                    {
+                        "error": "AI-powered semi-automated fixes are no longer available.",
+                        "success": False,
+                    }
+                ),
+                400,
+            )
 
         print(f"[Backend] 🔧 Applying semi-automated fixes for scan: {scan_id}")
 
@@ -1150,8 +1668,32 @@ def apply_semi_automated_fixes(scan_id):
                 is_update=True,
             )
 
+            archive_info = None
+            if changes_detected:
+                archive_info = archive_fixed_pdf_version(
+                    scan_id=scan_id,
+                    original_filename=original_filename,
+                    source_path=resolve_uploaded_file_path(scan_id, scan_data),
+                )
+                if archive_info:
+                    fixed_filename = archive_info["relative_path"]
+
             save_success = False
             if changes_detected:
+                metadata_payload = {
+                    "user_selected_fixes": len(fixes),
+                    "engine_version": "1.0",
+                }
+                if archive_info:
+                    metadata_payload.update(
+                        {
+                            "version": archive_info["version"],
+                            "versionLabel": f"V{archive_info['version']}",
+                            "relativePath": archive_info["relative_path"],
+                            "storedFilename": archive_info["filename"],
+                            "fileSize": archive_info["size"],
+                        }
+                    )
                 save_success = bool(
                     save_fix_history(
                         scan_id=scan_id,
@@ -1168,10 +1710,8 @@ def apply_semi_automated_fixes(scan_id):
                         high_severity_before=high_severity_before,
                         high_severity_after=high_severity_after,
                         fix_suggestions=fixes,
-                        fix_metadata={
-                            "user_selected_fixes": len(fixes),
-                            "engine_version": "1.0",
-                        },
+                        fix_metadata=metadata_payload,
+                        version=archive_info["version"] if archive_info else None,
                     )
                 )
             else:
@@ -1186,17 +1726,23 @@ def apply_semi_automated_fixes(scan_id):
 
             update_scan_status(scan_id)
 
-            return jsonify(
-                {
-                    "status": "success",
-                    "fixedFile": result.get("fixedFile"),
-                    "scanResults": scan_results_after,
-                    "summary": summary_after,
-                    "fixesApplied": fixes_applied,
-                    "historyRecorded": save_success,
-                    "changesDetected": changes_detected,
-                }
-            )
+            response_payload = {
+                "status": "success",
+                "fixedFile": fixed_filename,
+                "fixedFilePath": fixed_filename,
+                "scanResults": scan_results_after,
+                "summary": summary_after,
+                "fixesApplied": fixes_applied,
+                "historyRecorded": save_success,
+                "changesDetected": changes_detected,
+            }
+            if archive_info:
+                response_payload["version"] = archive_info["version"]
+                response_payload["versionLabel"] = f"V{archive_info['version']}"
+                response_payload["fixedFile"] = archive_info["relative_path"]
+                response_payload["fixedFilePath"] = archive_info["relative_path"]
+
+            return jsonify(response_payload)
         else:
             if tracker:
                 tracker.fail_all(result.get("error", "Unknown error"))
@@ -1310,10 +1856,19 @@ def apply_manual_fix(scan_id):
             }
         ]
 
+        archive_info = archive_fixed_pdf_version(
+            scan_id=scan_id,
+            original_filename=original_filename,
+            source_path=pdf_path,
+        )
+        archived_filename = (
+            archive_info["relative_path"] if archive_info else pdf_path.name
+        )
+
         save_fix_history(
             scan_id=scan_id,
             original_filename=original_filename,
-            fixed_filename=pdf_path.name,
+            fixed_filename=archived_filename,
             fixes_applied=fixes_applied,
             fix_type="manual",
             issues_before=issues_before,
@@ -1324,7 +1879,17 @@ def apply_manual_fix(scan_id):
             fix_metadata={
                 "page": page,
                 "manual": True,
+                "version": archive_info["version"] if archive_info else None,
+                "versionLabel": f"V{archive_info['version']}"
+                if archive_info
+                else None,
+                "relativePath": archived_filename,
+                "storedFilename": archive_info["filename"]
+                if archive_info
+                else pdf_path.name,
+                "fileSize": archive_info["size"] if archive_info else None,
             },
+            version=archive_info["version"] if archive_info else None,
         )
 
         update_scan_status(scan_id)
@@ -1335,7 +1900,12 @@ def apply_manual_fix(scan_id):
                 "message": fix_result.get(
                     "message", "Manual fix applied successfully"
                 ),
-                "fixedFile": pdf_path.name,
+                "fixedFile": archived_filename,
+                "fixedFilePath": archived_filename,
+                "version": archive_info["version"] if archive_info else None,
+                "versionLabel": f"V{archive_info['version']}"
+                if archive_info
+                else None,
                 "summary": summary,
                 "results": results,
                 "scanResults": formatted_results,
@@ -1358,23 +1928,45 @@ def apply_manual_fix(scan_id):
 def download_file(scan_id):
     """Download the original or fixed PDF file associated with a scan ID."""
     uploads_dir = Path(UPLOAD_FOLDER)
-    fixed_dir = Path(FIXED_FOLDER)
 
-    file_path = None
-    potential_filenames = [
-        f"{scan_id}.pdf",
-        scan_id,
-    ]  # Try with and without .pdf extension
+    version_param = request.args.get("version")
+    allow_old = _truthy(request.args.get("allowDownload"))
+    selected_version = None
+    versions = get_versioned_files(scan_id)
 
-    # Prefer fixed file if available
-    for filename in potential_filenames:
-        path = fixed_dir / filename
-        if path.exists():
-            file_path = path
-            break
+    if versions:
+        latest = versions[-1]
+        selected_version = latest
+        if version_param:
+            try:
+                requested_version = int(version_param)
+            except (ValueError, TypeError):
+                return jsonify({"error": "Invalid version specified"}), 400
 
-    # If fixed file not found, look for the original upload
-    if not file_path:
+            match = next(
+                (entry for entry in versions if entry["version"] == requested_version),
+                None,
+            )
+            if not match:
+                return jsonify({"error": f"Version {requested_version} not found"}), 404
+
+            if match["version"] != latest["version"] and not allow_old:
+                return (
+                    jsonify(
+                        {
+                            "error": "Only the latest version is downloadable by default",
+                            "latestVersion": latest["version"],
+                            "requestedVersion": match["version"],
+                        }
+                    ),
+                    403,
+                )
+            selected_version = match
+
+        file_path = selected_version["absolute_path"]
+    else:
+        file_path = None
+        potential_filenames = [f"{scan_id}.pdf", scan_id]
         for filename in potential_filenames:
             path = uploads_dir / filename
             if path.exists():
@@ -1391,6 +1983,9 @@ def download_file(scan_id):
         if original_scan_data
         else f"{scan_id}.pdf"
     )
+    if selected_version:
+        stem = Path(download_name).stem
+        download_name = f"{stem}_V{selected_version['version']}.pdf"
 
     return send_file(
         file_path,
@@ -1491,6 +2086,18 @@ def get_fix_history(scan_id):
             fix_metadata = _deserialize_json(row.get("fix_metadata"), {})
             fix_suggestions = _deserialize_json(row.get("fix_suggestions"), [])
 
+            version_number = None
+            version_label = None
+            relative_path = row.get("fixed_filename") or row.get("fixed_file")
+            stored_filename = None
+            file_size = None
+            if isinstance(fix_metadata, dict):
+                version_number = fix_metadata.get("version", version_number)
+                version_label = fix_metadata.get("versionLabel", version_label)
+                relative_path = fix_metadata.get("relativePath", relative_path)
+                stored_filename = fix_metadata.get("storedFilename")
+                file_size = fix_metadata.get("fileSize")
+
             history.append(
                 {
                     "id": row["id"],
@@ -1498,6 +2105,7 @@ def get_fix_history(scan_id):
                     "originalFilename": row.get("original_filename")
                     or row.get("original_file"),
                     "fixedFilename": row.get("fixed_filename") or row.get("fixed_file"),
+                    "fixedFilePath": relative_path,
                     "fixesApplied": fixes_applied,
                     "issuesBefore": issues_before,
                     "issuesAfter": issues_after,
@@ -1511,10 +2119,64 @@ def get_fix_history(scan_id):
                     "totalIssuesAfter": row["total_issues_after"],
                     "complianceBefore": row["compliance_before"],
                     "complianceAfter": row["compliance_after"],
+                    "version": version_number,
+                    "versionLabel": version_label,
+                    "storedFilename": stored_filename,
+                    "fileSize": file_size,
                 }
             )
 
-        return jsonify({"success": True, "history": history})
+        assigned_versions = []
+        for entry in reversed(history):
+            if entry["version"] is None:
+                entry["version"] = len(assigned_versions) + 1
+                entry["versionLabel"] = f"V{entry['version']}"
+            assigned_versions.append(entry["version"])
+
+        latest_version = max(assigned_versions) if assigned_versions else None
+        version_files = {
+            info["version"]: info for info in get_versioned_files(scan_id)
+        }
+
+        for entry in history:
+            info = version_files.get(entry["version"])
+            if info:
+                entry["storedFilename"] = entry["storedFilename"] or info["filename"]
+                entry["fixedFilePath"] = entry["fixedFilePath"] or info["relative_path"]
+                entry["fileSize"] = entry["fileSize"] or info["size"]
+                entry["versionCreatedAt"] = (
+                    info["created_at"].isoformat() if info["created_at"] else None
+                )
+            entry["isLatest"] = (
+                latest_version is not None and entry["version"] == latest_version
+            )
+            entry["downloadable"] = entry["isLatest"]
+            if not entry.get("versionLabel"):
+                entry["versionLabel"] = f"V{entry['version']}"
+
+        version_history = sorted(
+            [
+                {
+                    "version": entry["version"],
+                    "label": entry["versionLabel"],
+                    "appliedAt": entry["appliedAt"],
+                    "downloadable": entry["downloadable"],
+                    "relativePath": entry.get("fixedFilePath"),
+                }
+                for entry in history
+            ],
+            key=lambda item: item["version"],
+            reverse=True,
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "history": history,
+                "latestVersion": latest_version,
+                "versions": version_history,
+            }
+        )
 
     except Exception as e:
         print(f"[Backend] ERROR getting fix history: {e}")
@@ -1524,7 +2186,7 @@ def get_fix_history(scan_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/download-fixed/<filename>", methods=["GET"])
+@app.route("/api/download-fixed/<path:filename>", methods=["GET"])
 def download_fixed_file(filename):
     """Download a fixed PDF file"""
     try:
@@ -1533,28 +2195,129 @@ def download_fixed_file(filename):
         fixed_dir = Path(FIXED_FOLDER)
         uploads_dir = Path(UPLOAD_FOLDER)
 
-        # Try to find the file in fixed folder first, then uploads
+        allow_old = _truthy(request.args.get("allowDownload"))
+        version_param = request.args.get("version")
+        scan_id_param = request.args.get("scanId")
+
         file_path = None
-        for folder in [fixed_dir, uploads_dir]:
-            # Try with and without .pdf extension
-            for ext in ["", ".pdf"]:
-                path = folder / f"{filename}{ext}"
-                if path.exists():
-                    file_path = path
-                    break
-            if file_path:
-                break
+        selected_version = None
+        scan_id_for_version = scan_id_param
+
+        try:
+            requested_path = (fixed_dir / filename).resolve()
+        except Exception:
+            requested_path = None
+
+        base_fixed_resolved = fixed_dir.resolve()
+        if (
+            requested_path
+            and requested_path.exists()
+            and str(requested_path).startswith(str(base_fixed_resolved))
+        ):
+            file_path = requested_path
+            scan_id_for_version = requested_path.parent.name
+            version_number = _extract_version_from_path(requested_path)
+            if scan_id_for_version:
+                versions = get_versioned_files(scan_id_for_version)
+                latest = versions[-1] if versions else None
+                if version_number and latest:
+                    selected_version = next(
+                        (
+                            entry
+                            for entry in versions
+                            if entry["version"] == version_number
+                        ),
+                        None,
+                    )
+                    if (
+                        selected_version
+                        and version_number != latest["version"]
+                        and not allow_old
+                    ):
+                        return (
+                            jsonify(
+                                {
+                                    "error": "Only the latest version is downloadable by default",
+                                    "latestVersion": latest["version"],
+                                    "requestedVersion": version_number,
+                                }
+                            ),
+                            403,
+                        )
+        else:
+            target_scan_id = scan_id_param or filename
+            versions = get_versioned_files(target_scan_id)
+            if versions:
+                latest = versions[-1]
+                selected_version = latest
+                if version_param:
+                    try:
+                        requested_number = int(version_param)
+                    except (ValueError, TypeError):
+                        return jsonify({"error": "Invalid version specified"}), 400
+                    match = next(
+                        (
+                            entry
+                            for entry in versions
+                            if entry["version"] == requested_number
+                        ),
+                        None,
+                    )
+                    if not match:
+                        return jsonify(
+                            {"error": f"Version {requested_number} not found"}
+                        ), 404
+                    if match["version"] != latest["version"] and not allow_old:
+                        return (
+                            jsonify(
+                                {
+                                    "error": "Only the latest version is downloadable by default",
+                                    "latestVersion": latest["version"],
+                                    "requestedVersion": match["version"],
+                                }
+                            ),
+                            403,
+                        )
+                    selected_version = match
+
+                file_path = selected_version["absolute_path"]
+                scan_id_for_version = target_scan_id
+            else:
+                # Legacy fallback: search fixed and upload directories by raw filename
+                for folder in [fixed_dir, uploads_dir]:
+                    for ext in ["", ".pdf"]:
+                        path = folder / f"{filename}{ext}"
+                        if path.exists():
+                            file_path = path
+                            break
+                    if file_path:
+                        break
 
         if not file_path:
             print(f"[Backend] Fixed file not found: {filename}")
             return jsonify({"error": "File not found"}), 404
+
+        original_filename = None
+        if scan_id_for_version:
+            scan_record = get_scan_by_id(scan_id_for_version)
+            if scan_record:
+                original_filename = scan_record.get("filename")
+
+        if selected_version and original_filename:
+            download_name = f"{Path(original_filename).stem}_V{selected_version['version']}.pdf"
+        elif selected_version:
+            download_name = selected_version["filename"]
+        else:
+            download_name = Path(file_path).name
+            if not download_name.lower().endswith(".pdf"):
+                download_name = f"{download_name}.pdf"
 
         print(f"[Backend] ✓ Serving fixed file: {file_path}")
         return send_file(
             file_path,
             mimetype="application/pdf",
             as_attachment=True,
-            download_name=filename if filename.endswith(".pdf") else f"{filename}.pdf",
+            download_name=download_name,
         )
 
     except Exception as e:
@@ -1573,16 +2336,32 @@ def serve_pdf_file(scan_id):
         uploads_dir = Path(UPLOAD_FOLDER)
         fixed_dir = Path(FIXED_FOLDER)
 
-        # Try multiple file path strategies
+        version_param = request.args.get("version")
         file_path = None
-        for folder in [fixed_dir, uploads_dir]:
-            for ext in ["", ".pdf"]:
-                path = folder / f"{scan_id}{ext}"
-                if path.exists():
-                    file_path = path
+
+        if version_param:
+            try:
+                requested_version = int(version_param)
+            except (ValueError, TypeError):
+                return jsonify({"error": "Invalid version parameter"}), 400
+            version_info = get_fixed_version(scan_id, requested_version)
+            if version_info:
+                file_path = version_info["absolute_path"]
+        else:
+            latest_version = get_fixed_version(scan_id)
+            if latest_version:
+                file_path = latest_version["absolute_path"]
+
+        if not file_path:
+            # Try multiple file path strategies (legacy behavior)
+            for folder in [fixed_dir, uploads_dir]:
+                for ext in ["", ".pdf"]:
+                    path = folder / f"{scan_id}{ext}"
+                    if path.exists():
+                        file_path = path
+                        break
+                if file_path:
                     break
-            if file_path:
-                break
 
         if not file_path:
             print(f"[Backend] PDF file not found for scan: {scan_id}")
@@ -1750,6 +2529,9 @@ def get_scan(scan_id):
 
             fix_suggestions = generate_fix_suggestions(results)
 
+            version_entries = get_versioned_files(scan["id"])
+            latest_version = version_entries[-1] if version_entries else None
+
             response_data = {
                 "scanId": scan["id"],
                 "id": scan["id"],
@@ -1771,6 +2553,22 @@ def get_scan(scan_id):
                     + len(results.get("pdfuaIssues", [])),
                 },
             }
+            if latest_version:
+                response_data["latestVersion"] = latest_version["version"]
+                response_data["latestFixedFile"] = latest_version["relative_path"]
+                response_data["versionHistory"] = [
+                    {
+                        "version": entry["version"],
+                        "label": f"V{entry['version']}",
+                        "relativePath": entry["relative_path"],
+                        "createdAt": entry["created_at"].isoformat()
+                        if entry["created_at"]
+                        else None,
+                        "fileSize": entry["size"],
+                        "downloadable": entry["version"] == latest_version["version"],
+                    }
+                    for entry in reversed(version_entries)
+                ]
 
             print(
                 f"[Backend] ✓ Found scan: {scan_id}, Total issues: {summary.get('totalIssues', 0)}, WCAG: {summary.get('wcagCompliance', 0)}%, PDF/UA: {summary.get('pdfuaCompliance', 0)}%"
@@ -1814,6 +2612,13 @@ def delete_scan(scan_id):
                     file_path.unlink()
                     deleted_files += 1
                     print(f"[Backend] Deleted file: {file_path}")
+
+        version_dir = fixed_dir / scan_id
+        if version_dir.exists() and version_dir.is_dir():
+            removed_count = sum(1 for path in version_dir.glob("**/*") if path.is_file())
+            shutil.rmtree(version_dir, ignore_errors=True)
+            deleted_files += removed_count
+            print(f"[Backend] Deleted version history directory: {version_dir}")
 
         # Delete from database
         execute_query(
@@ -1863,6 +2668,7 @@ def save_fix_history(
     high_severity_after=0,
     fix_suggestions=None,
     fix_metadata=None,
+    version=None,
 ):
     """
     Save fix history to the fix_history table.
@@ -1872,6 +2678,12 @@ def save_fix_history(
     try:
         conn = get_db_connection()
         c = conn.cursor()
+
+        fix_metadata = dict(fix_metadata or {})
+        if version is not None:
+            fix_metadata.setdefault("version", version)
+            fix_metadata.setdefault("versionLabel", f"V{version}")
+            fix_metadata.setdefault("relativePath", fixed_filename)
 
         if not original_filename:
             print(
@@ -2221,6 +3033,21 @@ def create_group():
         c = conn.cursor()
 
         try:
+            # Ensure name uniqueness (case-insensitive) before attempting insert
+            c.execute(
+                """
+                SELECT id FROM groups
+                WHERE LOWER(name) = LOWER(%s)
+                LIMIT 1
+            """,
+                (name,),
+            )
+
+            if c.fetchone():
+                c.close()
+                conn.close()
+                return jsonify({"error": "A group with this name already exists"}), 409
+
             # Insert group with explicit file_count initialization
             c.execute(
                 """
@@ -2336,36 +3163,74 @@ def update_group(group_id):
             return jsonify({"error": "Group name is required"}), 400
 
         # Check if group exists
-        check_query = "SELECT id FROM groups WHERE id = %s"
-        result = execute_query(check_query, (group_id,), fetch=True)
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
+        existing = cur.fetchone()
 
-        if not result or len(result) == 0:
+        if not existing:
+            cur.close()
+            conn.close()
             return jsonify({"error": "Group not found"}), 404
 
-        # Update group
-        query = """
-            UPDATE groups 
+        # Ensure name uniqueness (case-insensitive) against other groups
+        cur.execute(
+            """
+            SELECT id FROM groups
+            WHERE LOWER(name) = LOWER(%s) AND id <> %s
+            LIMIT 1
+        """,
+            (name, group_id),
+        )
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "A group with this name already exists"}), 409
+
+        cur.execute(
+            """
+            UPDATE groups
             SET name = %s, description = %s
             WHERE id = %s
             RETURNING id, name, description, created_at, file_count
-        """
+        """,
+            (name, description, group_id),
+        )
+        result = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
 
-        result = execute_query(query, (name, description, group_id), fetch=True)
-
-        if result and len(result) > 0:
-            group = dict(result[0])
+        if result:
+            group = dict(result)
             print(f"[Backend] ✓ Updated group: {name} ({group_id})")
             return jsonify({"group": group})
-        else:
-            return jsonify({"error": "Failed to update group"}), 500
+
+        return jsonify({"error": "Failed to update group"}), 500
 
     except psycopg2.IntegrityError:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
         return jsonify({"error": "A group with this name already exists"}), 409
     except Exception as e:
         print(f"[Backend] Error updating group: {e}")
         import traceback
 
         traceback.print_exc()
+        try:
+            cur.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
         return jsonify({"error": str(e)}), 500
 
 
@@ -2383,7 +3248,17 @@ def get_batch_details(batch_id):
         # Fetch batch details
         cur.execute(
             """
-            SELECT id, name, created_at, group_id
+            SELECT 
+                id,
+                name,
+                created_at,
+                group_id,
+                status,
+                total_files,
+                total_issues,
+                fixed_issues,
+                remaining_issues,
+                unprocessed_files
             FROM batches
             WHERE id = %s
         """,
@@ -2467,6 +3342,27 @@ def get_batch_details(batch_id):
             total_high += current_high
             total_compliance += current_compliance
 
+            version_entries = get_versioned_files(scan["scan_id"])
+            latest_version_entry = version_entries[-1] if version_entries else None
+            version_history = (
+                [
+                    {
+                        "version": entry["version"],
+                        "label": f"V{entry['version']}",
+                        "relativePath": entry["relative_path"],
+                        "createdAt": entry["created_at"].isoformat()
+                        if entry["created_at"]
+                        else None,
+                        "downloadable": entry["version"]
+                        == latest_version_entry["version"],
+                        "fileSize": entry["size"],
+                    }
+                    for entry in reversed(version_entries)
+                ]
+                if version_entries
+                else []
+            )
+
             processed_scans.append(
                 {
                     "scanId": scan["scan_id"],
@@ -2491,6 +3387,13 @@ def get_batch_details(batch_id):
                     "results": scan_results.get("results", {})
                     if isinstance(scan_results, dict)
                     else {},
+                    "latestVersion": latest_version_entry["version"]
+                    if latest_version_entry
+                    else None,
+                    "latestFixedFile": latest_version_entry["relative_path"]
+                    if latest_version_entry
+                    else None,
+                    "versionHistory": version_history,
                 }
             )
 
@@ -2498,12 +3401,33 @@ def get_batch_details(batch_id):
             round(total_compliance / len(processed_scans), 2) if processed_scans else 0
         )
 
+        batch_total_issues = batch.get("total_issues")
+        batch_fixed_issues = batch.get("fixed_issues")
+        batch_remaining_issues = batch.get("remaining_issues")
+        batch_unprocessed_files = batch.get("unprocessed_files")
+        batch_total_files = batch.get("total_files")
+
         response = {
             "batchId": batch_id,
             "batchName": batch.get("name"),
+            "name": batch.get("name"),
             "createdAt": batch.get("created_at"),
+            "uploadDate": batch.get("created_at"),
             "groupId": batch.get("group_id"),
-            "totalIssues": total_issues,
+            "status": batch.get("status"),
+            "fileCount": batch_total_files if batch_total_files is not None else len(processed_scans),
+            "totalIssues": batch_total_issues if batch_total_issues is not None else total_issues,
+            "fixedIssues": batch_fixed_issues if batch_fixed_issues is not None else max(
+                (batch_total_issues if batch_total_issues is not None else total_issues) - (batch_remaining_issues or 0), 0
+            ),
+            "remainingIssues": batch_remaining_issues if batch_remaining_issues is not None else max(
+                total_issues - (batch_fixed_issues or 0), 0
+            ),
+            "unprocessedFiles": batch_unprocessed_files if batch_unprocessed_files is not None else sum(
+                1
+                for scan in processed_scans
+                if (scan.get("status") or "").lower() in {"uploaded", "unprocessed", "processing"}
+            ),
             "highSeverity": total_high,
             "avgCompliance": avg_compliance,
             "scans": processed_scans,
@@ -2843,27 +3767,45 @@ def export_batch(batch_id):
 
                 scan_id = scan_row.get("id")
                 pdf_added = False
-                for folder in [fixed_dir, uploads_dir]:
+                latest_fixed_entry = get_fixed_version(scan_id)
+                if latest_fixed_entry:
+                    arcname = (
+                        f"{safe_batch_name}/files/{latest_fixed_entry['filename']}"
+                    )
+                    zip_file.write(latest_fixed_entry["absolute_path"], arcname)
+                    pdf_added = True
+                    print(
+                        f"[Backend] Added latest fixed PDF to export: {latest_fixed_entry['absolute_path']}"
+                    )
+
+                if not pdf_added:
                     for candidate in [
-                        folder / f"{scan_id}.pdf",
-                        folder / scan_row.get("filename", ""),
+                        uploads_dir / f"{scan_id}.pdf",
+                        uploads_dir / scan_row.get("filename", ""),
                     ]:
                         if candidate and candidate.exists():
                             arcname = f"{safe_batch_name}/files/{candidate.name}"
                             zip_file.write(candidate, arcname)
                             pdf_added = True
-                            print(f"[Backend] Added PDF to export: {candidate}")
+                            print(f"[Backend] Added original PDF to export: {candidate}")
                             break
-                    if pdf_added:
-                        break
 
-                fixed_filename = scan_row.get("fixed_filename")
-                if fixed_filename:
-                    fixed_path = fixed_dir / fixed_filename
-                    if fixed_path.exists():
-                        arcname = f"{safe_batch_name}/fixed/{fixed_filename}"
-                        zip_file.write(fixed_path, arcname)
-                        print(f"[Backend] Added fixed PDF to export: {fixed_path}")
+                version_entries = get_versioned_files(scan_id)
+                if version_entries:
+                    for entry in version_entries:
+                        arcname = f"{safe_batch_name}/fixed/{scan_id}/{entry['filename']}"
+                        zip_file.write(entry["absolute_path"], arcname)
+                        print(
+                            f"[Backend] Added version V{entry['version']} to export: {entry['absolute_path']}"
+                        )
+                else:
+                    fixed_filename = scan_row.get("fixed_filename")
+                    if fixed_filename:
+                        fixed_path = fixed_dir / fixed_filename
+                        if fixed_path.exists():
+                            arcname = f"{safe_batch_name}/fixed/{fixed_filename}"
+                            zip_file.write(fixed_path, arcname)
+                            print(f"[Backend] Added fixed PDF to export: {fixed_path}")
 
         zip_buffer.seek(0)
 
@@ -2997,6 +3939,9 @@ def get_group_details(group_id):
         issues_fixed = 0
         total_compliance = 0
         fixed_count = 0
+        severity_totals = {"high": 0, "medium": 0, "low": 0}
+        category_totals = {}
+        status_counts = {}
 
         for scan in scans:
             scan_results = scan.get("scan_results")
@@ -3011,11 +3956,30 @@ def get_group_details(group_id):
                 if isinstance(scan_results, dict)
                 else {}
             )
+            results = (
+                scan_results.get("results", {})
+                if isinstance(scan_results, dict)
+                else {}
+            )
 
             total_issues += summary.get("totalIssues", 0)
             total_compliance += summary.get("complianceScore", 0)
 
-            if scan.get("status") == "fixed":
+            status_key = (scan.get("status") or "unknown").lower()
+            status_counts[status_key] = status_counts.get(status_key, 0) + 1
+
+            for category, issues in results.items():
+                if not isinstance(issues, list):
+                    continue
+                category_totals[category] = category_totals.get(category, 0) + len(issues)
+                for issue in issues:
+                    if not isinstance(issue, dict):
+                        continue
+                    severity = (issue.get("severity") or "").lower()
+                    if severity in severity_totals:
+                        severity_totals[severity] += 1
+
+            if status_key == "fixed":
                 fixed_count += 1
                 # This calculation of issues_fixed is a bit off. It sums up totalIssues of fixed files, not actual fixed issues.
                 # A more accurate way would be to sum (total_issues_before - total_issues_after) from fix_history.
@@ -3035,6 +3999,9 @@ def get_group_details(group_id):
             "issues_fixed": issues_fixed,  # Note: This is total issues in files marked as 'fixed'
             "avg_compliance": avg_compliance,
             "fixed_files": fixed_count,
+            "category_totals": category_totals,
+            "severity_totals": severity_totals,
+            "status_counts": status_counts,
         }
 
         conn.close()
@@ -3111,6 +4078,9 @@ def get_scan_current_state(scan_id):
             },
         }
 
+        version_entries = get_versioned_files(scan_id)
+        latest_version_entry = version_entries[-1] if version_entries else None
+
         # Add latest fix data if exists
         if latest_fix:
             response["currentState"] = {
@@ -3125,6 +4095,11 @@ def get_scan_current_state(scan_id):
                 "highSeverity": latest_fix.get("high_severity_after", 0),
                 "suggestions": latest_fix.get("fix_suggestions", []),
             }
+            if latest_version_entry:
+                response["currentState"]["version"] = latest_version_entry["version"]
+                response["currentState"]["fixedFilePath"] = latest_version_entry[
+                    "relative_path"
+                ]
         else:
             response["currentState"] = {
                 "status": scan.get("status", "scanned"),
@@ -3135,6 +4110,23 @@ def get_scan_current_state(scan_id):
                 "totalIssues": scan.get("total_issues", 0),
                 "highSeverity": scan_results.get("summary", {}).get("highSeverity", 0),
             }
+
+        if latest_version_entry:
+            response["latestVersion"] = latest_version_entry["version"]
+            response["latestFixedFile"] = latest_version_entry["relative_path"]
+            response["versionHistory"] = [
+                {
+                    "version": entry["version"],
+                    "label": f"V{entry['version']}",
+                    "relativePath": entry["relative_path"],
+                    "createdAt": entry["created_at"].isoformat()
+                    if entry["created_at"]
+                    else None,
+                    "downloadable": entry["version"] == latest_version_entry["version"],
+                    "fileSize": entry["size"],
+                }
+                for entry in reversed(version_entries)
+            ]
 
         conn.close()
         return jsonify(response)

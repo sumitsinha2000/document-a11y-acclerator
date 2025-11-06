@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react"
+"use client"
+
+import { useState, useEffect, useRef, useId } from "react"
 import axios from "axios"
 import ReportViewer from "./ReportViewer"
 import { ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Info } from "lucide-react"
@@ -15,12 +17,15 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   const [filterSeverity, setFilterSeverity] = useState("all")
   const [currentPage, setCurrentPage] = useState(1)
   const [fixingIndividual, setFixingIndividual] = useState({})
+  const [startingScan, setStartingScan] = useState({})
   const [expandedCategories, setExpandedCategories] = useState({})
   const [itemsPerPage, setItemsPerPage] = useState(10)
   const [batchData, setBatchData] = useState(null)
   const [scansState, setScansState] = useState(scans || [])
   const { showSuccess, showError, showWarning, showInfo, confirm } = useNotification()
   const fetchedScanIdsRef = useRef(new Set())
+  const searchInputId = useId()
+  const itemsPerPageId = useId()
 
   useEffect(() => {
     const fetchBatchData = async () => {
@@ -56,6 +61,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       const scanId = scan.scanId || scan.id
       if (!scanId) return false
       if (fetchedScanIdsRef.current.has(scanId)) return false
+      if (scan.status === "uploaded") return false
       const issues = scan.results || {}
       return !issues || Object.keys(issues).length === 0
     })
@@ -202,13 +208,59 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
     }
   }
 
+  const handleStartDeferredScan = async (scanId, filename) => {
+    if (!scanId) {
+      return
+    }
+
+    try {
+      setStartingScan((prev) => ({ ...prev, [scanId]: true }))
+      const response = await axios.post(`/api/scan/${scanId}/start`)
+      const data = response.data
+      showSuccess(`Started scan for ${filename}`)
+
+      setScansState((prev) =>
+        prev.map((scan) => {
+          const currentId = scan.scanId || scan.id
+          if (currentId === scanId) {
+            return {
+              ...scan,
+              ...data,
+              scanId: currentId,
+              status: data.status || "unprocessed",
+              summary: data.summary || scan.summary || {},
+              results: data.results || scan.results || {},
+              verapdfStatus: data.verapdfStatus || scan.verapdfStatus,
+              fixes: data.fixes || scan.fixes || [],
+            }
+          }
+          return scan
+        }),
+      )
+
+      if (onBatchUpdate) {
+        await onBatchUpdate(batchId)
+      }
+    } catch (error) {
+      console.error("[v0] Error starting deferred scan:", error)
+      const message = error.response?.data?.error || error.message || "Failed to start scan"
+      showError(message)
+    } finally {
+      setStartingScan((prev) => {
+        const next = { ...prev }
+        delete next[scanId]
+        return next
+      })
+    }
+  }
+
   const handleFixAll = async () => {
     console.log("[v0] handleFixAll called:", { batchId, scanCount: scansState.length })
 
     const confirmed = await confirm({
-      title: "Fix All Files",
+      title: "Apply Automated Fixes",
       message: `Apply automated fixes to all ${scansState.length} files in this batch?`,
-      confirmText: "Fix All",
+      confirmText: "Apply Automated Fixes",
       cancelText: "Cancel",
       type: "warning",
     })
@@ -355,8 +407,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
 
   if (selectedScan) {
     return (
-      <div className="flex h-[calc(100vh-3.5rem)]">
-        <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 overflow-y-auto">
+      <div className="flex min-h-[calc(100vh-3.5rem)] bg-slate-50 dark:bg-slate-900">
+        <div className="flex w-64 flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <button
               onClick={() => setSelectedScan(null)}
@@ -367,7 +419,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Batch Files</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{scansState.length} files</p>
           </div>
-          <div className="p-2">
+          <div className="flex-1 overflow-y-auto p-2">
             {scansState.map((scan) => (
               <button
                 key={scan.scanId}
@@ -379,13 +431,17 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                 }`}
               >
                 <div className="font-semibold truncate text-base">{scan.filename}</div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">{scan.scanId?.slice(0, 30)}...</div>
+                {scan.scanId && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate" title={scan.scanId}>
+                    {scan.scanId}
+                  </div>
+                )}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1">
           <ReportViewer scans={[selectedScan]} onBack={() => setSelectedScan(null)} sidebarOpen={false} />
         </div>
       </div>
@@ -455,26 +511,32 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
             <button
               onClick={handleFixAll}
               disabled={fixing}
-              className="px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg"
+              className="px-6 py-3.5 bg-indigo-700 hover:bg-indigo-800 focus-visible:bg-indigo-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg transition-colors"
+              aria-label={`Apply automated fixes to all ${scansState.length} files in this batch`}
+              aria-busy={fixing}
             >
               {fixing ? (
                 <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Fixing...
+                  <div
+                    className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"
+                    role="status"
+                    aria-label="Applying automated fixes"
+                  ></div>
+                  Applying...
                 </>
               ) : (
                 <>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  Fix All Issues
+                  Apply Automated Fixes
                 </>
               )}
             </button>
             <button
               onClick={handleExportBatch}
               disabled={exporting}
-              className="px-6 py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg"
+              className="px-6 py-3.5 bg-emerald-700 hover:bg-emerald-800 focus-visible:bg-emerald-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg transition-colors"
             >
               {exporting ? (
                 <>
@@ -537,13 +599,21 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
           {/* Table Controls */}
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-base font-semibold text-gray-700 dark:text-gray-300">Show</span>
+              <label
+                htmlFor={itemsPerPageId}
+                className="text-base font-semibold text-gray-700 dark:text-gray-300"
+              >
+                Show
+              </label>
               <select
+                id={itemsPerPageId}
+                name="itemsPerPage"
                 value={itemsPerPage}
                 onChange={(e) => {
                   setItemsPerPage(Number(e.target.value))
                   setCurrentPage(1)
                 }}
+                autoComplete="off"
                 className="px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-base font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value={10}>10</option>
@@ -554,30 +624,40 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value)
-                    setCurrentPage(1)
-                  }}
-                  placeholder="Search..."
-                  className="pl-11 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-300 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
-                />
-                <svg
-                  className="absolute left-3 top-3.5 w-5 h-5 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+              <div className="flex flex-col">
+                <label
+                  htmlFor={searchInputId}
+                  className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  Search files
+                </label>
+                <div className="relative">
+                  <input
+                    id={searchInputId}
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value)
+                      setCurrentPage(1)
+                    }}
+                    placeholder="Search files"
+                    autoComplete="off"
+                    className="pl-11 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-300 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
                   />
-                </svg>
+                  <svg
+                    className="pointer-events-none absolute left-3 top-3.5 w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </div>
               </div>
 
               <button
@@ -687,6 +767,15 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                       highSeverity: 0,
                     }
                     const fixResult = fixResults?.results?.find((r) => r.scanId === (scan.scanId || scan.id))
+                    const statusValue = (scan.status || "").toLowerCase()
+                    const isUploaded = statusValue === "uploaded"
+                    const complianceScore =
+                      typeof summary.complianceScore === "number" ? summary.complianceScore : 0
+                    const totalIssues =
+                      typeof summary.totalIssues === "number" ? summary.totalIssues : 0
+                    const highSeverity =
+                      typeof summary.highSeverity === "number" ? summary.highSeverity : 0
+                    const scanKey = scan.scanId || scan.id
 
                     return (
                       <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
@@ -704,22 +793,36 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                           </div>
                         </td>
                         <td className="px-7 py-5">
-                          <span className="text-base font-semibold text-gray-900 dark:text-white">
-                            {summary.complianceScore}%
-                          </span>
+                          {isUploaded ? (
+                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
+                          ) : (
+                            <span className="text-base font-semibold text-gray-900 dark:text-white">
+                              {complianceScore}%
+                            </span>
+                          )}
                         </td>
                         <td className="px-7 py-5">
-                          <span className="text-base font-medium text-gray-900 dark:text-white">
-                            {summary.totalIssues}
-                          </span>
+                          {isUploaded ? (
+                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
+                          ) : (
+                            <span className="text-base font-medium text-gray-900 dark:text-white">
+                              {totalIssues}
+                            </span>
+                          )}
                         </td>
                         <td className="px-7 py-5">
-                          <span className="text-base text-red-600 dark:text-red-400 font-bold">
-                            {summary.highSeverity}
-                          </span>
+                          {isUploaded ? (
+                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
+                          ) : (
+                            <span className="text-base text-red-600 dark:text-red-400 font-bold">{highSeverity}</span>
+                          )}
                         </td>
                         <td className="px-7 py-5">
-                          {fixResult ? (
+                          {isUploaded ? (
+                            <span className="inline-flex items-center px-3.5 py-2 rounded-full text-sm font-semibold bg-slate-100 text-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
+                              Not Scanned
+                            </span>
+                          ) : fixResult ? (
                             fixResult.success ? (
                               <span className="inline-flex items-center px-3.5 py-2 rounded-full text-sm font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
                                 Fixed
@@ -736,22 +839,38 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                           )}
                         </td>
                         <td className="px-7 py-5">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
                               onClick={() => handleViewDetails(scan)}
-                              className="px-5 py-2.5 text-base font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
+                              disabled={isUploaded}
+                              className={`px-5 py-2.5 text-base font-semibold rounded-lg transition-colors ${
+                                isUploaded
+                                  ? "text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 cursor-not-allowed"
+                                  : "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+                              }`}
                               title="View Details"
                             >
                               View Details
                             </button>
-                            <button
-                              onClick={() => handleFixIndividual(scan.scanId, scan.filename)}
-                              disabled={fixingIndividual[scan.scanId]}
-                              className="px-5 py-2.5 text-base font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              title="Fix Issues"
-                            >
-                              {fixingIndividual[scan.scanId] ? "Fixing..." : "Fix Issues"}
-                            </button>
+                            {isUploaded ? (
+                              <button
+                                onClick={() => handleStartDeferredScan(scanKey, scan.filename)}
+                                disabled={startingScan[scanKey]}
+                                className="px-5 py-2.5 text-base font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Begin Scan"
+                              >
+                                {startingScan[scanKey] ? "Starting..." : "Begin Scan"}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleFixIndividual(scanKey, scan.filename)}
+                                disabled={fixingIndividual[scanKey]}
+                                className="px-5 py-2.5 text-base font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Fix Issues"
+                              >
+                                {fixingIndividual[scanKey] ? "Fixing..." : "Fix Issues"}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

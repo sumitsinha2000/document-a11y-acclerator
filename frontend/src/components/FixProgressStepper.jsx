@@ -1,13 +1,25 @@
-import { useState, useEffect } from "react"
+"use client"
+
+import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 
 export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete }) {
   const [progress, setProgress] = useState(null)
   const [polling, setPolling] = useState(true)
   const [finalResultData, setFinalResultData] = useState(null)
+  const hasCompletedRef = useRef(false)
 
   useEffect(() => {
-    if (!isOpen || !scanId) return
+    if (isOpen && scanId) {
+      setProgress(null)
+      setFinalResultData(null)
+      setPolling(true)
+      hasCompletedRef.current = false
+    }
+  }, [isOpen, scanId])
+
+  useEffect(() => {
+    if (!isOpen || !scanId || !polling) return
 
     let pollInterval
     let latestResultData = null
@@ -56,6 +68,10 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
               console.log("[v0] FixProgressStepper: No resultData found in re-scan step")
             }
           }
+        }
+
+        if ((progressData.status === "completed" || progressData.status === "failed") && !hasCompletedRef.current) {
+          hasCompletedRef.current = true
 
           // Wait a bit before calling onComplete to show final state
           setTimeout(() => {

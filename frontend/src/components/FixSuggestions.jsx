@@ -18,16 +18,23 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [applyingAI, setApplyingAI] = useState(false)
   const [applyingTraditionalSemi, setApplyingTraditionalSemi] = useState(false)
   const [applyingAISemi, setApplyingAISemi] = useState(false)
-  const [fixedFile, setFixedFile] = useState(null)
   const [showEditor, setShowEditor] = useState(false)
   const [showAIPanel, setShowAIPanel] = useState(false)
   const [showProgressStepper, setShowProgressStepper] = useState(false)
   const [currentFixType, setCurrentFixType] = useState("")
+  const [pendingProgressResult, setPendingProgressResult] = useState(null)
 
-  const [autoExpanded, setAutoExpanded] = useState(false)
-  const [semiExpanded, setSemiExpanded] = useState(false)
-  const [manualExpanded, setManualExpanded] = useState(false)
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" })
+  const [expandedFixes, setExpandedFixes] = useState({
+    automated: new Set(),
+    semiAutomated: new Set(),
+    manual: new Set(),
+  })
+  const [showMore, setShowMore] = useState({
+    automated: false,
+    semiAutomated: false,
+    manual: false,
+  })
 
   const safeRender = (value, fallback = "N/A") => {
     if (value === null || value === undefined) return fallback
@@ -55,11 +62,45 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
+  const toggleFixExpansion = (category, index) => {
+    setExpandedFixes((prev) => {
+      const nextState = {
+        automated: new Set(prev.automated),
+        semiAutomated: new Set(prev.semiAutomated),
+        manual: new Set(prev.manual),
+      }
+      const categorySet = nextState[category]
+
+      if (categorySet.has(index)) {
+        categorySet.delete(index)
+      } else {
+        categorySet.add(index)
+      }
+
+      return nextState
+    })
+  }
+
+  const toggleViewMore = (category) => {
+    setShowMore((prev) => ({
+      ...prev,
+      [category]: !prev[category],
+    }))
+  }
+
+  const visibleFixes = (category, fixesArray) => {
+    if (showMore[category]) return fixesArray
+    return fixesArray.slice(0, 5)
+  }
+
+  const listIdFor = (category) => `${category}-fix-list-${scanId}`
+  const descriptionIdFor = (category, index) => `${category}-fix-description-${scanId}-${index}`
+
   const handleApplyTraditionalFixes = async () => {
     setApplyingTraditional(true)
     setShowProgressStepper(true)
+    setPendingProgressResult(null)
     setCurrentFixType("Traditional Automated Fixes")
-    setFixedFile(null)
 
     try {
       const response = await axios.post(API_ENDPOINTS.applyFixes(scanId), {
@@ -79,8 +120,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyAIFixes = async () => {
     setApplyingAI(true)
     setShowProgressStepper(true)
+    setPendingProgressResult(null)
     setCurrentFixType("AI-Powered Automated Fixes")
-    setFixedFile(null)
 
     try {
       const response = await axios.post(API_ENDPOINTS.applyFixes(scanId), {
@@ -100,8 +141,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyTraditionalSemiFixes = async () => {
     setApplyingTraditionalSemi(true)
     setShowProgressStepper(true)
+    setPendingProgressResult(null)
     setCurrentFixType("Traditional Semi-Automated Fixes")
-    setFixedFile(null)
 
     try {
       const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
@@ -121,8 +162,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyAISemiFixes = async () => {
     setApplyingAISemi(true)
     setShowProgressStepper(true)
+    setPendingProgressResult(null)
     setCurrentFixType("AI-Powered Semi-Automated Fixes")
-    setFixedFile(null)
 
     try {
       const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
@@ -150,11 +191,11 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     console.log("[v0] FixSuggestions - New summary received:", newSummary)
     console.log("[v0] FixSuggestions - New results received:", newResults)
 
-    setFixedFile({
-      filename: filename || `${scanId}.pdf`,
-      message: "Manual fix applied successfully! The PDF has been updated with your changes.",
-      summary: newSummary,
-    })
+    showAlert(setAlertModal)(
+      "Manual Fix Applied",
+      "Manual fix applied successfully! The PDF has been updated with your changes.",
+      "success",
+    )
 
     if (onRefresh) {
       console.log("[v0] FixSuggestions - Calling onRefresh with new data...")
@@ -184,54 +225,27 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
-  const handleDownloadFixed = async () => {
-    if (!fixedFile?.filename) {
-      showAlert(setAlertModal)("Download unavailable", "No fixed file is available yet. Apply a fix first.")
+  const processProgressOutcome = async (outcome) => {
+    if (!outcome) {
       return
     }
 
-    try {
-      const response = await axios.get(API_ENDPOINTS.downloadFixed(fixedFile.filename), {
-        responseType: "blob",
-      })
-      const url = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement("a")
-      link.href = url
-      link.setAttribute("download", fixedFile.filename)
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-    } catch (error) {
-      console.error("Error downloading fixed file:", error)
-      showAlert(setAlertModal)("Error downloading fixed file", error.response?.data?.message || error.message)
-    }
-  }
-
-  const handleProgressComplete = async (success, newScanData) => {
-    console.log("[v0] FixSuggestions - Progress complete:", { success, hasNewData: !!newScanData })
-    setShowProgressStepper(false)
+    const { success, newScanData } = outcome
 
     if (success) {
-      const updatedFileName = newScanData?.fixedFile || filename || `${scanId}.pdf`
       const complianceScore = newScanData?.summary?.complianceScore
       const messageSuffix =
         typeof complianceScore === "number"
           ? ` New compliance score: ${Math.round(complianceScore)}%.`
           : ""
 
-      setFixedFile({
-        filename: updatedFileName,
-        message: `${currentFixType} applied successfully!${messageSuffix}`,
-        summary: newScanData?.summary,
-      })
-
-      console.log("[v0] FixSuggestions - Fixes applied successfully, triggering refresh")
+      console.log("[v0] FixSuggestions - Fixes applied successfully, preparing refresh")
 
       await new Promise((resolve) => setTimeout(resolve, 1500))
 
       if (onRefresh && newScanData) {
         try {
-          console.log("[v0] FixSuggestions - Calling onRefresh...")
+          console.log("[v0] FixSuggestions - Calling onRefresh with new scan data...")
           await onRefresh(
             newScanData?.summary,
             newScanData?.results || newScanData?.scanResults?.results,
@@ -242,7 +256,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
           showAlert(setAlertModal)(
             `${currentFixType} Applied`,
-            `${currentFixType} applied successfully! The report has been updated with the latest data.`,
+            `${currentFixType} applied successfully! The report has been updated with the latest data.${messageSuffix}`,
             "success",
           )
         } catch (refreshError) {
@@ -255,12 +269,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         }
       } else if (onRefresh) {
         try {
-          console.log("[v0] FixSuggestions - Calling onRefresh without new data...")
+          console.log("[v0] FixSuggestions - Calling onRefresh without new scan payload...")
           await onRefresh()
           console.log("[v0] FixSuggestions - Refresh completed successfully")
           showAlert(setAlertModal)(
             `${currentFixType} Applied`,
-            `${currentFixType} applied successfully! The report has been updated with the latest data.`,
+            `${currentFixType} applied successfully! The report has been updated with the latest data.${messageSuffix}`,
             "success",
           )
         } catch (refreshError) {
@@ -275,13 +289,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         console.warn("[v0] FixSuggestions - No onRefresh callback provided")
         showAlert(setAlertModal)(
           `${currentFixType} Applied`,
-          `${currentFixType} applied successfully! Please refresh the page to see the latest data.`,
+          `${currentFixType} applied successfully! Please refresh the page to see the latest data.${messageSuffix}`,
           "success",
         )
       }
     } else {
       console.error("[v0] FixSuggestions - Fix application failed")
-      setFixedFile(null)
       showAlert(setAlertModal)(
         "Fix Application Failed",
         "The fix process encountered errors. Please review the error details and try again.",
@@ -290,8 +303,36 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
+  const handleProgressComplete = async (success, newScanData) => {
+    console.log("[v0] FixSuggestions - Progress complete:", { success, hasNewData: !!newScanData })
+    const outcome = { success, newScanData }
+
+    if (showProgressStepper) {
+      setPendingProgressResult(outcome)
+      return
+    }
+
+    setPendingProgressResult(null)
+    await processProgressOutcome(outcome)
+  }
+
+  const handleProgressModalClose = async () => {
+    setShowProgressStepper(false)
+
+    if (!pendingProgressResult) {
+      return
+    }
+
+    const outcome = pendingProgressResult
+
+    try {
+      await processProgressOutcome(outcome)
+    } finally {
+      setPendingProgressResult(null)
+    }
+  }
+
   const validAutomated = Array.isArray(fixes?.automated) ? fixes.automated.map(cleanFix).filter(Boolean) : []
-  const autoVisible = autoExpanded ? validAutomated : validAutomated.slice(0, 5)
   const validSemiAutomated = Array.isArray(fixes?.semiAutomated)
     ? fixes.semiAutomated.map(cleanFix).filter(Boolean)
     : []
@@ -301,9 +342,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const hasSemiAutomated = validSemiAutomated.length > 0
   const hasManual = validManual.length > 0
   const hasAnyFixes = hasAutomated || hasSemiAutomated || hasManual
-  const semiVisible = semiExpanded ? validSemiAutomated : validSemiAutomated.slice(0, 5)
-  const manualVisible = manualExpanded ? validManual : validManual.slice(0, 5)
-
   if (!fixes) {
     return (
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 text-center border border-gray-200 dark:border-gray-700">
@@ -326,7 +364,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       <FixProgressStepper
         scanId={scanId}
         isOpen={showProgressStepper}
-        onClose={() => setShowProgressStepper(false)}
+        onClose={handleProgressModalClose}
         onComplete={handleProgressComplete}
       />
 
@@ -403,69 +441,75 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             <h4 className="text-sm font-semibold text-green-600 dark:text-green-400 mb-1">Automated Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Can be applied automatically</p>
             <div
-              className="flex-1 overflow-y-auto max-h-96 space-y-2 mb-3 pr-2"
+              id={listIdFor("automated")}
+              className="flex-1 space-y-2 mb-3"
               role="list"
-              style={{ scrollbarWidth: "thin" }}
+              aria-live="polite"
             >
-              {autoVisible.map((fix, idx) => (
-                <div
-                  key={idx}
-                  className="flex gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800"
-                  role="listitem"
-                >
-                  <div className="text-lg" aria-hidden="true">
-                    ⚙️
+              {visibleFixes("automated", validAutomated).map((fix, idx) => {
+                const isExpanded = expandedFixes.automated.has(idx)
+                const descriptionId = descriptionIdFor("automated", idx)
+
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 focus-within:ring-2 focus-within:ring-green-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-900"
+                    role="listitem"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleFixExpansion("automated", idx)}
+                      className="w-full text-left flex gap-2 p-3 focus:outline-none"
+                      aria-expanded={isExpanded}
+                      aria-controls={descriptionId}
+                    >
+                      <div className="text-lg" aria-hidden="true">
+                        ⚙️
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">{fix.title}</div>
+                        <div
+                          id={descriptionId}
+                          className={`text-xs text-gray-600 dark:text-gray-400 mt-0.5 ${
+                            isExpanded ? "" : "line-clamp-2"
+                          }`}
+                        >
+                          {fix.description}
+                        </div>
+                        <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <span className="font-medium capitalize">{fix.severity}</span>
+                          {fix.estimatedTime && (
+                            <>
+                              <span aria-hidden="true">•</span>
+                              <span>{fix.estimatedTime} min</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{fix.title}</div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-2">
-                      {fix.description}
-                    </div>
-                    <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      <span className="font-medium capitalize">{fix.severity}</span>
-                      {fix.estimatedTime && (
-                        <>
-                          <span aria-hidden="true">•</span>
-                          <span>{fix.estimatedTime} min</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
+            {validAutomated.length > 5 && (
+              <button
+                type="button"
+                aria-expanded={showMore.automated}
+                onClick={() => toggleViewMore("automated")}
+                className="w-full mb-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+              >
+                {showMore.automated ? "View less" : `View more (${validAutomated.length - 5})`}
+              </button>
+            )}
             <div className="space-y-2 mt-auto">
               <button
-                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+                className="w-full px-4 py-2 bg-emerald-800 hover:bg-emerald-900 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
                 onClick={handleApplyTraditionalFixes}
                 disabled={applyingTraditional}
                 aria-busy={applyingTraditional}
                 aria-label={applyingTraditional ? "Applying traditional fixes" : "Apply traditional automated fixes"}
               >
                 {applyingTraditional ? "Applying..." : "Apply Traditional Fixes"}
-              </button>
-              <button
-                className="w-full px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 flex items-center justify-center gap-2"
-                onClick={handleApplyAIFixes}
-                disabled={applyingAI}
-                aria-busy={applyingAI}
-                aria-label={applyingAI ? "Applying AI fixes" : "Apply AI-powered automated fixes"}
-              >
-                {applyingAI ? (
-                  "Applying..."
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                      />
-                    </svg>
-                    Apply AI Fixes
-                  </>
-                )}
               </button>
             </div>
           </div>
@@ -477,40 +521,69 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             <h4 className="text-sm font-semibold text-yellow-600 dark:text-yellow-400 mb-1">Semi-Automated Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Require review & confirmation</p>
             <div
-              className="flex-1 overflow-y-auto max-h-96 space-y-2 mb-3 pr-2"
+              id={listIdFor("semiAutomated")}
+              className="flex-1 space-y-2 mb-3"
               role="list"
-              style={{ scrollbarWidth: "thin" }}
+              aria-live="polite"
             >
-              {semiVisible.map((fix, idx) => (
-                <div
-                  key={idx}
-                  className="flex gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800"
-                  role="listitem"
-                >
-                  <div className="text-lg" aria-hidden="true">
-                    🔍
+              {visibleFixes("semiAutomated", validSemiAutomated).map((fix, idx) => {
+                const isExpanded = expandedFixes.semiAutomated.has(idx)
+                const descriptionId = descriptionIdFor("semiAutomated", idx)
+
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 focus-within:ring-2 focus-within:ring-yellow-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-900"
+                    role="listitem"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleFixExpansion("semiAutomated", idx)}
+                      className="w-full text-left flex gap-2 p-3 focus:outline-none"
+                      aria-expanded={isExpanded}
+                      aria-controls={descriptionId}
+                    >
+                      <div className="text-lg" aria-hidden="true">
+                        🔍
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">{fix.title}</div>
+                        <div
+                          id={descriptionId}
+                          className={`text-xs text-gray-600 dark:text-gray-400 mt-0.5 ${
+                            isExpanded ? "" : "line-clamp-2"
+                          }`}
+                        >
+                          {fix.description}
+                        </div>
+                        <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <span className="font-medium capitalize">{fix.severity}</span>
+                          {fix.estimatedTime && (
+                            <>
+                              <span aria-hidden="true">•</span>
+                              <span>{fix.estimatedTime} min</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{fix.title}</div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-2">
-                      {fix.description}
-                    </div>
-                    <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      <span className="font-medium capitalize">{fix.severity}</span>
-                      {fix.estimatedTime && (
-                        <>
-                          <span aria-hidden="true">•</span>
-                          <span>{fix.estimatedTime} min</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
+            {validSemiAutomated.length > 5 && (
+              <button
+                type="button"
+                aria-expanded={showMore.semiAutomated}
+                onClick={() => toggleViewMore("semiAutomated")}
+                className="w-full mb-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+              >
+                {showMore.semiAutomated ? "View less" : `View more (${validSemiAutomated.length - 5})`}
+              </button>
+            )}
             <div className="space-y-2 mt-auto">
               <button
-                className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                className="w-full px-4 py-2 bg-amber-800 hover:bg-amber-900 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                 onClick={handleApplyTraditionalSemiFixes}
                 disabled={applyingTraditionalSemi}
                 aria-busy={applyingTraditionalSemi}
@@ -522,31 +595,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
               >
                 {applyingTraditionalSemi ? "Applying..." : "Apply Traditional Fixes"}
               </button>
-              <button
-                className="w-full px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 flex items-center justify-center gap-2"
-                onClick={handleApplyAISemiFixes}
-                disabled={applyingAISemi}
-                aria-busy={applyingAISemi}
-                aria-label={
-                  applyingAISemi ? "Applying AI semi-automated fixes" : "Apply AI-powered semi-automated fixes"
-                }
-              >
-                {applyingAISemi ? (
-                  "Applying..."
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                      />
-                    </svg>
-                    Apply AI Fixes
-                  </>
-                )}
-              </button>
             </div>
           </div>
         )}
@@ -557,75 +605,70 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             <h4 className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-1">Manual Fixes</h4>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Require manual intervention</p>
             <div
-              className="flex-1 overflow-y-auto max-h-96 space-y-2 pr-2"
+              id={listIdFor("manual")}
+              className="flex-1 space-y-2"
               role="list"
-              style={{ scrollbarWidth: "thin" }}
+              aria-live="polite"
             >
-              {manualVisible.map((fix, idx) => (
-                <div
-                  key={idx}
-                  className="flex gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800"
-                  role="listitem"
-                >
-                  <div className="text-lg" aria-hidden="true">
-                    👤
+              {visibleFixes("manual", validManual).map((fix, idx) => {
+                const isExpanded = expandedFixes.manual.has(idx)
+                const descriptionId = descriptionIdFor("manual", idx)
+
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-900"
+                    role="listitem"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleFixExpansion("manual", idx)}
+                      className="w-full text-left flex gap-2 p-3 focus:outline-none"
+                      aria-expanded={isExpanded}
+                      aria-controls={descriptionId}
+                    >
+                      <div className="text-lg" aria-hidden="true">
+                        👤
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">{fix.title}</div>
+                        <div
+                          id={descriptionId}
+                          className={`text-xs text-gray-600 dark:text-gray-400 mt-0.5 ${
+                            isExpanded ? "" : "line-clamp-2"
+                          }`}
+                        >
+                          {fix.description}
+                        </div>
+                        <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <span className="font-medium capitalize">{fix.severity}</span>
+                          {fix.estimatedTime && (
+                            <>
+                              <span aria-hidden="true">•</span>
+                              <span>{fix.estimatedTime} min</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{fix.title}</div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-2">
-                      {fix.description}
-                    </div>
-                    <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      <span className="font-medium capitalize">{fix.severity}</span>
-                      {fix.estimatedTime && (
-                        <>
-                          <span aria-hidden="true">•</span>
-                          <span>{fix.estimatedTime} min</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
+            {validManual.length > 5 && (
+              <button
+                type="button"
+                aria-expanded={showMore.manual}
+                onClick={() => toggleViewMore("manual")}
+                className="w-full mb-3 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+              >
+                {showMore.manual ? "View less" : `View more (${validManual.length - 5})`}
+              </button>
+            )}
           </div>
         )}
       </div>
 
-      {fixedFile && (
-        <div
-          className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4"
-          role="status"
-          aria-live="polite"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-green-800 dark:text-green-200">Fixes Applied Successfully!</p>
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1">{fixedFile.message}</p>
-              {typeof fixedFile?.summary?.complianceScore === "number" && (
-                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                  Updated compliance score: {Math.round(fixedFile.summary.complianceScore)}%
-                </p>
-              )}
-            </div>
-            <button
-              onClick={handleDownloadFixed}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-              aria-label="Download fixed PDF file"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
-              Download Fixed PDF
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
