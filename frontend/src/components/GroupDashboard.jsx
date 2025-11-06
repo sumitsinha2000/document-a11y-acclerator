@@ -187,6 +187,8 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
   const fileIsUploaded = nodeData?.type === "file" && nodeData?.status === "uploaded"
   const fileScanDateLabel = fileIsUploaded ? "Uploaded on" : "Scanned on"
   const fileDateValue = nodeData?.type === "file" ? nodeData?.uploadDate || nodeData?.created_at || nodeData?.timestamp : null
+  const targetFileName =
+    nodeData?.type === "file" ? nodeData.fileName || nodeData.filename || "selected file" : "selected file"
   const batchHasUploadedFiles =
     nodeData?.type === "batch" && nodeData?.scans?.some((scan) => (scan.status || "").toLowerCase() === "uploaded")
 
@@ -307,6 +309,11 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                           <button
                             onClick={handleBeginScan}
                             disabled={startingScan}
+                            aria-label={
+                              startingScan
+                                ? `Starting scan for ${targetFileName}`
+                                : `Begin scan for ${targetFileName}`
+                            }
                             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {startingScan ? "Starting..." : "Begin Scan"}
