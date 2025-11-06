@@ -94,7 +94,7 @@ def to_json_safe(data):
 
 # CORS / environment config
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://document-a11y-accelerator.vercel.app")
-NEON_DATABASE_URL = os.getenv("DATABASE_URL")
+NEON_DATABASE_URL = os.getenv("NEON_DATABASE_URL")
 UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
 FIXED_FOLDER = os.getenv("FIXED_FOLDER", "fixed")
 GENERATED_PDFS_FOLDER = None
@@ -382,6 +382,14 @@ def build_verapdf_status(results, analyzer=None):
 # ----------------------
 # Routes — keep original function names, adapted for FastAPI
 # ----------------------
+@app.get("/api/groups")
+async def get_groups():
+    try:
+        rows = execute_query("SELECT * FROM groups ORDER BY created_at DESC", fetch=True)
+        return SafeJSONResponse({"groups": rows})
+    except Exception as e:
+        logger.exception("doca11y-backend:get_groups DB error")
+        return SafeJSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/api/health")
 async def health():

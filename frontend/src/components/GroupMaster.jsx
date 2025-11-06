@@ -43,7 +43,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
   const fetchGroups = async () => {
     try {
       setLoading(true)
-      const response = await axios.get("/api/groups")
+      const response = await axios.get(`${API_BASE_URL}/api/groups`)
       setGroups(response.data.groups || [])
       setError(null)
     } catch (err) {
@@ -68,7 +68,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
     setFormError(null)
 
     try {
-      const response = await axios.post("/api/groups", {
+      const response = await axios.post(`${API_BASE_URL}/api/groups`, {
         name: formData.name.trim(),
         description: formData.description.trim(),
       })
@@ -107,7 +107,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
     setFormError(null)
 
     try {
-      const response = await axios.put(`/api/groups/${editingGroup.id}`, {
+      const response = await axios.put(`${API_BASE_URL}/api/groups/${editingGroup.id}`, {
         name: formData.name.trim(),
         description: formData.description.trim(),
       })
@@ -155,7 +155,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
     }
 
     try {
-      await axios.delete(`/api/groups/${groupId}`)
+      await axios.delete(`${API_BASE_URL}/api/groups/${groupId}`)
       setGroups(groups.filter((g) => g.id !== groupId))
       showSuccess(`Group "${groupName}" deleted successfully`)
     } catch (err) {
