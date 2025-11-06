@@ -91,7 +91,11 @@ def to_json_safe(data):
         return tuple(to_json_safe(v) for v in data)
     else:
         return data
-
+        
+class SafeJSONResponse(JSONResponse):
+    def render(self, content: any) -> bytes:
+        safe = to_json_safe(content)
+        return json.dumps(safe, ensure_ascii=False).encode("utf-8")
 # CORS / environment config
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://document-a11y-accelerator.vercel.app")
 NEON_DATABASE_URL = os.getenv("NEON_DATABASE_URL")
@@ -389,7 +393,7 @@ async def get_groups():
         return SafeJSONResponse({"groups": rows})
     except Exception as e:
         logger.exception("doca11y-backend:get_groups DB error")
-        return SafeJSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/api/health")
 async def health():
@@ -515,7 +519,7 @@ async def get_scans():
         rows = execute_query(
             "SELECT id, filename, upload_date, status FROM scans ORDER BY upload_date DESC", fetch=True
         )
-        return JSONResponse(to_json_safe({"scans": rows}))
+        return SafeJSONResponse({"scans": rows})
     except Exception as e:
         logger.exception("doca11y-backend:get_scans DB error")
         return JSONResponse({"scans": [], "error": str(e)}, status_code=500)
@@ -546,7 +550,7 @@ async def scan_batch(files: List[UploadFile] = File(...), group_id: Optional[str
                 else:
                     asyncio.create_task(asyncio.to_thread(analyze_fn, str(file_path)))
             results.append({"scanId": scan_id, "filename": fname})
-        return JSONResponse(to_json_safe({"batchId": batch_id, "scans": results}))
+        return SafeJSONResponse({"batchId": batch_id, "scans": results})
        
     except Exception as e:
         logger.exception("scan_batch failed")
@@ -753,7 +757,7 @@ async def apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
 async def fix_history(scan_id: str):
     try:
         rows = execute_query("SELECT * FROM fixes WHERE scan_id=%s ORDER BY created_at DESC", (scan_id,), fetch=True)
-        return JSONResponse(to_json_safe({"history": rows}))
+        return SafeJSONResponse({"history": rows})
     except Exception:
         logger.exception("fix_history DB error")
         return JSONResponse({"history": []})

@@ -1,4 +1,23 @@
 {
+  "headers": [
+    {
+      "source": "/vercel-config-cors",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "https://document-a11y-acclerator.vercel.app"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization"
+        }
+      ]
+    }
+  ],
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
   "installCommand": "cd frontend && npm install",
