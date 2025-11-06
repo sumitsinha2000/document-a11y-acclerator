@@ -201,7 +201,11 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
         initialGroupId={initialGroupId}
       />
 
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="flex-1 overflow-y-auto"
+        id="group-dashboard-details"
+        data-group-dashboard-details="true"
+      >
         <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
           <div className="flex items-center justify-between">
             <div>
@@ -278,15 +282,14 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                           </span>
                           {nodeData.status && (
                             <span
-                              className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                nodeData.status === "fixed"
+                              className={`px-2 py-1 rounded-full text-xs font-medium ${nodeData.status === "fixed"
                                   ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                                   : nodeData.status === "processed"
                                     ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                                     : nodeData.status === "uploaded"
                                       ? "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200"
                                       : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                              }`}
+                                }`}
                             >
                               {nodeData.status === "uploaded" ? "Uploaded" : nodeData.status}
                             </span>
@@ -297,11 +300,10 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                         <button
                           onClick={() => onSelectScan(nodeData)}
                           disabled={fileIsUploaded}
-                          className={`px-4 py-2 rounded-lg transition-colors font-medium ${
-                            fileIsUploaded
+                          className={`px-4 py-2 rounded-lg transition-colors font-medium ${fileIsUploaded
                               ? "bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400 cursor-not-allowed"
                               : "bg-violet-600 hover:bg-violet-700 text-white"
-                          }`}
+                            }`}
                         >
                           View Full Report
                         </button>
