@@ -20,7 +20,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [applyingAI, setApplyingAI] = useState(false)
   const [applyingTraditionalSemi, setApplyingTraditionalSemi] = useState(false)
   const [applyingAISemi, setApplyingAISemi] = useState(false)
-  const [fixedFile, setFixedFile] = useState(null)
   const [showEditor, setShowEditor] = useState(false)
   const [showAIPanel, setShowAIPanel] = useState(false)
   const [showProgressStepper, setShowProgressStepper] = useState(false)
@@ -104,7 +103,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setShowProgressStepper(true)
     setPendingProgressResult(null)
     setCurrentFixType("Traditional Automated Fixes")
-    setFixedFile(null)
 
     try {
       const response = await axios.post(API_ENDPOINTS.applyFixes(scanId), {
@@ -126,7 +124,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setShowProgressStepper(true)
     setPendingProgressResult(null)
     setCurrentFixType("AI-Powered Automated Fixes")
-    setFixedFile(null)
 
     try {
       const response = await axios.post(API_ENDPOINTS.applyFixes(scanId), {
@@ -148,7 +145,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setShowProgressStepper(true)
     setPendingProgressResult(null)
     setCurrentFixType("Traditional Semi-Automated Fixes")
-    setFixedFile(null)
 
     try {
       const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
@@ -170,7 +166,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setShowProgressStepper(true)
     setPendingProgressResult(null)
     setCurrentFixType("AI-Powered Semi-Automated Fixes")
-    setFixedFile(null)
 
     try {
       const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
@@ -198,11 +193,11 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     console.log("[v0] FixSuggestions - New summary received:", newSummary)
     console.log("[v0] FixSuggestions - New results received:", newResults)
 
-    setFixedFile({
-      filename: filename || `${scanId}.pdf`,
-      message: "Manual fix applied successfully! The PDF has been updated with your changes.",
-      summary: newSummary,
-    })
+    showAlert(setAlertModal)(
+      "Manual Fix Applied",
+      "Manual fix applied successfully! The PDF has been updated with your changes.",
+      "success",
+    )
 
     if (onRefresh) {
       console.log("[v0] FixSuggestions - Calling onRefresh with new data...")
@@ -232,29 +227,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
-  const handleDownloadFixed = async () => {
-    if (!fixedFile?.filename) {
-      showAlert(setAlertModal)("Download unavailable", "No fixed file is available yet. Apply a fix first.")
-      return
-    }
-
-    try {
-      const response = await axios.get(API_ENDPOINTS.downloadFixed(fixedFile.filename), {
-        responseType: "blob",
-      })
-      const url = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement("a")
-      link.href = url
-      link.setAttribute("download", fixedFile.filename)
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-    } catch (error) {
-      console.error("Error downloading fixed file:", error)
-      showAlert(setAlertModal)("Error downloading fixed file", error.response?.data?.message || error.message)
-    }
-  }
-
   const processProgressOutcome = async (outcome) => {
     if (!outcome) {
       return
@@ -263,18 +235,11 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     const { success, newScanData } = outcome
 
     if (success) {
-      const updatedFileName = newScanData?.fixedFile || filename || `${scanId}.pdf`
       const complianceScore = newScanData?.summary?.complianceScore
       const messageSuffix =
         typeof complianceScore === "number"
           ? ` New compliance score: ${Math.round(complianceScore)}%.`
           : ""
-
-      setFixedFile({
-        filename: updatedFileName,
-        message: `${currentFixType} applied successfully!${messageSuffix}`,
-        summary: newScanData?.summary,
-      })
 
       console.log("[v0] FixSuggestions - Fixes applied successfully, preparing refresh")
 
@@ -293,7 +258,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
           showAlert(setAlertModal)(
             `${currentFixType} Applied`,
-            `${currentFixType} applied successfully! The report has been updated with the latest data.`,
+            `${currentFixType} applied successfully! The report has been updated with the latest data.${messageSuffix}`,
             "success",
           )
         } catch (refreshError) {
@@ -311,7 +276,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           console.log("[v0] FixSuggestions - Refresh completed successfully")
           showAlert(setAlertModal)(
             `${currentFixType} Applied`,
-            `${currentFixType} applied successfully! The report has been updated with the latest data.`,
+            `${currentFixType} applied successfully! The report has been updated with the latest data.${messageSuffix}`,
             "success",
           )
         } catch (refreshError) {
@@ -326,13 +291,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         console.warn("[v0] FixSuggestions - No onRefresh callback provided")
         showAlert(setAlertModal)(
           `${currentFixType} Applied`,
-          `${currentFixType} applied successfully! Please refresh the page to see the latest data.`,
+          `${currentFixType} applied successfully! Please refresh the page to see the latest data.${messageSuffix}`,
           "success",
         )
       }
     } else {
       console.error("[v0] FixSuggestions - Fix application failed")
-      setFixedFile(null)
       showAlert(setAlertModal)(
         "Fix Application Failed",
         "The fix process encountered errors. Please review the error details and try again.",
@@ -755,40 +719,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         )}
       </div>
 
-      {fixedFile && (
-        <div
-          className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4"
-          role="status"
-          aria-live="polite"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-green-800 dark:text-green-200">Fixes Applied Successfully!</p>
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1">{fixedFile.message}</p>
-              {typeof fixedFile?.summary?.complianceScore === "number" && (
-                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                  Updated compliance score: {Math.round(fixedFile.summary.complianceScore)}%
-                </p>
-              )}
-            </div>
-            <button
-              onClick={handleDownloadFixed}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-              aria-label="Download fixed PDF file"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
-              Download Fixed PDF
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
