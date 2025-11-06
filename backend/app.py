@@ -1269,6 +1269,9 @@ def get_history():
 def _perform_automated_fix(scan_id, data=None, expected_batch_id=None):
     tracker = None
     payload = data or {}
+    if payload.get("useAI"):
+        print("[Backend] AI-powered automated fixes requested but feature is disabled.")
+        return 400, {"success": False, "error": "AI-powered automated fixes are no longer available."}
     try:
         filename = payload.get("filename", "fixed_document.pdf")
 
@@ -1545,8 +1548,19 @@ def apply_batch_fix_all(batch_id):
 def apply_semi_automated_fixes(scan_id):
     tracker = None
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         fixes = data.get("fixes", [])
+        if data.get("useAI"):
+            print("[Backend] AI-powered semi-automated fixes requested but feature is disabled.")
+            return (
+                jsonify(
+                    {
+                        "error": "AI-powered semi-automated fixes are no longer available.",
+                        "success": False,
+                    }
+                ),
+                400,
+            )
 
         print(f"[Backend] 🔧 Applying semi-automated fixes for scan: {scan_id}")
 
