@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 
@@ -20,10 +20,25 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
   })
   const [formError, setFormError] = useState(null)
   const [formLoading, setFormLoading] = useState(false)
+  const [statusMessage, setStatusMessage] = useState(null)
+  const statusMessageRef = useRef(null)
+  const errorMessageRef = useRef(null)
 
   useEffect(() => {
     fetchGroups()
   }, [])
+
+  useEffect(() => {
+    if (statusMessage && statusMessageRef.current) {
+      statusMessageRef.current.focus()
+    }
+  }, [statusMessage])
+
+  useEffect(() => {
+    if (formError && errorMessageRef.current) {
+      errorMessageRef.current.focus()
+    }
+  }, [formError])
 
   const fetchGroups = async () => {
     try {
@@ -44,9 +59,11 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
 
     if (!formData.name.trim()) {
       setFormError("Group name is required")
+      setStatusMessage(null)
       return
     }
 
+    setStatusMessage(null)
     setFormLoading(true)
     setFormError(null)
 
@@ -57,14 +74,20 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
       })
 
       const newGroup = response.data.group
-      setGroups([newGroup, ...groups])
+      setGroups((prev) => [newGroup, ...prev])
 
       // Reset form
       setFormData({ name: "", description: "" })
       setIsCreating(false)
+      showSuccess(`Group "${newGroup.name}" created successfully`)
+      setStatusMessage({
+        type: "success",
+        text: `Group "${newGroup.name}" created successfully.`,
+      })
     } catch (err) {
       console.error("[v0] Error creating group:", err)
       setFormError(err.response?.data?.error || "Failed to create group")
+      setStatusMessage(null)
     } finally {
       setFormLoading(false)
     }
@@ -75,9 +98,11 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
 
     if (!formData.name.trim()) {
       setFormError("Group name is required")
+      setStatusMessage(null)
       return
     }
 
+    setStatusMessage(null)
     setFormLoading(true)
     setFormError(null)
 
@@ -88,14 +113,29 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
       })
 
       const updatedGroup = response.data.group
-      setGroups(groups.map((g) => (g.id === updatedGroup.id ? updatedGroup : g)))
+      setGroups((prev) =>
+        prev.map((g) => (g.id === updatedGroup.id ? { ...g, ...updatedGroup } : g)),
+      )
+
+      try {
+        await fetchGroups()
+      } catch (refreshError) {
+        console.error("[v0] Error refreshing groups after update:", refreshError)
+      }
 
       // Reset form
       setFormData({ name: "", description: "" })
       setEditingGroup(null)
+      setIsCreating(false)
+      showSuccess(`Group "${updatedGroup.name}" updated successfully`)
+      setStatusMessage({
+        type: "success",
+        text: `Group "${updatedGroup.name}" updated successfully.`,
+      })
     } catch (err) {
       console.error("[v0] Error updating group:", err)
       setFormError(err.response?.data?.error || "Failed to update group")
+      setStatusMessage(null)
     } finally {
       setFormLoading(false)
     }
@@ -208,6 +248,18 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
             </h2>
 
             <form onSubmit={editingGroup ? handleUpdateGroup : handleCreateGroup} className="space-y-4">
+              {statusMessage && (
+                <div
+                  ref={statusMessageRef}
+                  tabIndex={-1}
+                  role="status"
+                  aria-live="polite"
+                  className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg focus:outline-none"
+                >
+                  <p className="text-sm text-green-700 dark:text-green-300">{statusMessage.text}</p>
+                </div>
+              )}
+
               <div>
                 <label htmlFor="group-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Group Name <span className="text-red-500">*</span>
@@ -245,8 +297,12 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
 
               {formError && (
                 <div
+                  ref={errorMessageRef}
+                  tabIndex={-1}
                   className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg"
                   role="alert"
+                  aria-live="assertive"
+                  aria-atomic="true"
                 >
                   <p className="text-sm text-red-600 dark:text-red-400">{formError}</p>
                 </div>

@@ -3133,36 +3133,74 @@ def update_group(group_id):
             return jsonify({"error": "Group name is required"}), 400
 
         # Check if group exists
-        check_query = "SELECT id FROM groups WHERE id = %s"
-        result = execute_query(check_query, (group_id,), fetch=True)
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
+        existing = cur.fetchone()
 
-        if not result or len(result) == 0:
+        if not existing:
+            cur.close()
+            conn.close()
             return jsonify({"error": "Group not found"}), 404
 
-        # Update group
-        query = """
-            UPDATE groups 
+        # Ensure name uniqueness (case-insensitive) against other groups
+        cur.execute(
+            """
+            SELECT id FROM groups
+            WHERE LOWER(name) = LOWER(%s) AND id <> %s
+            LIMIT 1
+        """,
+            (name, group_id),
+        )
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "A group with this name already exists"}), 409
+
+        cur.execute(
+            """
+            UPDATE groups
             SET name = %s, description = %s
             WHERE id = %s
             RETURNING id, name, description, created_at, file_count
-        """
+        """,
+            (name, description, group_id),
+        )
+        result = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
 
-        result = execute_query(query, (name, description, group_id), fetch=True)
-
-        if result and len(result) > 0:
-            group = dict(result[0])
+        if result:
+            group = dict(result)
             print(f"[Backend] ✓ Updated group: {name} ({group_id})")
             return jsonify({"group": group})
-        else:
-            return jsonify({"error": "Failed to update group"}), 500
+
+        return jsonify({"error": "Failed to update group"}), 500
 
     except psycopg2.IntegrityError:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
         return jsonify({"error": "A group with this name already exists"}), 409
     except Exception as e:
         print(f"[Backend] Error updating group: {e}")
         import traceback
 
         traceback.print_exc()
+        try:
+            cur.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
         return jsonify({"error": str(e)}), 500
 
 
