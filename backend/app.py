@@ -55,6 +55,42 @@ from werkzeug.utils import secure_filename
 # ----------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("doca11y-backend")
+import json
+from datetime import datetime, date
+from decimal import Decimal
+from uuid import UUID
+
+def to_json_safe(data):
+    """
+    Recursively convert data into JSON-safe types:
+    - datetime/date -> ISO string
+    - Decimal -> float
+    - UUID -> string
+    - set -> list
+    - bytes -> utf-8 string
+    - Nested dicts/lists handled automatically
+    """
+    if isinstance(data, (datetime, date)):
+        return data.isoformat()
+    elif isinstance(data, Decimal):
+        return float(data)
+    elif isinstance(data, UUID):
+        return str(data)
+    elif isinstance(data, bytes):
+        try:
+            return data.decode("utf-8")
+        except Exception:
+            return str(data)
+    elif isinstance(data, set):
+        return list(data)
+    elif isinstance(data, dict):
+        return {k: to_json_safe(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [to_json_safe(v) for v in data]
+    elif isinstance(data, tuple):
+        return tuple(to_json_safe(v) for v in data)
+    else:
+        return data
 
 # CORS / environment config
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://document-a11y-accelerator.vercel.app")
@@ -466,12 +502,13 @@ def _write_uploadfile_to_disk(upload_file: UploadFile, dest_path: str):
 @app.get("/api/scans")
 async def get_scans():
     try:
-        rows = execute_query("SELECT id, filename, upload_date, status FROM scans ORDER BY upload_date DESC", fetch=True)
-        return JSONResponse({"scans": rows})
-    except Exception:
-        logger.exception("get_scans DB error")
-        # fallback empty
-        return JSONResponse({"scans": []})
+        rows = execute_query(
+            "SELECT id, filename, upload_date, status FROM scans ORDER BY upload_date DESC", fetch=True
+        )
+        return JSONResponse(to_json_safe({"scans": rows}))
+    except Exception as e:
+        logger.exception("doca11y-backend:get_scans DB error")
+        return JSONResponse({"scans": [], "error": str(e)}, status_code=500)
 
 
 # === Batch Upload ===
@@ -499,7 +536,8 @@ async def scan_batch(files: List[UploadFile] = File(...), group_id: Optional[str
                 else:
                     asyncio.create_task(asyncio.to_thread(analyze_fn, str(file_path)))
             results.append({"scanId": scan_id, "filename": fname})
-        return JSONResponse({"batchId": batch_id, "scans": results})
+        return JSONResponse(to_json_safe({"batchId": batch_id, "scans": results}))
+       
     except Exception as e:
         logger.exception("scan_batch failed")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -705,7 +743,7 @@ async def apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
 async def fix_history(scan_id: str):
     try:
         rows = execute_query("SELECT * FROM fixes WHERE scan_id=%s ORDER BY created_at DESC", (scan_id,), fetch=True)
-        return JSONResponse({"history": rows})
+        return JSONResponse(to_json_safe({"history": rows}))
     except Exception:
         logger.exception("fix_history DB error")
         return JSONResponse({"history": []})
