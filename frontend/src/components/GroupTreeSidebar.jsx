@@ -191,14 +191,11 @@ export default function GroupTreeSidebar({
     const targetKey = normalizeId(targetGroup.id);
     fetchGroupData(targetGroup.id, groupBatches[targetKey] || null);
 
-    void handleNodeClick(
-      {
-        type: "group",
-        id: targetGroup.id,
-        data: targetGroup,
-      },
-      { moveFocus: true }
-    );
+    void handleNodeClick({
+      type: "group",
+      id: targetGroup.id,
+      data: targetGroup,
+    });
   }, [initialGroupId, groups]);
 
   const fetchGroupData = async (groupId, prefetchedBatches = null) => {
@@ -456,14 +453,11 @@ export default function GroupTreeSidebar({
                       } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500`}
                     onClick={() => {
                       toggleGroup(group.id, group.name);
-                      void handleNodeClick(
-                        {
-                          type: "group",
-                          id: group.id,
-                          data: group,
-                        },
-                        { moveFocus: true }
-                      );
+                      void handleNodeClick({
+                        type: "group",
+                        id: group.id,
+                        data: group,
+                      });
                     }}
                     aria-expanded={isExpanded}
                     aria-controls={`group-${group.id}-panel`}
