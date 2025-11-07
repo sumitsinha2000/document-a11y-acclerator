@@ -125,19 +125,19 @@ app = FastAPI(title="Doc A11y Accelerator API")
 
 
 # === Allow frontend (Vercel) to call backend (Render) ===
-origins = [
-    "https://document-a11y-accelerator.vercel.app",  # your Vercel frontend
-    "https://document-a11y-accelerator.onrender.com",  # backend Render domain
-    "http://localhost:3000",  # local dev
-]
+#origins = [
+ #   "https://document-a11y-accelerator.vercel.app",  # your Vercel frontend
+ #   "https://document-a11y-accelerator.onrender.com",  # backend Render domain
+  #  "http://localhost:3000",  # local dev
+#]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,         # exact origins allowed
-    allow_credentials=True,
-    allow_methods=["*"],           # allow all HTTP verbs
-    allow_headers=["*"],           # allow all headers
-)
+#app.add_middleware(
+   # CORSMiddleware,
+   # allow_origins=origins,         # exact origins allowed
+   # allow_credentials=True,
+   # allow_methods=["*"],           # allow all HTTP verbs
+   # allow_headers=["*"],           # allow all headers
+#)
 
 # serve uploaded files (development/test)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
@@ -735,6 +735,91 @@ async def download_file(filename: str):
         return FileResponse(str(fixed_path), media_type="application/pdf", filename=safe_name)
     return JSONResponse({"error": "File not found"}, status_code=404)
 
+
+@app.get("/api/history")
+async def get_history():
+    """Get all scans and batches with full details for history page"""
+    try:
+        print("[v0] Fetching history...")
+
+        batches_query = """
+            SELECT b.id as "batchId", b.name, b.group_id as "groupId", g.name as "groupName",
+                   b.created_at as "uploadDate", b.status, b.total_files as "fileCount",
+                   b.total_issues as "totalIssues", b.fixed_issues as "fixedIssues",
+                   b.remaining_issues as "remainingIssues", b.unprocessed_files as "unprocessedFiles"
+            FROM batches b
+            LEFT JOIN groups g ON b.group_id = g.id
+            ORDER BY b.created_at DESC
+        """
+        batches = execute_query(batches_query, fetch=True)
+
+        scans_query = """
+            SELECT s.id, s.filename, s.status, 
+                   COALESCE(s.upload_date, s.created_at) as "uploadDate",
+                   s.created_at, s.batch_id as "batchId", s.group_id as "groupId",
+                   g.name as "groupName", 
+                   COALESCE(s.total_issues, 0) as "totalIssues",
+                   COALESCE(s.issues_fixed, 0) as "issuesFixed", 
+                   COALESCE(s.issues_remaining, s.total_issues, 0) as "issuesRemaining",
+                   s.scan_results
+            FROM scans s
+            LEFT JOIN groups g ON s.group_id = g.id
+            WHERE s.batch_id IS NULL
+            ORDER BY COALESCE(s.upload_date, s.created_at) DESC
+        """
+        scans = execute_query(scans_query, fetch=True)
+
+        formatted_scans = []
+        for scan in scans:
+            scan_dict = dict(scan)
+
+            # Parse scan_results JSON safely
+            scan_results = scan_dict.get("scan_results", {})
+            if isinstance(scan_results, str):
+                try:
+                    scan_results = json.loads(scan_results)
+                except Exception as e:
+                    print(f"[Backend] Warning: Failed to parse scan_results JSON: {e}")
+                    scan_results = {}
+
+            results = scan_results.get("results", scan_results)
+            total_issues = scan_dict.get("totalIssues", 0)
+
+            # Recalculate total issues if missing
+            if not total_issues and results:
+                total_issues = sum(
+                    len(v) if isinstance(v, list) else 0 for v in results.values()
+                )
+
+            # Default status fallback
+            status = scan_dict.get("status") or "unprocessed"
+
+            formatted_scans.append({
+                "id": scan_dict["id"],
+                "filename": scan_dict["filename"],
+                "uploadDate": scan_dict.get("uploadDate"),
+                "status": status,
+                "groupId": scan_dict.get("groupId"),
+                "groupName": scan_dict.get("groupName"),
+                "totalIssues": total_issues,
+                "issuesFixed": scan_dict.get("issuesFixed", 0),
+                "issuesRemaining": scan_dict.get("issuesRemaining", total_issues),
+                "batchId": scan_dict.get("batchId"),
+            })
+
+        print(f"[v0] Returning {len(batches)} batches and {len(formatted_scans)} scans")
+
+        return SafeJSONResponse(
+            {"batches": [dict(b) for b in batches], "scans": formatted_scans}
+        )
+
+    except Exception as e:
+        print(f"[Backend] Error fetching history: {e}")
+        traceback.print_exc()
+        return JSONResponse(
+            {"error": str(e), "trace": traceback.format_exc()},
+            status_code=500
+        )
 
 # === Apply Fixes Endpoint (wrapper around auto_fix_engine) ===
 @app.post("/api/apply-fixes/{scan_id}")
