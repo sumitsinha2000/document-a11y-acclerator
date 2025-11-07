@@ -211,7 +211,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Group Management</h1>
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Group Management</h2>
               <p className="mt-2 text-gray-600 dark:text-gray-400">
                 Create and manage groups to organize your documents independently
               </p>
@@ -262,7 +262,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
 
               <div>
                 <label htmlFor="group-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Group Name <span className="text-red-500">*</span>
+                  Group Name <span className="text-red-600 dark:text-red-300">*</span>
                 </label>
                 <input
                   id="group-name"
@@ -274,6 +274,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
                   disabled={formLoading}
                   required
                   aria-required="true"
+                  autoComplete="organization"
                 />
               </div>
 
@@ -292,6 +293,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
                   rows={3}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                   disabled={formLoading}
+                  autoComplete="off"
                 />
               </div>
 
@@ -373,7 +375,6 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
                       type="button"
                       onClick={() => onOpenGroupDashboard && onOpenGroupDashboard(group.id)}
                       className="flex-1 min-w-0 text-left"
-                      aria-label={`Open dashboard for ${group.name}`}
                     >
                       <h3 className="text-base font-semibold text-gray-900 dark:text-white truncate">{group.name}</h3>
                       {group.description && (

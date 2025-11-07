@@ -285,7 +285,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
         </button>
 
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Upload History</h1>
+          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Upload History</h2>
 
           <button
             onClick={fetchHistory}
@@ -413,9 +413,9 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                       />
                     </svg>
                     <div className="min-w-0">
-                      <h3 className="font-semibold text-gray-900 dark:text-white truncate">
+                      <p className="font-semibold text-gray-900 dark:text-white truncate">
                         {batch.name || "Batch Upload"}
-                      </h3>
+                      </p>
                       {batch.groupName && (
                         <p className="text-xs text-gray-500 dark:text-gray-400 truncate">Group: {batch.groupName}</p>
                       )}
@@ -529,9 +529,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                         />
                       </svg>
                       <div className="min-w-0">
-                        <h3 className="font-semibold text-gray-900 dark:text-white truncate">
-                          {scan.filename}
-                        </h3>
+                        <p className="font-semibold text-gray-900 dark:text-white truncate">{scan.filename}</p>
                         {scan.groupName && (
                           <p className="text-xs text-gray-500 dark:text-gray-400 truncate">Group: {scan.groupName}</p>
                         )}

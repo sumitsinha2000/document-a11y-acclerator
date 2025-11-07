@@ -113,7 +113,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
     switch (status) {
       case "completed":
         return (
-          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
             <path
               fillRule="evenodd"
               d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
@@ -123,7 +123,13 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
         )
       case "in_progress":
         return (
-          <svg className="w-5 h-5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+          <svg
+            className="w-5 h-5 text-white animate-spin"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            focusable="false"
+          >
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path
               className="opacity-75"
@@ -134,7 +140,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
         )
       case "failed":
         return (
-          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
             <path
               fillRule="evenodd"
               d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
@@ -144,7 +150,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
         )
       case "skipped":
         return (
-          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
             <path
               fillRule="evenodd"
               d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z"
@@ -193,7 +199,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               aria-label="Close progress dialog"
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -215,7 +221,12 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
         </div>
 
         {/* Steps List */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div
+          className="flex-1 overflow-y-auto px-6 py-4"
+          role="region"
+          aria-label="Remediation progress steps"
+          tabIndex={0}
+        >
           <div className="space-y-4">
             {progress.steps.map((step, index) => (
               <div key={step.id} className="flex gap-4">

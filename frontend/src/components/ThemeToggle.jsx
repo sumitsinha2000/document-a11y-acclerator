@@ -27,11 +27,16 @@ export default function ThemeToggle() {
     }
   }
 
+  const modeText = isDark ? "Light mode" : "Dark mode"
+
   return (
     <button
+      type="button"
       onClick={toggleTheme}
-      className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-      aria-label="Toggle theme"
+      className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex items-center gap-2"
+      role="switch"
+      aria-checked={isDark}
+      aria-label={`Toggle theme (${modeText})`}
     >
       {isDark ? (
         <svg
@@ -62,6 +67,7 @@ export default function ThemeToggle() {
           <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
         </svg>
       )}
+      <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{modeText}</span>
     </button>
   )
 }

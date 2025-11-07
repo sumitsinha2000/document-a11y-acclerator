@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useId } from "react"
 import axios from "axios"
 import GroupSelector from "./GroupSelector"
 import UploadProgressToast from "./UploadProgressToast"
@@ -16,6 +16,13 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [selectedFiles, setSelectedFiles] = useState([])
   const [scanMode, setScanMode] = useState("scan-now")
+  const componentId = useId()
+  const uploadHeadingId = `${componentId}-upload-heading`
+  const uploadInstructionsId = `${componentId}-upload-instructions`
+  const uploadHelperId = `${componentId}-upload-helper`
+  const dropzoneLabelIds = isScanning
+    ? uploadHeadingId
+    : `${uploadHeadingId} ${uploadInstructionsId} ${uploadHelperId}`
 
   useEffect(() => {
     if (uploadProgress.length > 0) {
@@ -378,7 +385,7 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
           </aside>
 
           {/* Right Column: Upload Interface */}
-          <div className="lg:col-span-8" aria-label="File upload">
+          <section className="lg:col-span-8" role="region" aria-labelledby={uploadHeadingId}>
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 lg:p-8 transition-colors">
               <div
                 ref={uploadAreaRef}
@@ -398,10 +405,10 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
                     handleClick()
                   }
                 }}
-                aria-label="Upload PDF documents for accessibility scanning. Drag and drop files here or press Enter or Space to browse files. Multiple files can be selected."
+                aria-labelledby={dropzoneLabelIds}
                 aria-busy={isScanning}
                 aria-disabled={isScanning}
-                aria-describedby="upload-instructions"
+                aria-describedby={!isScanning ? uploadHelperId : undefined}
               >
                 {isScanning ? (
                   <div className="space-y-4">
@@ -430,11 +437,13 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
                         strokeLinejoin="round"
                       />
                     </svg>
-                    <h2 className="mt-4 text-2xl font-semibold text-gray-900 dark:text-white">Upload PDF Documents</h2>
-                    <p className="mt-2 text-base text-gray-600 dark:text-gray-400" id="upload-instructions">
+                    <h2 id={uploadHeadingId} className="mt-4 text-2xl font-semibold text-gray-900 dark:text-white">
+                      Upload PDF Documents
+                    </h2>
+                    <p className="mt-2 text-base text-gray-600 dark:text-gray-400" id={uploadInstructionsId}>
                       Drag and drop your PDFs here or click to browse
                     </p>
-                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-300" id={uploadHelperId}>
                       You can select multiple files at once
                     </p>
                     <input
@@ -736,7 +745,7 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
                 </ul>
               </div>
             </div>
-          </div>
+          </section>
         </div>
       </div>
 

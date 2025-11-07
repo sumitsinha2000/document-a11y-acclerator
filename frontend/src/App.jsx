@@ -167,8 +167,23 @@ function AppContent() {
     setCurrentView("dashboard")
   }
 
+  const viewHeadings = {
+    upload: "Upload center",
+    groups: "Group management",
+    dashboard: "Group dashboard",
+    generator: "PDF generator",
+    history: "Upload history",
+    batch: "Batch report",
+    report: "Scan report",
+  }
+
+  const pageHeading = viewHeadings[currentView] || "Doc A11y Accelerator"
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-900 overflow-x-hidden max-w-full">
+      <a href="#main-content" className="skip-to-main">
+        Skip to main content
+      </a>
       {/* Top Navigation Bar */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm flex-shrink-0">
         <div className="px-4 sm:px-6 lg:px-8 max-w-full">
@@ -212,7 +227,6 @@ function AppContent() {
                         strokeLinejoin="round"
                         strokeWidth={2}
                         d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                        aria-hidden="true"
                       />
                     </svg>
                     Upload
@@ -270,7 +284,7 @@ function AppContent() {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -331,7 +345,15 @@ function AppContent() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 max-w-full">
+      <main
+        id="main-content"
+        aria-labelledby="main-heading"
+        className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 max-w-full"
+        tabIndex={-1}
+      >
+        <h1 id="main-heading" className="sr-only">
+          {pageHeading}
+        </h1>
         <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-full">
           {currentView === "upload" && (
             <UploadArea onScanComplete={handleScanComplete} onUploadDeferred={handleUploadDeferred} />

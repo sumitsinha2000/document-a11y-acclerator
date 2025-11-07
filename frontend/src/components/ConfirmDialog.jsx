@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
+import { createPortal } from "react-dom"
 
 export default function ConfirmDialog({
   title,
@@ -14,11 +15,16 @@ export default function ConfirmDialog({
   const confirmButtonRef = useRef(null)
 
   useEffect(() => {
+    if (typeof document === "undefined") {
+      return
+    }
+
     // Focus the confirm button when dialog opens
     confirmButtonRef.current?.focus()
 
     // Prevent body scroll when dialog is open
     document.body.style.overflow = "hidden"
+
     return () => {
       document.body.style.overflow = "unset"
     }
@@ -38,6 +44,8 @@ export default function ConfirmDialog({
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
+          aria-hidden="true"
+          focusable="false"
         >
           <path
             strokeLinecap="round"
@@ -51,7 +59,14 @@ export default function ConfirmDialog({
     },
     danger: {
       icon: (
-        <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg
+          className="w-6 h-6 text-red-600 dark:text-red-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          focusable="false"
+        >
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -64,7 +79,14 @@ export default function ConfirmDialog({
     },
     info: {
       icon: (
-        <svg className="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg
+          className="w-6 h-6 text-blue-600 dark:text-blue-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          focusable="false"
+        >
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -79,7 +101,11 @@ export default function ConfirmDialog({
 
   const style = typeStyles[type] || typeStyles.warning
 
-  return (
+  if (typeof document === "undefined") {
+    return null
+  }
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
       onClick={onCancel}
@@ -123,6 +149,7 @@ export default function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

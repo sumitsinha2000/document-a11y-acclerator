@@ -56,9 +56,9 @@ export default function SidebarNav({ isOpen = true }) {
       aria-label="Report navigation"
     >
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
           Report Sections
-        </h3>
+        </p>
       </div>
       <ul className="p-3 space-y-1">
         {sections.map((section) => (
@@ -72,7 +72,7 @@ export default function SidebarNav({ isOpen = true }) {
               onClick={() => scrollToSection(section.id)}
               aria-current={activeSection === section.id ? "true" : undefined}
             >
-              <span className="text-lg" aria-hidden="true">
+              <span className="text-lg">
                 {section.icon}
               </span>
               <span>{section.label}</span>

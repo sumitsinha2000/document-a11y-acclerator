@@ -185,17 +185,21 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
+      <main
+        role="main"
+        className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900"
+        aria-busy="true"
+      >
         <div className="text-lg text-gray-600 dark:text-gray-400">Loading report...</div>
-      </div>
+      </main>
     )
   }
 
   if (!reportData) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
+      <main role="main" className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
         <div className="text-lg text-red-600 dark:text-red-400">Failed to load report</div>
-      </div>
+      </main>
     )
   }
 
@@ -218,8 +222,18 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
   const breadcrumbItems = [{ label: "Home", onClick: onBack }, { label: "Report" }]
 
+  const mainHeadingId = "report-viewer-heading"
+  const headingText = reportData.fileName || reportData.filename || "Accessibility report"
+
   return (
-    <div className="flex overflow-x-hidden bg-slate-50 dark:bg-slate-900">
+    <main
+      role="main"
+      aria-labelledby={mainHeadingId}
+      className="flex overflow-x-hidden bg-slate-50 dark:bg-slate-900 min-h-screen"
+    >
+      <h1 id={mainHeadingId} className="sr-only">
+        {headingText}
+      </h1>
       <SidebarNav isOpen={sidebarOpen} />
 
       {/* Collapsible batch files sidebar */}
@@ -233,7 +247,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
             {/* Sidebar Header */}
             <div className="px-4 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Batch Files</h2>
-              <span className="text-xs text-slate-500 dark:text-slate-400">{scans.length} files</span>
+              <span className="text-xs text-slate-600 dark:text-slate-300">{scans.length} files</span>
             </div>
 
             {/* Files List */}
@@ -258,6 +272,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
                     >
                       <path
                         strokeLinecap="round"
@@ -287,7 +303,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                           >
                             {scan.summary.complianceScore}%
                           </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                              <span className="text-xs text-slate-600 dark:text-slate-300">
                             {scan.summary.totalIssues} issues
                           </span>
                         </div>
@@ -342,6 +358,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
+            focusable="false"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
@@ -363,7 +381,14 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                 onClick={handleRefresh}
                 className="px-5 py-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-2 font-semibold text-base border border-slate-200 dark:border-slate-600"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -381,12 +406,14 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
             <div>
               {reportData.groupName && (
                 <div className="flex items-center gap-2 mb-3">
-                  <svg
-                    className="w-6 h-6 text-violet-600 dark:text-violet-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
+                <svg
+                  className="w-6 h-6 text-violet-600 dark:text-violet-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -397,16 +424,16 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                   <span className="text-violet-700 dark:text-violet-300 font-bold text-xl">{reportData.groupName}</span>
                 </div>
               )}
-              <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-3">
+              <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-3">
                 {reportData.fileName || reportData.filename}
-              </h1>
+              </h2>
               <div className="flex items-center gap-4 text-base text-slate-600 dark:text-slate-400 font-medium">
                 <span>
                   {scanDateLabel} {new Date(reportData.uploadDate || reportData.timestamp).toLocaleDateString()}
                 </span>
                 {reportData.appliedFixes && (
                   <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
                       <path
                         fillRule="evenodd"
                         d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
@@ -421,7 +448,13 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
           {/* {verapdfStatus.isActive && (
             <div className="flex items-center gap-2 px-5 py-3 bg-blue-50 dark:bg-blue-500/20 border-2 border-blue-200 dark:border-blue-400/30 rounded-lg">
-              <svg className="w-6 h-6 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+              <svg
+                className="w-6 h-6 text-blue-600 dark:text-blue-400"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+                aria-hidden="true"
+                focusable="false"
+              >
                   <path
                     fillRule="evenodd"
                     d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-.723-.725 3.066 3.066 0 01-2.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
@@ -435,7 +468,14 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
         {isUploaded && (
           <div className="mt-4 px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg flex items-start gap-3">
-            <svg className="w-5 h-5 text-slate-600 dark:text-slate-300 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg
+              className="w-5 h-5 text-slate-600 dark:text-slate-300 mt-0.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 6a9 9 0 110 12 9 9 0 010-12z" />
             </svg>
             <div>
@@ -500,6 +540,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
+                          focusable="false"
                         >
                           <path
                             strokeLinecap="round"
@@ -514,7 +556,13 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                     {verapdfStatus.isActive && (
                       <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
                         <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
-                          <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                          <svg
+                            className="w-4 h-4 text-blue-600 dark:text-blue-400"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
                             <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
                             <path
                               fillRule="evenodd"
@@ -531,6 +579,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                             className="w-4 h-4 text-purple-600 dark:text-purple-400"
                             fill="currentColor"
                             viewBox="0 0 20 20"
+                            aria-hidden="true"
+                            focusable="false"
                           >
                             <path
                               fillRule="evenodd"
@@ -560,6 +610,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
+                          focusable="false"
                         >
                           <path
                             strokeLinecap="round"
@@ -586,6 +638,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
+                          focusable="false"
                         >
                           <path
                             strokeLinecap="round"
@@ -645,6 +699,6 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
           />
         )}
       </div>
-    </div>
+    </main>
   )
 }

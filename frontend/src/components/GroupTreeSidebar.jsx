@@ -375,14 +375,18 @@ export default function GroupTreeSidebar({
           <button
             onClick={handleRefresh}
             className="p-1.5 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-            title="Refresh"
+            title="Refresh groups"
+            aria-label="Refresh groups"
           >
             <svg
               className="w-4 h-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              role="img"
+              aria-labelledby="group-tree-refresh-icon"
             >
+              <title id="group-tree-refresh-icon">Refresh</title>
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -434,10 +438,10 @@ export default function GroupTreeSidebar({
               const fileToggleDisabled = fileCount === 0;
               const batchAriaLabel = batchToggleDisabled
                 ? "Batches: no batches available"
-                : `Batches: ${batchCount} ${batchCount === 1 ? "batch" : "batches"} available`;
+                : undefined;
               const fileAriaLabel = fileToggleDisabled
                 ? "Files: no files available"
-                : `Files: ${fileCount} ${fileCount === 1 ? "file" : "files"} available`;
+                : undefined;
               const isSelected =
                 selectedNode?.type === "group" &&
                 normalizeId(selectedNode?.id) === normalizedGroupId;
@@ -509,15 +513,19 @@ export default function GroupTreeSidebar({
                       >
                         {group.name}
                       </span>
-                      <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                      <span className="mt-0.5 block text-xs text-slate-600 dark:text-slate-300">
                         {group.fileCount || 0} files, {group.batchCount || 0} batches
                       </span>
                     </span>
                   </button>
 
-                  {isExpanded && (
-                    <div id={`group-${group.id}-panel`} className="ml-6 space-y-2">
-                      {/* Batches Section */}
+                  <div
+                    id={`group-${group.id}-panel`}
+                    className={`ml-6 space-y-2 ${isExpanded ? "" : "hidden"}`}
+                    hidden={!isExpanded}
+                    aria-hidden={!isExpanded}
+                  >
+                    {/* Batches Section */}
                       <div className="space-y-1">
                         <button
                           type="button"
@@ -540,10 +548,7 @@ export default function GroupTreeSidebar({
                         >
                           <span className="flex items-center gap-2">
                             <span>Batches</span>
-                            <span
-                              aria-hidden="true"
-                              className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-700/60 dark:text-slate-300"
-                            >
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-700/60 dark:text-slate-300">
                               {batchCount}
                             </span>
                           </span>
@@ -563,8 +568,13 @@ export default function GroupTreeSidebar({
                             </svg>
                           )}
                         </button>
-                        {batchesExpanded && (
-                          <ul id={`group-${group.id}-batches`} className="space-y-1" role="group">
+                        {!batchToggleDisabled && (
+                          <ul
+                            id={`group-${group.id}-batches`}
+                            className={`space-y-1 ${batchesExpanded ? "" : "hidden"}`}
+                            hidden={!batchesExpanded}
+                            aria-hidden={!batchesExpanded}
+                          >
                             {batches.map((batch) => {
                               const isBatchSelected =
                                 selectedNode?.type === "batch" &&
@@ -621,7 +631,7 @@ export default function GroupTreeSidebar({
                                       >
                                         {batch.name}
                                       </span>
-                                      <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                                      <span className="mt-0.5 block text-xs text-slate-700 dark:text-slate-200">
                                         {batch.fileCount} files
                                       </span>
                                     </span>
@@ -661,10 +671,7 @@ export default function GroupTreeSidebar({
                         >
                           <span className="flex items-center gap-2">
                             <span>Files</span>
-                            <span
-                              aria-hidden="true"
-                              className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-700/60 dark:text-slate-300"
-                            >
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-700/60 dark:text-slate-300">
                               {fileCount}
                             </span>
                           </span>
@@ -684,8 +691,13 @@ export default function GroupTreeSidebar({
                             </svg>
                           )}
                         </button>
-                        {filesExpanded && (
-                          <ul id={`group-${group.id}-files`} className="space-y-1" role="group">
+                        {!fileToggleDisabled && (
+                          <ul
+                            id={`group-${group.id}-files`}
+                            className={`space-y-1 ${filesExpanded ? "" : "hidden"}`}
+                            hidden={!filesExpanded}
+                            aria-hidden={!filesExpanded}
+                          >
                             {files.map((file) => {
                               const isFileSelected =
                                 selectedNode?.type === "file" &&
@@ -772,14 +784,13 @@ export default function GroupTreeSidebar({
                         )}
                       </div>
 
-                      {files.length === 0 && batches.length === 0 && (
+                      {files.length === 0 && batches.length === 0 ? (
                         <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
                           No files or batches
                         </div>
-                      )}
+                      ) : null}
                     </div>
-                  )}
-                </div>
+                  </div>
               );
             })}
           </div>

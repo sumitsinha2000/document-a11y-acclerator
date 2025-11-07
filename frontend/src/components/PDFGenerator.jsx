@@ -118,7 +118,7 @@ export default function PDFGenerator() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center gap-3 mb-6">
             <FileText className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">PDF Generator</h1>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">PDF Generator</h2>
           </div>
 
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
@@ -286,7 +286,7 @@ export default function PDFGenerator() {
             disabled={loading || !companyName.trim()}
             className={`w-full px-4 py-3 rounded-md text-white transition-colors flex items-center justify-center gap-2 font-medium ${
               pdfType === "accessible"
-                ? "bg-green-600 hover:bg-green-700 disabled:bg-gray-400"
+                ? "bg-green-700 hover:bg-green-800 disabled:bg-green-400"
                 : "bg-red-600 hover:bg-red-700 disabled:bg-gray-400"
             } disabled:cursor-not-allowed`}
           >

@@ -382,18 +382,21 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold text-gray-900 dark:text-white">Remediation Suggestions</h3>
         <div className="flex items-center gap-3">
-          <span
-            className="text-xs text-gray-500 dark:text-gray-400"
-            aria-label={`Estimated time: ${formatTimeEstimate(fixes.estimatedTime)}`}
-          >
+          <span className="text-xs text-gray-500 dark:text-gray-400">
             Est. Time: {formatTimeEstimate(fixes.estimatedTime)}
           </span>
           <button
             onClick={() => setShowAIPanel(true)}
             className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-            aria-label="Get AI-powered remediation insights"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -409,7 +412,14 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
               aria-label="Open PDF editor to apply manual fixes"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -465,7 +475,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                       aria-expanded={isExpanded}
                       aria-controls={descriptionId}
                     >
-                      <div className="text-lg" aria-hidden="true">
+                      <div className="text-lg">
                         ⚙️
                       </div>
                       <div className="flex-1 min-w-0">
@@ -482,7 +492,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                           <span className="font-medium capitalize">{fix.severity}</span>
                           {fix.estimatedTime && (
                             <>
-                              <span aria-hidden="true">•</span>
+                              <span>•</span>
                               <span>{fix.estimatedTime} min</span>
                             </>
                           )}
@@ -509,7 +519,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 onClick={handleApplyTraditionalFixes}
                 disabled={applyingTraditional}
                 aria-busy={applyingTraditional}
-                aria-label={applyingTraditional ? "Applying traditional fixes" : "Apply traditional automated fixes"}
               >
                 {applyingTraditional ? "Applying..." : "Apply Traditional Fixes"}
               </button>
@@ -545,7 +554,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                       aria-expanded={isExpanded}
                       aria-controls={descriptionId}
                     >
-                      <div className="text-lg" aria-hidden="true">
+                      <div className="text-lg">
                         🔍
                       </div>
                       <div className="flex-1 min-w-0">
@@ -562,7 +571,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                           <span className="font-medium capitalize">{fix.severity}</span>
                           {fix.estimatedTime && (
                             <>
-                              <span aria-hidden="true">•</span>
+                              <span>•</span>
                               <span>{fix.estimatedTime} min</span>
                             </>
                           )}
@@ -589,11 +598,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 onClick={handleApplyTraditionalSemiFixes}
                 disabled={applyingTraditionalSemi}
                 aria-busy={applyingTraditionalSemi}
-                aria-label={
-                  applyingTraditionalSemi
-                    ? "Applying traditional semi-automated fixes"
-                    : "Apply traditional semi-automated fixes"
-                }
               >
                 {applyingTraditionalSemi ? "Applying..." : "Apply Traditional Fixes"}
               </button>
@@ -629,7 +633,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                       aria-expanded={isExpanded}
                       aria-controls={descriptionId}
                     >
-                      <div className="text-lg" aria-hidden="true">
+                      <div className="text-lg">
                         👤
                       </div>
                       <div className="flex-1 min-w-0">
@@ -646,7 +650,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                           <span className="font-medium capitalize">{fix.severity}</span>
                           {fix.estimatedTime && (
                             <>
-                              <span aria-hidden="true">•</span>
+                              <span>•</span>
                               <span>{fix.estimatedTime} min</span>
                             </>
                           )}

@@ -89,7 +89,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
   return (
     <div className="space-y-3">
       <label className="block text-sm font-semibold text-gray-900 dark:text-white" id="Selectgroup" htmlFor="groupSelect">
-        Select Group {required && <span className="text-red-500">*</span>}
+        Select Group {required && <span className="text-red-600 dark:text-red-300">*</span>}
       </label>
 
       {!isCreatingNew ? (
@@ -151,7 +151,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
               htmlFor="newGroupName"
               className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
             >
-              Group Name <span className="text-red-500">*</span>
+              Group Name <span className="text-red-600 dark:text-red-300">*</span>
             </label>
             <input
               id="newGroupName"
