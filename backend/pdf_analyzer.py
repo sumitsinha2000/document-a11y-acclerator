@@ -347,8 +347,28 @@ class PDFAccessibilityAnalyzer:
             "recommendation": "Add descriptive alt text to all images",
         })
 
+    PDF_A_ISSUE_WEIGHT = 5
+
+    @staticmethod
+    def _estimate_pdfa_compliance_from_results(results: Dict[str, List]) -> Optional[int]:
+        """Return a PDF/A compliance percentage derived from tracked issues."""
+        if not isinstance(results, dict):
+            return None
+        pdfa_issues = results.get("pdfaIssues")
+        if pdfa_issues is None:
+            return None
+        issue_count = len(pdfa_issues) if isinstance(pdfa_issues, list) else 0
+        return max(0, 100 - issue_count * PDFAccessibilityAnalyzer.PDF_A_ISSUE_WEIGHT)
+
+    @staticmethod
+    def _combine_compliance_scores(*scores: Optional[int]) -> Optional[int]:
+        valid = [score for score in scores if isinstance(score, (int, float))]
+        if not valid:
+            return None
+        return round(sum(valid) / len(valid))
+
     def calculate_compliance_score(self) -> int:
-        """Calculate overall accessibility compliance score (0-100)"""
+        """Calculate fallback compliance score from severity distribution."""
         try:
             total_issues = sum(len(v) for v in self.issues.values())
             
@@ -384,20 +404,35 @@ class PDFAccessibilityAnalyzer:
                 for v in self.issues.values()
             )
 
-            return {
+            summary = {
                 "totalIssues": total_issues,
                 "highSeverity": high_severity,
                 "mediumSeverity": medium_severity,
                 "complianceScore": self.calculate_compliance_score(),
             }
+            pdfa_compliance = self._estimate_pdfa_compliance_from_results(self.issues)
+            if pdfa_compliance is not None:
+                summary.setdefault("pdfaCompliance", pdfa_compliance)
+            combined_score = self._combine_compliance_scores(
+                summary.get("wcagCompliance"),
+                summary.get("pdfuaCompliance"),
+                summary.get("pdfaCompliance"),
+            )
+            if combined_score is not None:
+                summary["complianceScore"] = combined_score
+            return summary
         except Exception as e:
             print(f"[Analyzer] Error getting summary: {e}")
-            return {
+            summary = {
                 "totalIssues": 0,
                 "highSeverity": 0,
                 "mediumSeverity": 0,
                 "complianceScore": 50,
             }
+            pdfa_compliance = self._estimate_pdfa_compliance_from_results(self.issues)
+            if pdfa_compliance is not None:
+                summary.setdefault("pdfaCompliance", pdfa_compliance)
+            return summary
 
     @staticmethod
     def calculate_summary(results: Dict[str, List], verapdf_status: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -442,6 +477,16 @@ class PDFAccessibilityAnalyzer:
             if isinstance(verapdf_status, dict):
                 summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
                 summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+            pdfa_compliance = PDFAccessibilityAnalyzer._estimate_pdfa_compliance_from_results(results)
+            if pdfa_compliance is not None:
+                summary.setdefault("pdfaCompliance", pdfa_compliance)
+            combined_score = PDFAccessibilityAnalyzer._combine_compliance_scores(
+                summary.get("wcagCompliance"),
+                summary.get("pdfuaCompliance"),
+                summary.get("pdfaCompliance"),
+            )
+            if combined_score is not None:
+                summary["complianceScore"] = combined_score
 
             return summary
         except Exception as e:

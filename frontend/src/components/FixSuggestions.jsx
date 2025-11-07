@@ -433,6 +433,22 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
         </div>
       </div>
 
+      <div className="flex items-start gap-3 px-4 py-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
+        <svg
+          className="w-5 h-5 text-blue-600 dark:text-blue-300 mt-0.5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 6a9 9 0 110 12 9 9 0 010-12z" />
+        </svg>
+        <p className="text-sm text-blue-900 dark:text-blue-100">
+          Automated remediation sets the document <code className="font-mono text-xs bg-white/60 dark:bg-gray-800/60 px-1 py-0.5 rounded">/Lang</code> entry to <span className="font-semibold">en-US</span> whenever it is missing so screen readers always receive a default language.
+        </p>
+      </div>
+
       {showAIPanel && <AIRemediationPanel scanId={scanId} onClose={() => setShowAIPanel(false)} />}
 
       {showEditor && (

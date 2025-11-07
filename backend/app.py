@@ -305,7 +305,15 @@ def build_placeholder_scan_payload():
             "highSeverity": 0,
             "mediumSeverity": 0,
             "lowSeverity": 0,
-            "complianceScore": 0,
+            "wcagCompliance": base_status.get("wcagCompliance"),
+            "pdfuaCompliance": base_status.get("pdfuaCompliance"),
+            "pdfaCompliance": base_status.get("pdfaCompliance"),
+            "complianceScore": _combine_compliance_scores(
+                base_status.get("wcagCompliance"),
+                base_status.get("pdfuaCompliance"),
+                base_status.get("pdfaCompliance"),
+            )
+            or 0,
         },
         "verapdfStatus": base_status,
         "fixes": [],
@@ -374,12 +382,29 @@ def execute_query(query, params=None, fetch=False):
             raise
 
 
+def _compute_issue_based_compliance(issue_count: int, decrement: int = 10):
+    """Return a rough compliance percentage based on number of blocking issues."""
+    if issue_count is None:
+        return None
+    issue_count = max(0, issue_count)
+    return max(0, 100 - issue_count * decrement)
+
+
+def _combine_compliance_scores(*scores):
+    """Average any numeric compliance scores, ignoring missing values."""
+    valid_scores = [score for score in scores if isinstance(score, (int, float))]
+    if not valid_scores:
+        return None
+    return round(sum(valid_scores) / len(valid_scores))
+
+
 def build_verapdf_status(results, analyzer=None):
     """Normalize veraPDF-style compliance status based on available data."""
     status = {
         "isActive": False,
         "wcagCompliance": None,
         "pdfuaCompliance": None,
+        "pdfaCompliance": None,
         "totalVeraPDFIssues": 0,
     }
 
@@ -396,8 +421,9 @@ def build_verapdf_status(results, analyzer=None):
 
     wcag_issues = len(results.get("wcagIssues", []))
     pdfua_issues = len(results.get("pdfuaIssues", []))
+    pdfa_issues = len(results.get("pdfaIssues", []))
 
-    total = wcag_issues + pdfua_issues
+    total = wcag_issues + pdfua_issues + pdfa_issues
     status["totalVeraPDFIssues"] = total
 
     if total == 0:
@@ -405,16 +431,14 @@ def build_verapdf_status(results, analyzer=None):
         status["isActive"] = True
         status["wcagCompliance"] = 100
         status["pdfuaCompliance"] = 100
+        status["pdfaCompliance"] = 100
         return status
 
-    if wcag_issues or pdfua_issues:
+    if wcag_issues or pdfua_issues or pdfa_issues:
         status["isActive"] = True
-        status["wcagCompliance"] = (
-            max(0, 100 - wcag_issues * 10) if wcag_issues or pdfua_issues else 100
-        )
-        status["pdfuaCompliance"] = (
-            max(0, 100 - pdfua_issues * 10) if pdfua_issues or wcag_issues else 100
-        )
+        status["wcagCompliance"] = _compute_issue_based_compliance(wcag_issues, 10)
+        status["pdfuaCompliance"] = _compute_issue_based_compliance(pdfua_issues, 10)
+        status["pdfaCompliance"] = _compute_issue_based_compliance(pdfa_issues, 5)
 
     return status
 
@@ -801,6 +825,14 @@ def scan_pdf():
     if isinstance(summary, dict) and verapdf_status:
         summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
         summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+        summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+        combined_score = _combine_compliance_scores(
+            summary.get("wcagCompliance"),
+            summary.get("pdfuaCompliance"),
+            summary.get("pdfaCompliance"),
+        )
+        if combined_score is not None:
+            summary["complianceScore"] = combined_score
 
     fix_suggestions = generate_fix_suggestions(scan_results)
 
@@ -860,6 +892,30 @@ def start_deferred_scan(scan_id):
         if isinstance(summary, dict) and verapdf_status:
             summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
             summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+            summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+            combined_score = _combine_compliance_scores(
+                summary.get("wcagCompliance"),
+                summary.get("pdfuaCompliance"),
+                summary.get("pdfaCompliance"),
+            )
+            if combined_score is not None:
+                summary["complianceScore"] = combined_score
+            summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+            combined_score = _combine_compliance_scores(
+                summary.get("wcagCompliance"),
+                summary.get("pdfuaCompliance"),
+                summary.get("pdfaCompliance"),
+            )
+            if combined_score is not None:
+                summary["complianceScore"] = combined_score
+            summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+            combined_score = _combine_compliance_scores(
+                summary.get("wcagCompliance"),
+                summary.get("pdfuaCompliance"),
+                summary.get("pdfaCompliance"),
+            )
+            if combined_score is not None:
+                summary["complianceScore"] = combined_score
 
         fix_suggestions = generate_fix_suggestions(scan_results)
         formatted_results = {
@@ -2645,6 +2701,16 @@ def get_scan(scan_id):
                 summary.setdefault(
                     "pdfuaCompliance", verapdf_status.get("pdfuaCompliance")
                 )
+                summary.setdefault(
+                    "pdfaCompliance", verapdf_status.get("pdfaCompliance")
+                )
+                combined_score = _combine_compliance_scores(
+                    summary.get("wcagCompliance"),
+                    summary.get("pdfuaCompliance"),
+                    summary.get("pdfaCompliance"),
+                )
+                if combined_score is not None:
+                    summary["complianceScore"] = combined_score
 
             fix_suggestions = generate_fix_suggestions(results)
 
@@ -2667,6 +2733,7 @@ def get_scan(scan_id):
                     "isActive": False,
                     "wcagCompliance": None,
                     "pdfuaCompliance": None,
+                    "pdfaCompliance": None,
                     "totalVeraPDFIssues": len(results.get("wcagIssues", []))
                     + len(results.get("pdfaIssues", []))
                     + len(results.get("pdfuaIssues", [])),
@@ -3805,6 +3872,14 @@ def export_batch(batch_id):
             if isinstance(summary, dict) and verapdf_status:
                 summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
                 summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+                summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+                combined_score = _combine_compliance_scores(
+                    summary.get("wcagCompliance"),
+                    summary.get("pdfuaCompliance"),
+                    summary.get("pdfaCompliance"),
+                )
+                if combined_score is not None:
+                    summary["complianceScore"] = combined_score
 
             latest_fix = None
             if scan_row.get("applied_at"):

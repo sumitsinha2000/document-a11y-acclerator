@@ -29,6 +29,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const [canScrollRight, setCanScrollRight] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const formatPercentage = (value) => (typeof value === "number" ? `${value}%` : "N/A")
 
   const { showSuccess, showError, showWarning, showInfo } = useNotification()
 
@@ -207,12 +208,16 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     totalIssues: 0,
     highSeverity: 0,
     complianceScore: 0,
+    wcagCompliance: null,
+    pdfuaCompliance: null,
+    pdfaCompliance: null,
   }
 
   const verapdfStatus = reportData?.verapdfStatus || {
     isActive: false,
     wcagCompliance: null,
     pdfuaCompliance: null,
+    pdfaCompliance: null,
     totalVeraPDFIssues: 0,
   }
 
@@ -529,7 +534,9 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                       <div>
                         <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Compliance Score</p>
                         <div className="flex items-baseline">
-                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.complianceScore}%</p>
+                          <p className="text-4xl font-bold text-slate-900 dark:text-white">
+                            {formatPercentage(summary.complianceScore)}
+                          </p>
                         </div>
                       </div>
                       <div
@@ -571,7 +578,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                             />
                           </svg>
                           <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
-                            WCAG {verapdfStatus.wcagCompliance}%
+                            WCAG {formatPercentage(verapdfStatus.wcagCompliance)}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-full border border-purple-200 dark:border-purple-800">
@@ -589,7 +596,25 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                             />
                           </svg>
                           <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
-                            PDF/UA {verapdfStatus.pdfuaCompliance}%
+                            PDF/UA {formatPercentage(verapdfStatus.pdfuaCompliance)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-full border border-amber-200 dark:border-amber-800">
+                          <svg
+                            className="w-4 h-4 text-amber-600 dark:text-amber-400"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M10 2a1 1 0 01.894.553l7 14A1 1 0 0117 18H3a1 1 0 01-.894-1.447l7-14A1 1 0 0110 2zm0 4a1 1 0 00-.894.553L4.618 14h10.764l-4.488-7.447A1 1 0 0010 6z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                          <span className="text-sm font-bold text-amber-700 dark:text-amber-300">
+                            PDF/A {formatPercentage(verapdfStatus.pdfaCompliance)}
                           </span>
                         </div>
                       </div>

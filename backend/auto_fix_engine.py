@@ -600,9 +600,9 @@ class AutoFixEngine:
                 tracker.start_step(step_id)
             
             try:
-                # Always set language to ensure compliance
+                # Always set the PDF /Lang entry so remediated files default to en-US
                 pdf.Root.Lang = 'en-US'
-                print("[AutoFixEngine] ✓ Set document language (en-US)")
+                print("[AutoFixEngine] ✓ /Lang set to en-US during remediation")
                 
                 fixes_applied.append({
                     'type': 'addLanguage',
@@ -1003,7 +1003,7 @@ class AutoFixEngine:
                 # Ensure language
                 if not hasattr(pdf.Root, 'Lang') or not pdf.Root.Lang:
                     pdf.Root.Lang = 'en-US'
-                    print("[AutoFixEngine] ✓ Added document language (en-US)")
+                    print("[AutoFixEngine] ✓ Added /Lang entry (en-US)")
                 
                 # Mark as tagged
                 if not hasattr(pdf.Root, 'MarkInfo'):
@@ -1064,7 +1064,7 @@ class AutoFixEngine:
                 print(f"[AutoFixEngine] Applying generic fix for: {fix_type}")
                 if not hasattr(pdf.Root, 'Lang') or not pdf.Root.Lang:
                     pdf.Root.Lang = 'en-US'
-                    print("[AutoFixEngine] ✓ Added document language (en-US)")
+                    print("[AutoFixEngine] ✓ Added /Lang entry (en-US)")
                 
                 if not hasattr(pdf.Root, 'MarkInfo'):
                     pdf.Root.MarkInfo = pdf.make_indirect(Dictionary(Marked=True))

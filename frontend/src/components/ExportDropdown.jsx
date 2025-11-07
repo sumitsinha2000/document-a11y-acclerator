@@ -188,18 +188,21 @@ export default function ExportDropdown({ scanId, filename }) {
 
     // Summary boxes
     const summaryData = [
-      ["Overall Compliance Score", `${summary.complianceScore || 0}%`],
+      [
+        "Overall Compliance Score",
+        typeof summary.complianceScore === "number" ? `${summary.complianceScore}%` : "N/A",
+      ],
       [
         "WCAG Compliance",
         typeof summary.wcagCompliance === "number" ? `${summary.wcagCompliance}%` : "N/A",
       ],
       [
         "PDF/UA Compliance",
-        typeof summary.pdfuaCompliance === "number"
-          ? `${summary.pdfuaCompliance}%`
-          : typeof summary.pdfaCompliance === "number"
-            ? `${summary.pdfaCompliance}%`
-            : "N/A",
+        typeof summary.pdfuaCompliance === "number" ? `${summary.pdfuaCompliance}%` : "N/A",
+      ],
+      [
+        "PDF/A Compliance",
+        typeof summary.pdfaCompliance === "number" ? `${summary.pdfaCompliance}%` : "N/A",
       ],
       ["Total Issues", `${summary.totalIssues || 0}`],
       ["High Severity Issues", `${summary.highSeverity || 0}`],

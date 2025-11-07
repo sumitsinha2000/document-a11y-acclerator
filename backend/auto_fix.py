@@ -185,11 +185,11 @@ class AutoFixEngine:
                     meta["pdf:Producer"] = "PDF Accessibility Accelerator"
                     meta["xmp:ModifyDate"] = datetime.datetime.now().isoformat()
 
-                # Set document language if not present
+                # Set PDF /Lang if not present so remediation defaults to en-US
                 if "/Lang" not in pdf.Root:
                     pdf.Root.Lang = "en-US"
                     fixes_applied.append("Set document language to en-US")
-                    print("[AutoFix] Set document language")
+                    print("[AutoFix] Added /Lang entry (en-US)")
 
                 if "/MarkInfo" not in pdf.Root:
                     pdf.Root.MarkInfo = pikepdf.Dictionary(Marked=True)

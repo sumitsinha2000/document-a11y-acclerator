@@ -218,7 +218,8 @@ export const buildReportMetadata = ({ filename, scanId, summary }) => {
       highSeverity: summary?.highSeverity ?? null,
       complianceScore: summary?.complianceScore ?? null,
       wcagCompliance: summary?.wcagCompliance ?? null,
-      pdfuaCompliance: summary?.pdfuaCompliance ?? summary?.pdfaCompliance ?? null,
+      pdfuaCompliance: summary?.pdfuaCompliance ?? null,
+      pdfaCompliance: summary?.pdfaCompliance ?? null,
     },
   }
 }
@@ -492,6 +493,8 @@ export const generateLegacyHtmlReport = (data, filename) => {
     .issue-item.high { border-left-color: #fd7e14; }
     .issue-item.medium { border-left-color: #ffc107; }
     .issue-item.low { border-left-color: #28a745; }
+    .issue-item.error { border-left-color: #b91c1c; }
+    .issue-item.warning { border-left-color: #f97316; }
     .issue-header {
       display: flex;
       align-items: center;
@@ -511,6 +514,8 @@ export const generateLegacyHtmlReport = (data, filename) => {
     .severity-badge.high { background: #fd7e14; }
     .severity-badge.medium { background: #ffc107; color: #333; }
     .severity-badge.low { background: #28a745; }
+    .severity-badge.error { background: #b91c1c; }
+    .severity-badge.warning { background: #f97316; }
     .issue-title { font-weight: 600; font-size: 1.1em; color: #333; }
     .issue-details { margin-top: 10px; color: #666; }
     .issue-details p { margin: 5px 0; }
