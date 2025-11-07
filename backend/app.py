@@ -12,6 +12,7 @@ import re
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
 
 from pdf_analyzer import PDFAccessibilityAnalyzer
 from fix_suggestions import generate_fix_suggestions
@@ -19,6 +20,9 @@ from auto_fix_engine import AutoFixEngine
 from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 from pdf_generator import PDFGenerator
 from werkzeug.utils import secure_filename
+from storage import StorageConfig, configure_storage, get_storage
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -27,13 +31,52 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 db_lock = threading.Lock()
 
-UPLOAD_FOLDER = "uploads"
-FIXED_FOLDER = "fixed"
+STORAGE_CONFIG = StorageConfig.from_env()
+STORAGE_DRIVER = STORAGE_CONFIG.driver.lower()
+STORAGE_LOCAL_ROOT = STORAGE_CONFIG.local_root
+STORAGE_BUCKET = STORAGE_CONFIG.bucket
+STORAGE_ENDPOINT_URL = STORAGE_CONFIG.endpoint_url
+STORAGE_IS_LOCAL = STORAGE_DRIVER == "local"
+UPLOAD_FOLDER = str(STORAGE_LOCAL_ROOT)
+FIXED_FOLDER = os.getenv("FIXED_FOLDER", "fixed")
+
 pdf_generator = PDFGenerator()
 GENERATED_PDFS_FOLDER = pdf_generator.output_dir
+storage_backend = configure_storage(STORAGE_CONFIG)
 
 
 VERSION_FILENAME_PATTERN = re.compile(r"_v(\d+)\.pdf$", re.IGNORECASE)
+
+
+def _ensure_local_storage(operation: str) -> None:
+    """Guard routes that still require filesystem-backed storage."""
+    if not STORAGE_IS_LOCAL:
+        raise RuntimeError(
+            f"{operation} requires STORAGE_DRIVER='local'. "
+            f"Current driver '{STORAGE_DRIVER}' is not yet supported by these routes. "
+            "Update storage integration before enabling an object-store driver."
+        )
+
+
+def _require_database_url() -> str:
+    """Ensure DATABASE_URL is configured before opening a connection."""
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL is not set. Define it in backend/.env (see backend/.example.env)."
+        )
+    return DATABASE_URL
+
+
+def _uploads_root() -> Path:
+    """Return the local uploads directory (guarded by storage driver)."""
+    _ensure_local_storage("Local upload storage access")
+    return Path(UPLOAD_FOLDER)
+
+
+def _fixed_root() -> Path:
+    """Return the local fixed-PDF directory (guarded by storage driver)."""
+    _ensure_local_storage("Fixed PDF storage access")
+    return Path(FIXED_FOLDER)
 
 
 def _truthy(value):
@@ -45,9 +88,14 @@ def _truthy(value):
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def get_storage_backend():
+    """Expose the configured storage backend for other modules."""
+    return storage_backend or get_storage()
+
+
 def _fixed_scan_dir(scan_id, ensure_exists=False):
     """Return the directory that stores versioned fixed PDFs for the scan."""
-    path = Path(FIXED_FOLDER) / str(scan_id)
+    path = _fixed_root() / str(scan_id)
     if ensure_exists:
         path.mkdir(parents=True, exist_ok=True)
     return path
@@ -81,7 +129,7 @@ def get_versioned_files(scan_id):
     if not scan_dir.exists():
         return []
 
-    base_dir = Path(FIXED_FOLDER)
+    base_dir = _fixed_root()
     entries = []
     for path in scan_dir.glob("*.pdf"):
         version_number = _extract_version_from_path(path)
@@ -154,7 +202,7 @@ def archive_fixed_pdf_version(scan_id, original_filename, source_path=None):
     return {
         "version": next_version,
         "absolute_path": destination,
-        "relative_path": str(destination.relative_to(Path(FIXED_FOLDER))),
+        "relative_path": str(destination.relative_to(_fixed_root())),
         "filename": destination.name,
         "size": size,
     }
@@ -265,7 +313,7 @@ def build_placeholder_scan_payload():
 
 def resolve_uploaded_file_path(scan_id, scan_record=None):
     """Locate the uploaded PDF for a scan."""
-    uploads_dir = Path(UPLOAD_FOLDER)
+    uploads_dir = _uploads_root()
     candidates = [
         uploads_dir / f"{scan_id}.pdf",
         uploads_dir / scan_id,
@@ -294,7 +342,7 @@ def resolve_uploaded_file_path(scan_id, scan_record=None):
 # === Database Connection ===
 def get_db_connection():
     try:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(_require_database_url(), cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
         print(f"[Backend] ✗ Database connection failed: {e}")
@@ -705,8 +753,9 @@ def scan_pdf():
         return jsonify({"error": "Group ID is required"}), 400
 
     scan_now = should_scan_now(request)
+    _ensure_local_storage("Uploading scans")
     scan_id = f"scan_{uuid.uuid4().hex}"
-    upload_dir = Path(UPLOAD_FOLDER)
+    upload_dir = _uploads_root()
     upload_dir.mkdir(exist_ok=True)
 
     file_path = upload_dir / f"{scan_id}.pdf"
@@ -947,7 +996,8 @@ def scan_batch():
         scan_results = []
         total_batch_issues = 0
 
-        upload_dir = Path(UPLOAD_FOLDER)
+        _ensure_local_storage("Batch uploads")
+        upload_dir = _uploads_root()
         upload_dir.mkdir(exist_ok=True)
 
         processed_files = len(pdf_files)
@@ -1823,14 +1873,14 @@ def apply_manual_fix(scan_id):
                 raw_scan_results.get("summary", {}).get("complianceScore", 0)
             )
 
-        pdf_path = Path(UPLOAD_FOLDER) / f"{scan_id}.pdf"
+        pdf_path = _uploads_root() / f"{scan_id}.pdf"
         if not pdf_path.exists():
             possible_paths = [
-                Path(UPLOAD_FOLDER) / scan_id,
-                Path(UPLOAD_FOLDER) / f"{scan_id.replace('.pdf', '')}.pdf",
+                _uploads_root() / scan_id,
+                _uploads_root() / f"{scan_id.replace('.pdf', '')}.pdf",
             ]
             if original_filename:
-                possible_paths.append(Path(UPLOAD_FOLDER) / original_filename)
+                possible_paths.append(_uploads_root() / original_filename)
             if scan_data.get("file_path"):
                 possible_paths.append(Path(scan_data["file_path"]))
 
@@ -1956,7 +2006,7 @@ def apply_manual_fix(scan_id):
 @app.route("/api/download/<path:scan_id>", methods=["GET"])
 def download_file(scan_id):
     """Download the original or fixed PDF file associated with a scan ID."""
-    uploads_dir = Path(UPLOAD_FOLDER)
+    uploads_dir = _uploads_root()
 
     version_param = request.args.get("version")
     allow_old = _truthy(request.args.get("allowDownload"))
@@ -2255,8 +2305,8 @@ def download_fixed_file(filename):
     try:
         print(f"[Backend] Downloading fixed file: {filename}")
 
-        fixed_dir = Path(FIXED_FOLDER)
-        uploads_dir = Path(UPLOAD_FOLDER)
+        fixed_dir = _fixed_root()
+        uploads_dir = _uploads_root()
 
         allow_old = _truthy(request.args.get("allowDownload"))
         version_param = request.args.get("version")
@@ -2396,8 +2446,8 @@ def download_fixed_file(filename):
 def serve_pdf_file(scan_id):
     """Serve PDF file for preview in PDF Editor"""
     try:
-        uploads_dir = Path(UPLOAD_FOLDER)
-        fixed_dir = Path(FIXED_FOLDER)
+        uploads_dir = _uploads_root()
+        fixed_dir = _fixed_root()
 
         version_param = request.args.get("version")
         file_path = None
@@ -2663,8 +2713,8 @@ def delete_scan(scan_id):
         group_id = scan.get("group_id")
 
         # Delete physical files
-        uploads_dir = Path(UPLOAD_FOLDER)
-        fixed_dir = Path(FIXED_FOLDER)
+        uploads_dir = _uploads_root()
+        fixed_dir = _fixed_root()
         deleted_files = 0
 
         for folder in [uploads_dir, fixed_dir]:
@@ -3523,8 +3573,8 @@ def delete_batch(batch_id):
                 affected_groups.add(scan["group_id"])
 
         # Delete physical files
-        uploads_dir = Path(UPLOAD_FOLDER)
-        fixed_dir = Path(FIXED_FOLDER)
+        uploads_dir = _uploads_root()
+        fixed_dir = _fixed_root()
         deleted_files = 0
 
         for scan in scans:
@@ -3591,8 +3641,8 @@ def download_batch(batch_id):
         zip_buffer = BytesIO()
 
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            uploads_dir = Path(UPLOAD_FOLDER)
-            fixed_dir = Path(FIXED_FOLDER)
+            uploads_dir = _uploads_root()
+            fixed_dir = _fixed_root()
 
             for scan in scans:
                 scan_id = scan["id"]
@@ -3816,8 +3866,8 @@ def export_batch(batch_id):
                 json.dumps(export_summary, indent=2, default=str),
             )
 
-            uploads_dir = Path(UPLOAD_FOLDER)
-            fixed_dir = Path(FIXED_FOLDER)
+            uploads_dir = _uploads_root()
+            fixed_dir = _fixed_root()
 
             for scan_row in scans:
                 scan_export = _to_export_payload(scan_row)
