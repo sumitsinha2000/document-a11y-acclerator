@@ -35,12 +35,13 @@ const safeRenderFix = (fix) => {
 }
 
 export default function FixHistory({ scanId, onRefresh }) {
-  const { showError } = useNotification()
+  const { showError, showSuccess } = useNotification()
 
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const [isCleaning, setIsCleaning] = useState(false)
 
   useEffect(() => {
     fetchFixHistory()
@@ -101,6 +102,10 @@ export default function FixHistory({ scanId, onRefresh }) {
             typeof item.downloadable === "boolean"
               ? item.downloadable
               : isLatestVersion,
+          viewable:
+            typeof item.viewable === "boolean"
+              ? item.viewable
+              : isLatestVersion,
         }
       })
 
@@ -116,7 +121,7 @@ export default function FixHistory({ scanId, onRefresh }) {
   }
 
   const handlePreview = (item) => {
-    if (!item || !item.fixedFile) {
+    if (!item || !item.fixedFile || !item.viewable) {
       return
     }
 
@@ -147,6 +152,42 @@ export default function FixHistory({ scanId, onRefresh }) {
     } catch (error) {
       console.error("[v0] Error downloading file:", error)
       showError("Failed to download file")
+    }
+  }
+
+  const handleCleanupOldVersions = async () => {
+    if (history.length <= 1 || isCleaning) {
+      return
+    }
+
+    const confirmDelete = window.confirm(
+      "Delete all previous fixed versions? This keeps only the latest PDF and removes older files permanently.",
+    )
+
+    if (!confirmDelete) {
+      return
+    }
+
+    try {
+      setIsCleaning(true)
+      const response = await axios.post(API_ENDPOINTS.cleanupFixedVersions(scanId), {
+        keepLatest: true,
+      })
+      showSuccess(response.data.message || "Previous versions removed")
+      await fetchFixHistory()
+      if (typeof onRefresh === "function") {
+        try {
+          await onRefresh()
+        } catch (refreshError) {
+          console.error("[v0] FixHistory - Error refreshing parent after cleanup:", refreshError)
+        }
+      }
+    } catch (err) {
+      console.error("[v0] Error deleting previous versions:", err)
+      const message = err.response?.data?.error || "Failed to delete previous versions"
+      showError(message)
+    } finally {
+      setIsCleaning(false)
     }
   }
 
@@ -239,6 +280,26 @@ export default function FixHistory({ scanId, onRefresh }) {
 
       {!isCollapsed && (
         <div className="space-y-4">
+          {history.length > 1 && (
+            <div className="flex justify-end">
+              <button
+                onClick={handleCleanupOldVersions}
+                disabled={isCleaning}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+                {isCleaning ? "Deleting..." : "Delete Previous Versions"}
+              </button>
+            </div>
+          )}
+
           {history.map((item, index) => (
             <div
               key={item.id}
@@ -274,20 +335,22 @@ export default function FixHistory({ scanId, onRefresh }) {
 
                 {item.fixedFile && (
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <button
-                      onClick={() => handlePreview(item)}
-                      className="flex items-center gap-2 px-4 py-2.5 text-base font-semibold text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 rounded-lg transition-colors"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14m0-4v4m-4 4a4 4 0 110-8 4 4 0 010 8z"
-                        />
-                      </svg>
-                      View PDF
-                    </button>
+                    {item.viewable && (
+                      <button
+                        onClick={() => handlePreview(item)}
+                        className="flex items-center gap-2 px-4 py-2.5 text-base font-semibold text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 rounded-lg transition-colors"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14m0-4v4m-4 4a4 4 0 110-8 4 4 0 010 8z"
+                          />
+                        </svg>
+                        View PDF
+                      </button>
+                    )}
 
                     {item.downloadable && (
                       <button
@@ -306,6 +369,12 @@ export default function FixHistory({ scanId, onRefresh }) {
                       </button>
                     )}
                   </div>
+                )}
+
+                {!item.viewable && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                    This version is retained for reference, but the file is no longer available.
+                  </p>
                 )}
               </div>
 

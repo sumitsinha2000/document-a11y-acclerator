@@ -160,6 +160,51 @@ def archive_fixed_pdf_version(scan_id, original_filename, source_path=None):
     }
 
 
+def prune_fixed_versions(scan_id, keep_latest=True):
+    """Remove older archived fixed PDFs while optionally retaining the newest."""
+    versions = get_versioned_files(scan_id)
+    if not versions:
+        return {"removed": 0, "removedFiles": [], "remainingVersions": 0}
+
+    keep_count = 1 if keep_latest else 0
+    if keep_count < 0:
+        keep_count = 0
+    if keep_count >= len(versions):
+        return {
+            "removed": 0,
+            "removedFiles": [],
+            "remainingVersions": len(versions),
+        }
+
+    cutoff_index = len(versions) - keep_count
+    to_remove = versions[:cutoff_index]
+    removed_files = []
+
+    for entry in to_remove:
+        path = entry["absolute_path"]
+        try:
+            if path.exists():
+                path.unlink()
+                removed_files.append(entry["relative_path"])
+        except Exception as exc:
+            print(f"[Backend] ⚠ Failed to delete version file {path}: {exc}")
+
+    scan_dir = _fixed_scan_dir(scan_id)
+    if scan_dir.exists():
+        try:
+            if not any(scan_dir.iterdir()):
+                scan_dir.rmdir()
+        except OSError:
+            pass
+
+    remaining_versions = len(versions) - len(removed_files)
+    return {
+        "removed": len(removed_files),
+        "removedFiles": removed_files,
+        "remainingVersions": remaining_versions,
+    }
+
+
 def should_scan_now(req):
     """Determine whether scan should run immediately based on request form data."""
     if not req:
@@ -1979,6 +2024,36 @@ def download_file(scan_id):
     )
 
 
+@app.route("/api/scan/<scan_id>/prune-fixed", methods=["POST"])
+def prune_fixed_files(scan_id):
+    """Delete older fixed PDF versions, keeping only the latest unless specified."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        keep_latest = payload.get("keepLatest", True)
+
+        result = prune_fixed_versions(scan_id, keep_latest=bool(keep_latest))
+        message = (
+            "No previous versions were found."
+            if result["removed"] == 0
+            else f"Removed {result['removed']} older version(s)."
+        )
+        return jsonify(
+            {
+                "success": True,
+                "message": message,
+                "removed": result["removed"],
+                "removedFiles": result["removedFiles"],
+                "remainingVersions": result["remainingVersions"],
+            }
+        )
+    except Exception as exc:
+        print(f"[Backend] Error pruning fixed versions for {scan_id}: {exc}")
+        import traceback
+
+        traceback.print_exc()
+        return jsonify({"error": str(exc)}), 500
+
+
 # === Progress Tracker ===
 @app.route("/api/progress/<scan_id>", methods=["GET"])
 def get_fix_progress(scan_id):
@@ -2107,6 +2182,8 @@ def get_fix_history(scan_id):
                     "versionLabel": version_label,
                     "storedFilename": stored_filename,
                     "fileSize": file_size,
+                    "downloadable": False,
+                    "viewable": False,
                 }
             )
 
@@ -2134,7 +2211,9 @@ def get_fix_history(scan_id):
             entry["isLatest"] = (
                 latest_version is not None and entry["version"] == latest_version
             )
-            entry["downloadable"] = entry["isLatest"]
+            file_available = info is not None
+            entry["downloadable"] = entry["isLatest"] and file_available
+            entry["viewable"] = entry["downloadable"]
             if not entry.get("versionLabel"):
                 entry["versionLabel"] = f"V{entry['version']}"
 

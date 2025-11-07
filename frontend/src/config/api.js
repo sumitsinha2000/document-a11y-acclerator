@@ -23,6 +23,7 @@ export const API_ENDPOINTS = {
     }
     return base
   },
+  cleanupFixedVersions: (scanId) => `${API_BASE_URL}/api/scan/${scanId}/prune-fixed`,
   export: (scanId) => `${API_BASE_URL}/api/export/${scanId}`,
   aiAnalyze: (scanId) => `${API_BASE_URL}/api/ai-analyze/${scanId}`,
   aiFixStrategy: (scanId) => `${API_BASE_URL}/api/ai-fix-strategy/${scanId}`,
