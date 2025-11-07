@@ -1,5 +1,7 @@
 "use client"
 
+import { formatCategoryLabel, getIssueWcagCriteria } from "../utils/exportUtils"
+
 export default function IssuesList({ results, selectedCategory, onSelectCategory }) {
   console.log("[v0] IssuesList received results:", results)
   console.log("[v0] Results type:", typeof results)
@@ -21,23 +23,6 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
         <p className="text-gray-500 dark:text-gray-400">No accessibility issues found</p>
       </div>
     )
-  }
-
-  const getCategoryLabel = (key) => {
-    const labels = {
-      missingMetadata: "Missing Metadata",
-      untaggedContent: "Untagged Content",
-      missingAltText: "Missing Alt Text",
-      poorContrast: "Poor Contrast",
-      missingLanguage: "Missing Language",
-      formIssues: "Form Issues",
-      tableIssues: "Table Issues",
-      wcagIssues: "WCAG Issues",
-      structureIssues: "Structure Issues",
-      readingOrderIssues: "Reading Order Issues",
-      pdfuaIssues: "PDF/UA Issues",
-    }
-    return labels[key] || key
   }
 
   const getSeverityStyles = (severity) => {
@@ -70,7 +55,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
               }`}
               onClick={() => onSelectCategory(selectedCategory === category ? null : category)}
             >
-              <span className="mr-2">{getCategoryLabel(category)}</span>
+              <span className="mr-2">{formatCategoryLabel(category)}</span>
               <span
                 className={`px-2 py-0.5 rounded-full text-xs ${
                   selectedCategory === category
@@ -88,7 +73,9 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
       {selectedCategory && results[selectedCategory] && (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
           <div className="flex items-center justify-between mb-4">
-            <h4 className="text-xl font-bold text-gray-900 dark:text-white">{getCategoryLabel(selectedCategory)}</h4>
+            <h4 className="text-xl font-bold text-gray-900 dark:text-white">
+              {formatCategoryLabel(selectedCategory)}
+            </h4>
             <button
               className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none"
               onClick={() => onSelectCategory(null)}
@@ -104,6 +91,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
                 issue.message ||
                 issue.title ||
                 (issue.clause ? `Checkpoint: ${issue.clause}` : "Issue details unavailable")
+              const wcagCriteria = getIssueWcagCriteria(issue)
 
               return (
                 <div key={idx} className={`p-4 rounded-lg border-l-4 ${getSeverityStyles(issue.severity)}`}>
@@ -119,6 +107,11 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
                   {issue.page && <p className="text-sm opacity-75 ml-16">Page: {issue.page}</p>}
                   {issue.pages && <p className="text-sm opacity-75 ml-16">Pages: {issue.pages.join(", ")}</p>}
                   {issue.count && <p className="text-sm opacity-75 ml-16">Count: {issue.count}</p>}
+                  {wcagCriteria && (
+                    <p className="text-sm opacity-75 ml-16">
+                      <strong>WCAG:</strong> {wcagCriteria}
+                    </p>
+                  )}
                   {issue.remediation && !issue.recommendation && (
                     <div className="mt-3 ml-16 p-3 bg-blue-50 dark:bg-blue-900/20 rounded border-l-2 border-blue-500">
                       <p className="text-sm">

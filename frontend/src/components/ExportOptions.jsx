@@ -2,20 +2,20 @@
 
 import axios from "axios"
 import {
-  buildDescriptionWithClause,
-  getIssuePrimaryText,
-  getIssueRecommendation,
-  getIssuePagesText,
-  getIssueClause,
-  getRecommendationLabel,
-  escapeCsvValue,
+  prepareExportContext,
+  buildJsonExportPayload,
+  buildCsvContent,
+  generateLegacyHtmlReport,
 } from "../utils/exportUtils"
 
 export default function ExportOptions({ scanId, filename }) {
   const handleExportJSON = async () => {
     try {
       const response = await axios.get(`/api/export/${scanId}`)
-      const dataStr = JSON.stringify(response.data, null, 2)
+      const data = response.data || {}
+      const { metadata, categoryLabels } = prepareExportContext(data, filename, scanId)
+      const enhancedJson = buildJsonExportPayload(data, metadata, categoryLabels)
+      const dataStr = JSON.stringify(enhancedJson, null, 2)
       const dataBlob = new Blob([dataStr], { type: "application/json" })
       const url = URL.createObjectURL(dataBlob)
       const link = document.createElement("a")
@@ -31,26 +31,9 @@ export default function ExportOptions({ scanId, filename }) {
   const handleExportCSV = async () => {
     try {
       const response = await axios.get(`/api/export/${scanId}`)
-      const data = response.data
-      let csv = "Issue Category,Severity,Description,Pages,Recommendation\n"
-
-      Object.entries(data.results).forEach(([category, issues]) => {
-        issues.forEach((issue) => {
-          const severity = issue.severity || "medium"
-          const description = buildDescriptionWithClause(issue)
-          const pages = getIssuePagesText(issue)
-          const recommendation = getIssueRecommendation(issue)
-
-          const row = [
-            escapeCsvValue(category),
-            escapeCsvValue(severity),
-            escapeCsvValue(description),
-            escapeCsvValue(pages),
-            escapeCsvValue(recommendation),
-          ].join(",")
-          csv += row + "\n"
-        })
-      })
+      const data = response.data || {}
+      const { metadata, results } = prepareExportContext(data, filename, scanId)
+      const csv = buildCsvContent({ results, metadata })
 
       const dataBlob = new Blob([csv], { type: "text/csv" })
       const url = URL.createObjectURL(dataBlob)
@@ -67,90 +50,9 @@ export default function ExportOptions({ scanId, filename }) {
   const handleExportHTML = async () => {
     try {
       const response = await axios.get(`/api/export/${scanId}`)
-      const data = response.data
-
-      let html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Accessibility Report - ${filename}</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
-    .container { max-width: 900px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; }
-    h1 { color: #333; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; }
-    h2 { color: #555; margin-top: 20px; }
-    .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0; }
-    .summary-card { background-color: #f0f4f8; padding: 15px; border-radius: 5px; text-align: center; }
-    .summary-card .value { font-size: 24px; font-weight: bold; color: #3b82f6; }
-    .summary-card .label { color: #666; font-size: 12px; }
-    .issue-category { margin: 20px 0; }
-    .issue-item { background-color: #f9f9f9; border-left: 4px solid #3b82f6; padding: 10px; margin: 10px 0; }
-    .issue-item.high { border-left-color: #ef4444; }
-    .issue-item.medium { border-left-color: #f59e0b; }
-    .issue-item.low { border-left-color: #10b981; }
-    .severity { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 12px; font-weight: bold; }
-    .severity.high { background-color: #fee2e2; color: #991b1b; }
-    .severity.medium { background-color: #fef3c7; color: #92400e; }
-    .severity.low { background-color: #dcfce7; color: #166534; }
-    .recommendation { margin-top: 10px; padding: 10px; background-color: #eff6ff; border-left: 3px solid #3b82f6; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>Accessibility Compliance Report</h1>
-    <p><strong>Document:</strong> ${filename}</p>
-    <p><strong>Scan Date:</strong> ${new Date(data.uploadDate).toLocaleString()}</p>
-    
-    <div class="summary">
-      <div class="summary-card">
-        <div class="value">${data.results ? Object.values(data.results).reduce((sum, arr) => sum + arr.length, 0) : 0}</div>
-        <div class="label">Total Issues</div>
-      </div>
-      <div class="summary-card">
-        <div class="value">${data.results ? Object.values(data.results).reduce((sum, arr) => sum + arr.filter((i) => i.severity === "high").length, 0) : 0}</div>
-        <div class="label">High Severity</div>
-      </div>
-      <div class="summary-card">
-        <div class="value">N/A</div>
-        <div class="label">Compliance Score</div>
-      </div>
-    </div>
-`
-
-      Object.entries(data.results).forEach(([category, issues]) => {
-        html += `<div class="issue-category"><h2>${category}</h2>`
-        issues.forEach((issue) => {
-          const severity = (issue.severity || "medium").toLowerCase()
-          const pages = getIssuePagesText(issue)
-          const description = getIssuePrimaryText(issue)
-          const clause = getIssueClause(issue)
-          const recommendation = getIssueRecommendation(issue)
-          const recommendationLabel = getRecommendationLabel(issue)
-          html += `
-    <div class="issue-item ${severity}">
-      <span class="severity ${severity}">${severity.toUpperCase()}</span>
-      <p><strong>${description}</strong></p>
-      <p>Pages: ${pages}</p>
-      ${clause ? `<p><strong>Clause:</strong> ${clause}</p>` : ""}
-      ${
-        recommendation
-          ? `<div class="recommendation">
-        <strong>${recommendationLabel}:</strong> ${recommendation}
-      </div>`
-          : ""
-      }
-    </div>
-`
-        })
-        html += `</div>`
-      })
-
-      html += `
-  </div>
-</body>
-</html>
-`
+      const data = response.data || {}
+      const { resolvedFilename } = prepareExportContext(data, filename, scanId)
+      const html = generateLegacyHtmlReport(data, resolvedFilename)
 
       const dataBlob = new Blob([html], { type: "text/html" })
       const url = URL.createObjectURL(dataBlob)

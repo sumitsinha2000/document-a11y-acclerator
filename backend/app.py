@@ -21,6 +21,7 @@ from fix_progress_tracker import create_progress_tracker, get_progress_tracker
 from pdf_generator import PDFGenerator
 from werkzeug.utils import secure_filename
 from storage import StorageConfig, configure_storage, get_storage
+from wcag_mapping import annotate_wcag_mappings
 
 load_dotenv()
 
@@ -794,6 +795,7 @@ def scan_pdf():
 
     analyzer = PDFAccessibilityAnalyzer()
     scan_results = analyzer.analyze(str(file_path))
+    scan_results = annotate_wcag_mappings(scan_results)
     verapdf_status = build_verapdf_status(scan_results, analyzer)
     summary = analyzer.calculate_summary(scan_results, verapdf_status)
     if isinstance(summary, dict) and verapdf_status:
@@ -852,6 +854,7 @@ def start_deferred_scan(scan_id):
 
         analyzer = PDFAccessibilityAnalyzer()
         scan_results = analyzer.analyze(str(file_path))
+        scan_results = annotate_wcag_mappings(scan_results)
         verapdf_status = build_verapdf_status(scan_results, analyzer)
         summary = analyzer.calculate_summary(scan_results, verapdf_status)
         if isinstance(summary, dict) and verapdf_status:
@@ -1045,6 +1048,7 @@ def scan_batch():
 
             # Analyze PDF
             scan_data = analyzer.analyze(str(file_path))
+            scan_data = annotate_wcag_mappings(scan_data)
             verapdf_status = build_verapdf_status(scan_data, analyzer)
             summary = analyzer.calculate_summary(scan_data, verapdf_status)
             if isinstance(summary, dict) and verapdf_status:
@@ -2508,6 +2512,7 @@ def export_scan(scan_id):
             scan_results = json.loads(scan_results)
 
         results = scan_results.get("results", scan_results)
+        results = annotate_wcag_mappings(results)
         summary = scan_results.get("summary", {})
         verapdf_status = scan_results.get("verapdfStatus")
 
@@ -2596,6 +2601,7 @@ def get_scan(scan_id):
                 scan_results = json.loads(scan_results)
 
             results = scan_results.get("results", scan_results)
+            results = annotate_wcag_mappings(results)
             summary = scan_results.get("summary", {})
             verapdf_status = scan_results.get("verapdfStatus")
 
