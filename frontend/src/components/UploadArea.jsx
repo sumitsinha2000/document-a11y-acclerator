@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import axios from "axios"
 import GroupSelector from "./GroupSelector"
 import UploadProgressToast from "./UploadProgressToast"
+import API_BASE_URL from "../config/api";
 
 export default function UploadArea({ onScanComplete, onUploadDeferred }) {
   const [isDragging, setIsDragging] = useState(false)
