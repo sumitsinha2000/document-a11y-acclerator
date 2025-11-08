@@ -127,8 +127,8 @@ app = FastAPI(title="Doc A11y Accelerator API")
 
 # === Allow frontend (Vercel) to call backend (Render) ===
 origins = [
-   "https://document-a11y-accelerator.vercel.app",  # your Vercel frontend
-   "https://document-a11y-accelerator.onrender.com",  # backend Render domain
+   "https://document-a11y-acclerator.vercel.app",  # your Vercel frontend
+   "https://document-a11y-acclerator.onrender.com",  # backend Render domain
   "http://localhost:3000",  # local dev
 ]
 
@@ -402,7 +402,7 @@ async def upload_file(file: UploadFile = File(...)):
 
     except Exception as e:
         return {"error": str(e)}
-        
+
 @app.get("/api/groups")
 async def get_groups():
     try:
