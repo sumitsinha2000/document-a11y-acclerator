@@ -76,7 +76,7 @@ export default function PDFGenerator() {
 
   const fetchGeneratedPdfs = async () => {
     try {
-      const response = await axios.get("`${API_BASE_URL}/api/generated-pdfs`)
+      const response = await axios.get(`${API_BASE_URL}/api/generated-pdfs`)
       setGeneratedPdfs(response.data.pdfs || [])
       return response.data.pdfs || []
     } catch (error) {
