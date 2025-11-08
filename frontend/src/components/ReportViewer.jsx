@@ -7,7 +7,7 @@ import Breadcrumb from "./Breadcrumb"
 import ExportDropdown from "./ExportDropdown"
 import FixHistory from "./FixHistory"
 import AIFixStrategyModal from "./AIFixStrategyModal"
-import { API_ENDPOINTS } from "../config/api"
+import API_BASE_URL,{API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
 
 export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
@@ -63,7 +63,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         setLoading(true)
       }
       console.log("[v0] Fetching report details for:", scanId)
-      const response = await axios.get(`/api/scan/${scanId}`)
+      const response = await axios.get(`${API_BASE_URL}/api/scan/${scanId}`)
       console.log("[v0] Received report data:", response.data)
       console.log("[v0] Results structure:", response.data.results)
       console.log("[v0] Results keys:", Object.keys(response.data.results || {}))

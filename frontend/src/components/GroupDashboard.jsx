@@ -3,7 +3,7 @@ import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 import GroupTreeSidebar from "./GroupTreeSidebar"
 import { BatchInsightPanel, FileInsightPanel, GroupInsightPanel } from "./DashboardInsights"
-import API_BASE_URL from "../config/api";
+import API_BASE_URL from "../config/api"
 
 export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, initialGroupId }) {
   const { showError, showSuccess } = useNotification()

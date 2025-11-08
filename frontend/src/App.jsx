@@ -6,6 +6,7 @@ import UploadArea from "./components/UploadArea"
 import ThemeToggle from "./components/ThemeToggle"
 import { NotificationProvider, useNotification } from "./contexts/NotificationContext"
 import NotificationContainer from "./components/NotificationContainer"
+import API_BASE_URL from "../config/api"
 import ErrorBoundary from "./components/ErrorBoundary"
 
 const History = lazy(() => import("./components/History"))
@@ -33,7 +34,7 @@ function AppContent() {
   const [currentBatch, setCurrentBatch] = useState(null)
   const [loading, setLoading] = useState(false)
   const [selectedGroupId, setSelectedGroupId] = useState(null)
-
+  
   const fetchScanHistory = useCallback(async () => {
     try {
       console.log("[v0] Fetching scan history...")
@@ -112,7 +113,7 @@ function AppContent() {
   const handleSelectScan = async (scan) => {
     try {
       setLoading(true)
-      const response = await axios.get(`/api/scan/${scan.id}`)
+      const response = await axios.get(`${API_BASE_URL}/api/scan/${scan.id}`)
       setScanResults([response.data])
       setCurrentView("report")
     } catch (error) {
@@ -126,7 +127,7 @@ function AppContent() {
   const handleSelectBatch = async (batchId) => {
     try {
       setLoading(true)
-      const response = await axios.get(`/api/batch/${batchId}`)
+      const response = await axios.get(`${API_BASE_URL}/api/batch/${batchId}`)
       setCurrentBatch({
         batchId: batchId,
         scans: response.data.scans || [],
@@ -152,7 +153,7 @@ function AppContent() {
 
   const handleBatchUpdate = async (batchId) => {
     try {
-      const response = await axios.get(`/api/batch/${batchId}`)
+      const response = await axios.get(`${API_BASE_URL}/api/batch/${batchId}`)
       setCurrentBatch({
         batchId: batchId,
         scans: response.data.scans || [],
