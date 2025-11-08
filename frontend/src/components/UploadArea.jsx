@@ -111,7 +111,7 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
     await handleMultipleFileUpload(selectedFiles)
   }
 
-  const handleMultipleFileUpload = async (files) => {
+  /*const handleMultipleFileUpload = async (files) => {
     const isDeferred = scanMode === "upload-only"
     setError(null)
     setIsScanning(true)
@@ -148,7 +148,7 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
           })),
         )
 
-        const response = await axios.post("/api/scan-batch", formData, {
+        const response = await axios.post(`${API_BASE_URL}/api/scan-batch`, formData, {
           headers: {
             "Content-Type": "multipart/form-data",
           },
@@ -296,7 +296,104 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
         setSrAnnouncement(`Error: ${errorMsg}`)
       }
     }
+  }*/
+const handleMultipleFileUpload = async (files) => {
+  setError(null)
+  setIsScanning(true)
+
+  const isDeferred = scanMode === "upload-only"
+  setSrAnnouncement(
+    isDeferred
+      ? `Uploading ${files.length} PDF file${files.length === 1 ? "" : "s"} without scanning`
+      : `Uploading and scanning ${files.length} PDF file${files.length === 1 ? "" : "s"}`,
+  )
+
+  const initialProgress = files.map((file, index) => ({
+    id: `upload-${Date.now()}-${index}`,
+    filename: file.name,
+    status: "uploading",
+    progress: 0,
+  }))
+  setUploadProgress(initialProgress)
+
+  const uploadResults = []
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    console.log(`[UploadArea] Uploading ${file.name}...`)
+
+    // Update progress UI
+    setUploadProgress((prev) =>
+      prev.map((item, idx) =>
+        idx === i ? { ...item, status: "uploading", progress: 30 } : item,
+      ),
+    )
+
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+
+      // Use environment variable if set, fallback to default
+      const uploadUrl = `${API_BASE_URL}/api/upload`
+
+      const response = await axios.post(uploadUrl, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+        withCredentials: true,
+        timeout: 120000,
+        onUploadProgress: (progressEvent) => {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+          setUploadProgress((prev) =>
+            prev.map((item, idx) =>
+              idx === i ? { ...item, progress: percent } : item,
+            ),
+          )
+        },
+      })
+
+      console.log("[UploadArea] File uploaded successfully:", response.data)
+
+      // Update progress
+      setUploadProgress((prev) =>
+        prev.map((item, idx) =>
+          idx === i ? { ...item, status: "completed", progress: 100 } : item,
+        ),
+      )
+
+      uploadResults.push({
+        fileName: file.name,
+        ...response.data.result, // contains storage + URL info
+      })
+    } catch (err) {
+      console.error("[UploadArea] Upload failed for", file.name, err)
+      const errorMsg = err.response?.data?.error || err.message || "Upload failed"
+
+      setUploadProgress((prev) =>
+        prev.map((item, idx) =>
+          idx === i ? { ...item, status: "error", progress: 0, error: errorMsg } : item,
+        ),
+      )
+    }
   }
+
+  // Reset state after uploads
+  setIsScanning(false)
+  setSelectedFiles([])
+
+  // Remove progress bars after short delay
+  setTimeout(() => setUploadProgress([]), 4000)
+
+  if (uploadResults.length > 0) {
+    setError(null)
+    setSrAnnouncement(`Uploaded ${uploadResults.length} file${uploadResults.length === 1 ? "" : "s"} successfully`)
+    onUploadDeferred?.(uploadResults)
+  } else {
+    const errorMsg = "All uploads failed. Please check console for details."
+    setError(errorMsg)
+    setSrAnnouncement(`Error: ${errorMsg}`)
+  }
+}
 
   const handleRemoveUpload = (uploadId) => {
     setUploadProgress((prev) => prev.filter((upload) => upload.id !== uploadId))

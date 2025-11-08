@@ -2,6 +2,7 @@
 const API_BASE_URL = "https://document-a11y-acclerator.onrender.com" || "http://localhost:5000"
 
 export const API_ENDPOINTS = {
+  upload: `${API_BASE_URL}/api/upload`,
   groups: `${API_BASE_URL}/api/groups`,
   health: `${API_BASE_URL}/api/health`,
   scan: `${API_BASE_URL}/api/scan`,

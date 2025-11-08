@@ -31,6 +31,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 # Business logic modules (preserve exact imports and names)
+from backend.multi_tier_storage import upload_file_with_fallback
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
@@ -125,19 +126,19 @@ app = FastAPI(title="Doc A11y Accelerator API")
 
 
 # === Allow frontend (Vercel) to call backend (Render) ===
-#origins = [
- #   "https://document-a11y-accelerator.vercel.app",  # your Vercel frontend
- #   "https://document-a11y-accelerator.onrender.com",  # backend Render domain
-  #  "http://localhost:3000",  # local dev
-#]
+origins = [
+   "https://document-a11y-accelerator.vercel.app",  # your Vercel frontend
+   "https://document-a11y-accelerator.onrender.com",  # backend Render domain
+  "http://localhost:3000",  # local dev
+]
 
-#app.add_middleware(
-   # CORSMiddleware,
-   # allow_origins=origins,         # exact origins allowed
-   # allow_credentials=True,
-   # allow_methods=["*"],           # allow all HTTP verbs
-   # allow_headers=["*"],           # allow all headers
-#)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,         # exact origins allowed
+    allow_credentials=True,
+    allow_methods=["*"],           # allow all HTTP verbs
+    allow_headers=["*"],           # allow all headers
+)
 
 # serve uploaded files (development/test)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
@@ -386,6 +387,22 @@ def build_verapdf_status(results, analyzer=None):
 # ----------------------
 # Routes — keep original function names, adapted for FastAPI
 # ----------------------
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
+    try:
+        # Save temp file locally
+        temp_path = f"/tmp/{file.filename}"
+        with open(temp_path, "wb") as buffer:
+            buffer.write(await file.read())
+
+        # Upload with fallback logic
+        result = upload_file_with_fallback(temp_path, file.filename)
+        return {"message": "File uploaded successfully", "result": result}
+
+    except Exception as e:
+        return {"error": str(e)}
+        
 @app.get("/api/groups")
 async def get_groups():
     try:
