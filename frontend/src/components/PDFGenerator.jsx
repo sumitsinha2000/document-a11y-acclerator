@@ -46,7 +46,7 @@ export default function PDFGenerator() {
     setMessage(null)
 
     try {
-      const response = await axios.post("/api/generate-pdf", {
+      const response = await axios.post(`${API_BASE_URL}/api/generate-pdf`, {
         companyName,
         services,
         pdfType,
@@ -76,7 +76,7 @@ export default function PDFGenerator() {
 
   const fetchGeneratedPdfs = async () => {
     try {
-      const response = await axios.get("/api/generated-pdfs")
+      const response = await axios.get("`${API_BASE_URL}/api/generated-pdfs`)
       setGeneratedPdfs(response.data.pdfs || [])
       return response.data.pdfs || []
     } catch (error) {

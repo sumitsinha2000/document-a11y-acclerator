@@ -37,7 +37,7 @@ function AppContent() {
   const fetchScanHistory = useCallback(async () => {
     try {
       console.log("[v0] Fetching scan history...")
-      const response = await axios.get("/api/scans")
+      const response = await axios.get(`${API_BASE_URL}/api/scans`)
       setScanHistory(response.data.scans)
     } catch (error) {
       console.error("[v0] Error fetching scan history:", error)

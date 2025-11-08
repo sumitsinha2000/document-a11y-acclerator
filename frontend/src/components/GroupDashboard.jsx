@@ -22,7 +22,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
   const loadInitialData = async () => {
     try {
       setInitialLoading(true)
-      await axios.get("/api/groups") // no need to handleNodeSelect here
+      await axios.get(`${API_BASE_URL}/api/groups`) // no need to handleNodeSelect here
     } catch (error) {
       console.error("[v0] Error loading initial data:", error)
       showError("Failed to load initial data")

@@ -66,7 +66,7 @@ export default function GroupTreeSidebar({
       setLoading(true);
       setError(null);
 
-      const response = await axios.get("/api/groups");
+      const response = await axios.get(`${API_BASE_URL}/api/groups`);
       const fetchedGroupsRaw = response.data.groups || [];
 
       const normalizedGroups = fetchedGroupsRaw.map((group) => ({
@@ -92,7 +92,7 @@ export default function GroupTreeSidebar({
       }, {});
 
       try {
-        const historyResponse = await axios.get("/api/history");
+        const historyResponse = await axios.get(`${API_BASE_URL}/api/history`);
         const allBatches = historyResponse.data.batches || [];
 
         batchesByGroup = allBatches.reduce((acc, batch) => {
