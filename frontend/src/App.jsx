@@ -6,7 +6,7 @@ import UploadArea from "./components/UploadArea"
 import ThemeToggle from "./components/ThemeToggle"
 import { NotificationProvider, useNotification } from "./contexts/NotificationContext"
 import NotificationContainer from "./components/NotificationContainer"
-import API_BASE_URL from "../config/api"
+import API_BASE_URL from "./config/api"
 import ErrorBoundary from "./components/ErrorBoundary"
 
 const History = lazy(() => import("./components/History"))
