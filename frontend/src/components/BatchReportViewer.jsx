@@ -5,6 +5,7 @@ import axios from "axios"
 import ReportViewer from "./ReportViewer"
 import { ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Info } from "lucide-react"
 import { useNotification } from "../contexts/NotificationContext"
+import API_BASE_URL from "../config/api"
 
 export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdate }) {
   const [fixing, setFixing] = useState(false)
@@ -31,7 +32,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
     const fetchBatchData = async () => {
       try {
         console.log("[v0] Fetching batch details:", batchId)
-        const response = await axios.get(`/api/batch/${batchId}`)
+        const response = await axios.get(`${API_BASE_URL}/api/batch/${batchId}`)
         setBatchData(response.data)
         setScansState(response.data.scans || [])
         console.log("[v0] Batch data loaded:", response.data)
@@ -76,7 +77,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
         const responses = await Promise.all(
           missingDetails.map((scan) => {
             const scanId = scan.scanId || scan.id
-            return axios.get(`/api/scan/${scanId}`)
+            return axios.get(`${API_BASE_URL}/api/scan/${scanId}`)
           }),
         )
 
@@ -187,9 +188,9 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
 
     try {
       setFixingIndividual((prev) => ({ ...prev, [scanId]: true }))
-      console.log("[v0] Calling API:", `/api/batch/${batchId}/fix-file/${scanId}`)
+      console.log("[v0] Calling API:", `${API_BASE_URL}/api/batch/${batchId}/fix-file/${scanId}`)
 
-      const response = await axios.post(`/api/batch/${batchId}/fix-file/${scanId}`)
+      const response = await axios.post(`${API_BASE_URL}/api/batch/${batchId}/fix-file/${scanId}`)
       console.log("[v0] Fix response:", response.data)
 
       if (response.data.success) {
@@ -215,7 +216,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
 
     try {
       setStartingScan((prev) => ({ ...prev, [scanId]: true }))
-      const response = await axios.post(`/api/scan/${scanId}/start`)
+      const response = await axios.post(`${API_BASE_URL}/api/scan/${scanId}/start`)
       const data = response.data
       showSuccess(`Started scan for ${filename}`)
 
@@ -271,9 +272,9 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
 
     try {
       setFixing(true)
-      console.log("[v0] Calling API:", `/api/batch/${batchId}/fix-all`)
+      console.log("[v0] Calling API:", `${API_BASE_URL}/api/batch/${batchId}/fix-all`)
 
-      const response = await axios.post(`/api/batch/${batchId}/fix-all`)
+      const response = await axios.post(`${API_BASE_URL}/api/batch/${batchId}/fix-all`)
       console.log("[v0] Fix all response:", response.data)
 
       setFixResults(response.data)
@@ -293,7 +294,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   const handleExportBatch = async () => {
     try {
       setExporting(true)
-      const response = await axios.get(`/api/batch/${batchId}/export`, {
+      const response = await axios.get(`${API_BASE_URL}/api/batch/${batchId}/export`, {
         responseType: "blob",
       })
 
@@ -327,8 +328,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
     }
 
     try {
-      console.log("[v0] Calling API:", `/api/scan/${scanId}`)
-      const response = await axios.get(`/api/scan/${scanId}`)
+      console.log("[v0] Calling API:", `${API_BASE_URL}/api/scan/${scanId}`)
+      const response = await axios.get(`${API_BASE_URL}/api/scan/${scanId}`)
       console.log("[v0] Scan details loaded:", response.data)
       setSelectedScan(response.data)
     } catch (error) {

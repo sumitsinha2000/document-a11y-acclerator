@@ -1,5 +1,3 @@
-"use client"
-
 const CATEGORY_LABELS = {
   missingMetadata: "Metadata",
   untaggedContent: "Tagging",

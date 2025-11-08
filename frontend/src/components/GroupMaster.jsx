@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
+import API_BASE_URL from "../config/api";
 
 export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
   const { showSuccess, showError, confirm } = useNotification()

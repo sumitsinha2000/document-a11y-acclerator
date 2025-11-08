@@ -3,7 +3,7 @@ import { Document, Page, pdfjs } from "react-pdf"
 import axios from "axios"
 import "react-pdf/dist/Page/AnnotationLayer.css"
 import "react-pdf/dist/Page/TextLayer.css"
-
+import API_BASE_URL from "../config/api"
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`
 
@@ -20,7 +20,7 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
   const pageRef = useRef(null)
 
   useEffect(() => {
-    setPdfUrl(`/api/pdf-file/${scanId}`)
+    setPdfUrl(`${API_BASE_URL}/api/pdf-file/${scanId}`)
     console.log("[v0] PDFEditor - Received fixes:", fixes)
     console.log("[v0] PDFEditor - Semi-automated fixes:", fixes?.semiAutomated)
     console.log("[v0] PDFEditor - Manual fixes:", fixes?.manual)
@@ -80,7 +80,7 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
     console.log("[v0] PDFEditor - Fix data:", fixData)
 
     try {
-      const response = await axios.post(`/api/apply-manual-fix/${scanId}`, {
+      const response = await axios.post(`${API_BASE_URL}/api/apply-manual-fix/${scanId}`, {
         fixType: fixType,
         fixData: fixData,
         page: pageNumber,
@@ -102,7 +102,7 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
         },
       ])
 
-      setPdfUrl(`/api/pdf-file/${scanId}?t=${Date.now()}`)
+      setPdfUrl(`${API_BASE_URL}/api/pdf-file/${scanId}?t=${Date.now()}`)
 
       if (onFixApplied) {
         console.log("[v0] PDFEditor - Calling onFixApplied callback with new data...")

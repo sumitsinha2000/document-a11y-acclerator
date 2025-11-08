@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-
+import API_BASE_URL from "../config/api";
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id));
 
 export default function GroupTreeSidebar({
@@ -198,7 +198,7 @@ export default function GroupTreeSidebar({
 
   const fetchGroupData = async (groupId, prefetchedBatches = null) => {
     try {
-      const filesResponse = await axios.get(`/api/groups/${groupId}/files`);
+      const filesResponse = await axios.get(`${API_BASE_URL}/api/groups/${groupId}/files`);
       const files = filesResponse.data.files || [];
       const normalizedId = normalizeId(groupId);
       setGroupFiles((prev) => ({
@@ -211,7 +211,7 @@ export default function GroupTreeSidebar({
         : null;
 
       if (!batchesForGroup) {
-        const historyResponse = await axios.get(`/api/history`);
+        const historyResponse = await axios.get(`${API_BASE_URL}/api/history`);
         const allBatches = historyResponse.data.batches || [];
         batchesForGroup = allBatches.filter(
           (batch) => normalizeId(batch.groupId) === normalizedId

@@ -3,6 +3,7 @@ import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 import GroupTreeSidebar from "./GroupTreeSidebar"
 import { BatchInsightPanel, FileInsightPanel, GroupInsightPanel } from "./DashboardInsights"
+import API_BASE_URL from "../config/api";
 
 export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, initialGroupId }) {
   const { showError, showSuccess } = useNotification()
@@ -37,7 +38,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
 
     try {
       if (node.type === "group") {
-        const response = await axios.get(`/api/groups/${node.id}/details`)
+        const response = await axios.get(`${API_BASE_URL}/api/groups/${node.id}/details`)
         const groupDetails = response.data
 
         setNodeData({
@@ -54,14 +55,14 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
           },
         })
       } else if (node.type === "file") {
-        const response = await axios.get(`/api/scan/${node.id}`)
+        const response = await axios.get(`${API_BASE_URL}/api/scan/${node.id}`)
         setNodeData({
           type: "file",
           ...response.data,
         })
       } else if (node.type === "batch") {
         try {
-          const response = await axios.get(`/api/batch/${node.id}`)
+          const response = await axios.get(`${API_BASE_URL}/api/batch/${node.id}`)
           setNodeData({
             type: "batch",
             ...response.data,
@@ -96,10 +97,10 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
 
     try {
       setStartingScan(true)
-      await axios.post(`/api/scan/${scanId}/start`)
+      await axios.post(`${API_BASE_URL}/api/scan/${scanId}/start`)
       showSuccess(`Started scanning ${nodeData.fileName || nodeData.filename}.`)
 
-      const refreshed = await axios.get(`/api/scan/${scanId}`)
+      const refreshed = await axios.get(`${API_BASE_URL}/api/scan/${scanId}`)
       setNodeData({
         type: "file",
         ...refreshed.data,
@@ -138,7 +139,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
 
       for (const scan of scansToStart) {
         try {
-          await axios.post(`/api/scan/${scan.scanId}/start`)
+          await axios.post(`${API_BASE_URL}/api/scan/${scan.scanId}/start`)
         } catch (scanError) {
           console.error("[v0] Error starting deferred scan for batch item:", scanError)
           failedScans.push(scan.filename || scan.scanId)
@@ -158,7 +159,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
         )
       }
 
-      const refreshed = await axios.get(`/api/batch/${batchId}`)
+      const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${batchId}`)
       setNodeData({
         type: "batch",
         ...refreshed.data,

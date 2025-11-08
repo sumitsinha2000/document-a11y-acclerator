@@ -1,6 +1,6 @@
 import { useState } from "react"
 import axios from "axios"
-
+import API_BASE_URL from "../config/api"
 export default function AIRemediationPanel({ scanId, onClose }) {
   const [loading, setLoading] = useState(false)
   const [analysis, setAnalysis] = useState(null)
@@ -11,7 +11,7 @@ export default function AIRemediationPanel({ scanId, onClose }) {
     setError(null)
 
     try {
-      const response = await axios.post(`/api/ai-analyze/${scanId}`)
+      const response = await axios.post(`${API_BASE_URL}/api/ai-analyze/${scanId}`)
       setAnalysis(response.data)
     } catch (err) {
       setError(err.response?.data?.error || err.message)

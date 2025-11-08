@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import axios from "axios"
 import { FileText, Plus, Trash2, Download, Loader2, CheckCircle2, XCircle } from "lucide-react"
-
+import API_BASE_URL from "../config/api"
 export default function PDFGenerator() {
   const [pdfType, setPdfType] = useState("inaccessible") // "accessible" or "inaccessible"
   const [companyName, setCompanyName] = useState("BrightPath Consulting")
@@ -87,7 +87,7 @@ export default function PDFGenerator() {
 
   const handleDownload = async (filename) => {
     try {
-      const response = await axios.get(`/api/download-generated/${filename}`, {
+      const response = await axios.get(`${API_BASE_URL}/api/download-generated/${filename}`, {
         responseType: "blob",
       })
 

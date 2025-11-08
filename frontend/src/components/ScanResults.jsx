@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react"
 import axios from "axios"
 import FixSuggestions from "./FixSuggestions" // Ensure this path is correct
-
+import API_BASE_URL from "../config/api"
 const ScanResults = ({ scanId, filename }) => {
   const [summary, setSummary] = useState(null)
   const [results, setResults] = useState(null)
@@ -23,7 +23,7 @@ const ScanResults = ({ scanId, filename }) => {
       console.log("[v0] ScanResults - Fetching fresh data from server")
       setIsRefreshing(true)
       try {
-        const response = await axios.get(`/api/scan-results/${scanId}`)
+        const response = await axios.get(`${API_BASE_URL}/api/scan-results/${scanId}`)
         console.log("[v0] ScanResults - Fresh data received:", response.data)
 
         if (response.data.success) {

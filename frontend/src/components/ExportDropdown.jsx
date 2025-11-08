@@ -1,10 +1,9 @@
-"use client"
-
 import { useState, useRef, useEffect, useId } from "react"
 import axios from "axios"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { useNotification } from "../contexts/NotificationContext"
+import API_BASE_URL from "../config/api"
 import {
   buildDescriptionWithClause,
   escapeCsvValue,
@@ -50,7 +49,7 @@ export default function ExportDropdown({ scanId, filename }) {
     setIsOpen(false)
 
     try {
-      const response = await axios.get(`/api/export/${scanId}`)
+      const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
       const data = response.data
 
       if (format === "json") {

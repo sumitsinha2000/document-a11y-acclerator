@@ -8,11 +8,12 @@ import {
   getRecommendationLabel,
   escapeCsvValue,
 } from "../utils/exportUtils"
+import API_BASE_URL from "../config/api"
 
 export default function ExportOptions({ scanId, filename }) {
   const handleExportJSON = async () => {
     try {
-      const response = await axios.get(`/api/export/${scanId}`)
+      const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
       const dataStr = JSON.stringify(response.data, null, 2)
       const dataBlob = new Blob([dataStr], { type: "application/json" })
       const url = URL.createObjectURL(dataBlob)
@@ -28,7 +29,7 @@ export default function ExportOptions({ scanId, filename }) {
 
   const handleExportCSV = async () => {
     try {
-      const response = await axios.get(`/api/export/${scanId}`)
+      const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
       const data = response.data
       let csv = "Issue Category,Severity,Description,Pages,Recommendation\n"
 
@@ -64,7 +65,7 @@ export default function ExportOptions({ scanId, filename }) {
 
   const handleExportHTML = async () => {
     try {
-      const response = await axios.get(`/api/export/${scanId}`)
+      const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
       const data = response.data
 
       let html = `

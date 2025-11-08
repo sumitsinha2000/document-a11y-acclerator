@@ -2,15 +2,15 @@ import ReactDOM from "react-dom/client"
 import App from "./App"
 import "./index.css"
 
-console.log("[v0] Application starting...")
+console.log("Application starting...")
 
 try {
   const root = ReactDOM.createRoot(document.getElementById("root"))
-  console.log("[v0] Root element found, rendering App...")
+  console.log("Root element found, rendering App...")
   root.render(<App />)
-  console.log("[v0] App rendered successfully")
+  console.log("App rendered successfully")
 } catch (error) {
-  console.error("[v0] Fatal error during app initialization:", error)
+  console.error("Fatal error during app initialization:", error)
   document.body.innerHTML = `
     <div style="display: flex; align-items: center; justify-center; min-height: 100vh; background: #f1f5f9; padding: 20px;">
       <div style="max-width: 600px; background: white; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
