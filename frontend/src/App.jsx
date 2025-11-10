@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense, useCallback } from "react"
+import { useState, useEffect, lazy, Suspense, useCallback, startTransition } from "react"
 import axios from "axios"
 import "./App.css"
 import LoadingScreen from "./components/LoadingScreen"
@@ -34,6 +34,14 @@ function AppContent() {
   const [currentBatch, setCurrentBatch] = useState(null)
   const [loading, setLoading] = useState(false)
   const [selectedGroupId, setSelectedGroupId] = useState(null)
+  const transitionToView = useCallback(
+    (view) => {
+      startTransition(() => {
+        setCurrentView(view)
+      })
+    },
+    [setCurrentView],
+  )
   
   const fetchScanHistory = useCallback(async () => {
     try {
@@ -107,7 +115,7 @@ function AppContent() {
   }
 
   const handleViewHistory = () => {
-    setCurrentView("history")
+    transitionToView("history")
   }
 
   const handleSelectScan = async (scan) => {
@@ -148,7 +156,7 @@ function AppContent() {
   }
 
   const handleViewGenerator = () => {
-    setCurrentView("generator")
+    transitionToView("generator")
   }
 
   const handleBatchUpdate = async (batchId) => {
@@ -165,7 +173,7 @@ function AppContent() {
 
   const handleOpenGroupDashboard = (groupId) => {
     setSelectedGroupId(groupId)
-    setCurrentView("dashboard")
+    transitionToView("dashboard")
   }
 
   return (
@@ -221,7 +229,7 @@ function AppContent() {
                 </button>
 
                 <button
-                  onClick={() => setCurrentView("dashboard")}
+                  onClick={() => transitionToView("dashboard")}
                   className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
                     currentView === "dashboard"
                       ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
@@ -242,7 +250,7 @@ function AppContent() {
                 </button>
 
                 <button
-                  onClick={() => setCurrentView("groups")}
+                  onClick={() => transitionToView("groups")}
                   className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
                     currentView === "groups"
                       ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
