@@ -35,7 +35,22 @@ def upload_file_with_fallback(file_path: str, file_name: str):
     Returns the URL or path of the uploaded file.
     """
 
+    # ---------- 1️⃣ Try AWS S3 ----------
+    try:
+        s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=AWS_ACCESS_KEY,
+            aws_secret_access_key=AWS_SECRET_KEY,
+            region_name=AWS_REGION,
+        )
 
+        s3_client.upload_file(file_path, AWS_S3_BUCKET, file_name)
+        s3_url = f"https://{AWS_S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{file_name}"
+        print(f"[Storage] Uploaded to S3: {s3_url}")
+        return {"storage": "s3", "url": s3_url}
+
+    except (BotoCoreError, ClientError) as e:
+        print(f"[Storage] S3 upload failed: {e}")
     # ---------- 2️⃣ Try Backblaze B2 ----------
     try:
         # Authorize
@@ -76,22 +91,7 @@ def upload_file_with_fallback(file_path: str, file_name: str):
     except Exception as e:
         print(f"[Storage] ⚠️ Backblaze upload failed: {e}")
 
-    # ---------- 1️⃣ Try AWS S3 ----------
-    try:
-        s3_client = boto3.client(
-            "s3",
-            aws_access_key_id=AWS_ACCESS_KEY,
-            aws_secret_access_key=AWS_SECRET_KEY,
-            region_name=AWS_REGION,
-        )
-
-        s3_client.upload_file(file_path, AWS_S3_BUCKET, file_name)
-        s3_url = f"https://{AWS_S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{file_name}"
-        print(f"[Storage] Uploaded to S3: {s3_url}")
-        return {"storage": "s3", "url": s3_url}
-
-    except (BotoCoreError, ClientError) as e:
-        print(f"[Storage] S3 upload failed: {e}")
+   
     # ---------- 3️⃣ Local Fallback ----------
     try:
         os.makedirs(LOCAL_UPLOAD_DIR, exist_ok=True)
