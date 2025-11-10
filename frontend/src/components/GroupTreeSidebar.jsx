@@ -642,9 +642,9 @@ export default function GroupTreeSidebar({
                           </ul>
                         )}
                         {batchToggleDisabled && (
-                          <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500" aria-live="polite">
+                          <p className="sr-only" role="status" aria-live="polite">
                             No batches available
-                          </div>
+                          </p>
                         )}
                       </div>
 
