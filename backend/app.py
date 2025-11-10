@@ -17,6 +17,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import UUID
+from dotenv import load_dotenv
+
+from pydantic import BaseModel
 
 # Third-party imports
 import psycopg2
@@ -67,6 +70,7 @@ except Exception:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("doca11y-backend")
 
+load_dotenv()
 
 def to_json_safe(data):
     """
@@ -105,6 +109,13 @@ class SafeJSONResponse(JSONResponse):
     def render(self, content: any) -> bytes:
         safe = to_json_safe(content)
         return json.dumps(safe, ensure_ascii=False).encode("utf-8")
+
+MAX_GROUP_NAME_LENGTH = 255
+
+
+class GroupPayload(BaseModel):
+    name: str
+    description: Optional[str] = ""
 
 
 # CORS / environment config
@@ -204,6 +215,41 @@ def execute_query(query: str, params: Optional[tuple] = None, fetch: bool = Fals
                 conn.close()
             logger.exception("Query execution failed")
             raise
+
+
+def _parse_scan_results_json(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse scan_results JSON: %s", value)
+            return {}
+    return {}
+
+
+def update_group_file_count(group_id: str):
+    """Update the file_count for a group based on actual scans."""
+    try:
+        execute_query(
+            """
+            UPDATE groups
+            SET file_count = (
+                SELECT COUNT(*)
+                FROM scans
+                WHERE group_id = %s
+            )
+            WHERE id = %s
+        """,
+            (group_id, group_id),
+            fetch=False,
+        )
+        logger.info("[Backend] ✓ Updated file count for group %s", group_id)
+    except Exception:
+        logger.exception("[Backend] Error updating group file count for %s", group_id)
 
 
 # helper to save scan metadata (preserve naming)
@@ -439,11 +485,348 @@ async def upload_file(file: UploadFile = File(...)):
 async def get_groups():
     try:
         rows = execute_query(
-            "SELECT * FROM groups ORDER BY created_at DESC", fetch=True
+            """
+            SELECT g.id, g.name, g.description, g.created_at,
+                   COALESCE(g.file_count, 0) AS file_count
+            FROM groups g
+            ORDER BY g.created_at DESC
+            """,
+            fetch=True,
         )
-        return SafeJSONResponse({"groups": rows})
+        groups = rows or []
+        logger.info("[Backend] Returning %d groups", len(groups))
+        return SafeJSONResponse({"groups": groups})
     except Exception as e:
         logger.exception("doca11y-backend:get_groups DB error")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/groups/{group_id}/details")
+async def get_group_details(group_id: str):
+    """
+    Returns group-level summary with total files, issues, and compliance averages.
+    Used by GroupDashboard.jsx
+    """
+    try:
+        update_group_file_count(group_id)
+        group_rows = execute_query(
+            """
+            SELECT id, name, description, created_at
+            FROM groups
+            WHERE id = %s
+            """,
+            (group_id,),
+            fetch=True,
+        )
+        if not group_rows:
+            return JSONResponse(
+                {"error": f"Group {group_id} not found"}, status_code=404
+            )
+
+        scans = execute_query(
+            """
+            SELECT scan_results, status
+            FROM scans
+            WHERE group_id = %s
+            """,
+            (group_id,),
+            fetch=True,
+        ) or []
+
+        total_files = len(scans)
+        total_issues = 0
+        issues_fixed = 0
+        total_compliance = 0
+        fixed_count = 0
+        severity_totals = {"high": 0, "medium": 0, "low": 0}
+        category_totals: Dict[str, int] = {}
+        status_counts: Dict[str, int] = {}
+
+        for scan in scans:
+            scan_results = _parse_scan_results_json(scan.get("scan_results"))
+            summary = scan_results.get("summary", {})
+            results = scan_results.get("results", {})
+
+            total_issues += summary.get("totalIssues", 0)
+            total_compliance += summary.get("complianceScore", 0)
+
+            status_key = (scan.get("status") or "unknown").lower()
+            status_counts[status_key] = status_counts.get(status_key, 0) + 1
+
+            if isinstance(results, dict):
+                for category, issues in results.items():
+                    if not isinstance(issues, list):
+                        continue
+                    category_totals[category] = (
+                        category_totals.get(category, 0) + len(issues)
+                    )
+                    for issue in issues:
+                        if not isinstance(issue, dict):
+                            continue
+                        severity = (issue.get("severity") or "").lower()
+                        if severity in severity_totals:
+                            severity_totals[severity] += 1
+
+            if status_key == "fixed":
+                fixed_count += 1
+                issues_fixed += summary.get("totalIssues", 0)
+
+        avg_compliance = (
+            round(total_compliance / total_files, 2) if total_files > 0 else 0
+        )
+
+        group = group_rows[0]
+        response = {
+            "groupId": group["id"],
+            "name": group["name"],
+            "description": group.get("description", ""),
+            "file_count": total_files,
+            "total_issues": total_issues,
+            "issues_fixed": issues_fixed,
+            "avg_compliance": avg_compliance,
+            "fixed_files": fixed_count,
+            "category_totals": category_totals,
+            "severity_totals": severity_totals,
+            "status_counts": status_counts,
+        }
+
+        return SafeJSONResponse(response)
+    except Exception:
+        logger.exception("doca11y-backend:get_group_details DB error")
+        return JSONResponse(
+            {"error": "Failed to fetch group details"}, status_code=500
+        )
+
+
+@app.get("/api/groups/{group_id}/files")
+async def get_group_files(group_id: str):
+    """Get all files/scans for a specific group"""
+    try:
+        query = """
+            SELECT id, filename, status, upload_date,
+                   total_issues, issues_fixed, scan_results
+            FROM scans
+            WHERE group_id = %s
+            ORDER BY upload_date DESC
+        """
+        rows = execute_query(query, (group_id,), fetch=True) or []
+
+        files = []
+        for row in rows:
+            row_dict = dict(row)
+            scan_results = _parse_scan_results_json(
+                row_dict.get("scan_results") or {}
+            )
+            summary = scan_results.get("summary", {})
+            files.append(
+                {
+                    "id": row_dict["id"],
+                    "filename": row_dict["filename"],
+                    "status": row_dict.get("status", "unprocessed"),
+                    "uploadDate": row_dict.get("upload_date"),
+                    "totalIssues": summary.get(
+                        "totalIssues", row_dict.get("total_issues", 0)
+                    ),
+                    "issuesFixed": row_dict.get("issues_fixed", 0),
+                    "complianceScore": summary.get("complianceScore", 0),
+                }
+            )
+
+        return SafeJSONResponse({"files": files})
+    except Exception as e:
+        logger.exception("doca11y-backend:get_group_files error")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/groups/{group_id}")
+async def get_group(group_id: str):
+    """Get group details with all scans"""
+    try:
+        update_group_file_count(group_id)
+        query = """
+            SELECT g.*, 
+                   COUNT(s.id) AS file_count
+            FROM groups g
+            LEFT JOIN scans s ON g.id = s.group_id
+            WHERE g.id = %s
+            GROUP BY g.id
+        """
+        rows = execute_query(query, (group_id,), fetch=True) or []
+
+        if not rows:
+            return JSONResponse({"error": "Group not found"}, status_code=404)
+
+        group = dict(rows[0])
+        scans_query = """
+            SELECT id, filename, status, upload_date, created_at
+            FROM scans
+            WHERE group_id = %s
+            ORDER BY upload_date DESC
+        """
+        scans = execute_query(scans_query, (group_id,), fetch=True) or []
+        group["scans"] = scans
+
+        return SafeJSONResponse({"group": group})
+    except Exception:
+        logger.exception("doca11y-backend:get_group DB error")
+        return JSONResponse({"error": "Internal error"}, status_code=500)
+
+
+@app.post("/api/groups")
+async def create_group(payload: GroupPayload):
+    """Create a new group"""
+    name = payload.name.strip()
+    description = (payload.description or "").strip()
+
+    if not name:
+        return JSONResponse({"error": "Group name is required"}, status_code=400)
+
+    if len(name) > MAX_GROUP_NAME_LENGTH:
+        return JSONResponse(
+            {"error": "Group name must be less than 255 characters"}, status_code=400
+        )
+
+    group_id = f"group_{uuid.uuid4().hex}"
+
+    conn = None
+    cur = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id FROM groups
+            WHERE LOWER(name) = LOWER(%s)
+            LIMIT 1
+            """,
+            (name,),
+        )
+        if cur.fetchone():
+            return JSONResponse(
+                {"error": "A group with this name already exists"}, status_code=409
+            )
+
+        cur.execute(
+            """
+            INSERT INTO groups (id, name, description, created_at, file_count)
+            VALUES (%s, %s, %s, NOW(), 0)
+            RETURNING id, name, description, created_at, file_count
+            """,
+            (group_id, name, description),
+        )
+        result = cur.fetchone()
+        conn.commit()
+
+        if result:
+            group = dict(result)
+            logger.info("[Backend] ✓ Created group: %s (%s)", name, group_id)
+            return SafeJSONResponse({"group": group}, status_code=201)
+
+        conn.rollback()
+        return JSONResponse({"error": "Failed to create group"}, status_code=500)
+    except psycopg2.IntegrityError as e:
+        logger.exception("doca11y-backend:create_group integrity error: %s", e)
+        conn.rollback()
+        return JSONResponse(
+            {"error": "A group with this name already exists"}, status_code=409
+        )
+    except Exception as e:
+        logger.exception("doca11y-backend:create_group error: %s", e)
+        if conn:
+            conn.rollback()
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+
+@app.put("/api/groups/{group_id}")
+async def update_group(group_id: str, payload: GroupPayload):
+    """Update group details"""
+    name = payload.name.strip()
+    description = (payload.description or "").strip()
+
+    if not name:
+        return JSONResponse({"error": "Group name is required"}, status_code=400)
+
+    conn = None
+    cur = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
+        if not cur.fetchone():
+            return JSONResponse({"error": "Group not found"}, status_code=404)
+
+        cur.execute(
+            """
+            SELECT id FROM groups
+            WHERE LOWER(name) = LOWER(%s) AND id <> %s
+            LIMIT 1
+            """,
+            (name, group_id),
+        )
+        if cur.fetchone():
+            return JSONResponse(
+                {"error": "A group with this name already exists"}, status_code=409
+            )
+
+        cur.execute(
+            """
+            UPDATE groups
+            SET name = %s, description = %s
+            WHERE id = %s
+            RETURNING id, name, description, created_at, file_count
+            """,
+            (name, description, group_id),
+        )
+        result = cur.fetchone()
+        conn.commit()
+
+        if result:
+            group = dict(result)
+            logger.info("[Backend] ✓ Updated group: %s (%s)", name, group_id)
+            return SafeJSONResponse({"group": group})
+
+        conn.rollback()
+        return JSONResponse({"error": "Failed to update group"}, status_code=500)
+    except psycopg2.IntegrityError:
+        if conn:
+            conn.rollback()
+        return JSONResponse(
+            {"error": "A group with this name already exists"}, status_code=409
+        )
+    except Exception as e:
+        logger.exception("doca11y-backend:update_group error: %s", e)
+        if conn:
+            conn.rollback()
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+
+@app.delete("/api/groups/{group_id}")
+async def delete_group(group_id: str):
+    """Delete a group (scans will have group_id set to NULL)"""
+    try:
+        rows = execute_query(
+            "SELECT id FROM groups WHERE id = %s", (group_id,), fetch=True
+        )
+        if not rows:
+            return JSONResponse({"error": "Group not found"}, status_code=404)
+
+        execute_query("DELETE FROM groups WHERE id = %s", (group_id,), fetch=False)
+        logger.info("[Backend] ✓ Deleted group: %s", group_id)
+        return SafeJSONResponse(
+            {"success": True, "message": "Group deleted successfully"}
+        )
+    except Exception as e:
+        logger.exception("doca11y-backend:delete_group error: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -1042,7 +1425,8 @@ async def ai_apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
 # ----------------------
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
-    return JSONResponse(status_code=404, content={"error": "Route not found"})
+    logger.exception("doca11y-backend:" + str(exc))
+    return JSONResponse(status_code=404, content={"error": "Route not found:" + str(exc)})
 
 
 @app.exception_handler(Exception)
