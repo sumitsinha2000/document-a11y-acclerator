@@ -8,6 +8,7 @@ import json
 import time
 import uuid
 import shutil
+import zipfile
 import asyncio
 import logging
 import threading
@@ -15,7 +16,8 @@ import traceback
 from datetime import datetime, date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from io import BytesIO
 from uuid import UUID
 from dotenv import load_dotenv
 
@@ -33,7 +35,7 @@ from fastapi import (
     BackgroundTasks,
     HTTPException,
 )
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from werkzeug.utils import secure_filename
@@ -217,6 +219,93 @@ def execute_query(query: str, params: Optional[tuple] = None, fetch: bool = Fals
             raise
 
 
+def update_batch_statistics(batch_id: str):
+    """Recalculate aggregate metrics for a batch and persist them."""
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            """
+            SELECT
+                COUNT(*) AS total_files,
+                COALESCE(SUM(total_issues), 0) AS total_issues,
+                COALESCE(SUM(issues_remaining), 0) AS remaining_issues,
+                COALESCE(SUM(issues_fixed), 0) AS fixed_issues,
+                SUM(CASE WHEN status IN ('unprocessed', 'processing', 'uploaded') THEN 1 ELSE 0 END) AS unprocessed_files,
+                SUM(CASE WHEN status = 'fixed' THEN 1 ELSE 0 END) AS fixed_files,
+                SUM(CASE WHEN status = 'uploaded' THEN 1 ELSE 0 END) AS uploaded_files
+            FROM scans
+            WHERE batch_id = %s
+            """,
+            (batch_id,),
+        )
+        stats = cursor.fetchone() or {}
+
+        total_files = stats.get("total_files") or 0
+        total_issues = stats.get("total_issues") or 0
+        remaining_issues = stats.get("remaining_issues") or 0
+        fixed_issues = stats.get("fixed_issues")
+        if fixed_issues is None:
+            fixed_issues = max(total_issues - remaining_issues, 0)
+        unprocessed_files = stats.get("unprocessed_files") or 0
+        fixed_files = stats.get("fixed_files") or 0
+        uploaded_files = stats.get("uploaded_files") or 0
+
+        if total_files == 0:
+            batch_status = "empty"
+        elif uploaded_files == total_files:
+            batch_status = "uploaded"
+        elif uploaded_files > 0:
+            batch_status = "partial"
+        elif remaining_issues == 0:
+            batch_status = "completed"
+        elif fixed_files == 0 and unprocessed_files == total_files:
+            batch_status = "processing"
+        else:
+            batch_status = "partial"
+
+        cursor.execute(
+            """
+            UPDATE batches
+            SET total_files = %s,
+                total_issues = %s,
+                remaining_issues = %s,
+                fixed_issues = %s,
+                unprocessed_files = %s,
+                status = %s
+            WHERE id = %s
+            """,
+            (
+                total_files,
+                total_issues,
+                remaining_issues,
+                fixed_issues,
+                unprocessed_files,
+                batch_status,
+                batch_id,
+            ),
+        )
+        conn.commit()
+        logger.info(
+            "[Backend] ✓ Batch %s statistics updated: total=%s remaining=%s status=%s",
+            batch_id,
+            total_issues,
+            remaining_issues,
+            batch_status,
+        )
+    except Exception:
+        if conn:
+            conn.rollback()
+        logger.exception("[Backend] ⚠ Failed to update batch statistics for %s", batch_id)
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
 def _parse_scan_results_json(value: Any) -> Dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -321,27 +410,69 @@ def save_fix_history(
     compliance_after: Any,
     fix_suggestions: Optional[List[Dict[str, Any]]] = None,
     fix_metadata: Optional[Dict[str, Any]] = None,
+    batch_id: Optional[str] = None,
+    group_id: Optional[str] = None,
+    total_issues_before: Optional[int] = None,
+    total_issues_after: Optional[int] = None,
+    high_severity_before: Optional[int] = None,
+    high_severity_after: Optional[int] = None,
+    success_count: Optional[int] = None,
 ):
     """
     Save fix history record - preserve original names.
     """
     try:
+        original_file = original_filename or fixed_filename or "unknown.pdf"
+        fixed_file = fixed_filename or original_filename or "fixed.pdf"
         execute_query(
             """
-            INSERT INTO fixes (scan_id, original_filename, fixed_filename, fixes_applied, fix_type, issues_before, issues_after, compliance_before, compliance_after, suggestions, metadata, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+            INSERT INTO fix_history (
+                scan_id,
+                batch_id,
+                group_id,
+                original_file,
+                fixed_file,
+                original_filename,
+                fixed_filename,
+                fix_type,
+                fixes_applied,
+                fix_suggestions,
+                issues_before,
+                issues_after,
+                total_issues_before,
+                total_issues_after,
+                high_severity_before,
+                high_severity_after,
+                compliance_before,
+                compliance_after,
+                success_count,
+                fix_metadata,
+                applied_at
+            )
+            VALUES (
+                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()
+            )
             """,
             (
                 scan_id,
+                batch_id,
+                group_id,
+                original_file,
+                fixed_file,
                 original_filename,
                 fixed_filename,
-                json.dumps(fixes_applied),
                 fix_type,
+                json.dumps(fixes_applied),
+                json.dumps(fix_suggestions or []),
                 json.dumps(issues_before),
                 json.dumps(issues_after),
+                total_issues_before,
+                total_issues_after,
+                high_severity_before,
+                high_severity_after,
                 compliance_before,
                 compliance_after,
-                json.dumps(fix_suggestions or []),
+                success_count,
                 json.dumps(fix_metadata or {}),
             ),
         )
@@ -427,6 +558,252 @@ def get_versioned_files(scan_id: str):
     entries.sort(key=lambda e: e["version"])
     return entries
 
+
+def _uploads_root() -> Path:
+    return Path(UPLOAD_FOLDER).resolve()
+
+
+def _fixed_root() -> Path:
+    return Path(FIXED_FOLDER).resolve()
+
+
+def _ensure_local_storage(context: str = ""):
+    """Ensure uploads/fixed directories exist."""
+    try:
+        _uploads_root().mkdir(parents=True, exist_ok=True)
+        _fixed_root().mkdir(parents=True, exist_ok=True)
+    except Exception:
+        logger.exception("[Backend] Failed to ensure local storage for %s", context)
+
+
+def build_placeholder_scan_payload(filename: Optional[str] = None) -> Dict[str, Any]:
+    summary = {
+        "totalIssues": 0,
+        "highSeverity": 0,
+        "complianceScore": 0,
+        "status": "queued",
+    }
+    if filename:
+        summary["filename"] = filename
+    return {
+        "results": {},
+        "summary": summary,
+        "verapdfStatus": None,
+        "fixes": [],
+    }
+
+
+def should_scan_now(scan_mode: Optional[str] = None, request: Optional[Request] = None) -> bool:
+    """Determine whether files should be scanned immediately."""
+    mode = (scan_mode or "").strip().lower()
+    if not mode and request:
+        header_mode = request.headers.get("x-scan-mode")
+        if header_mode:
+            mode = header_mode.strip().lower()
+        elif "scan_mode" in request.query_params:
+            mode = request.query_params.get("scan_mode", "").strip().lower()
+    if not mode:
+        return True
+    return mode not in {"upload_only", "deferred", "defer"}
+
+
+def _serialize_scan_results(payload: Dict[str, Any]) -> str:
+    return json.dumps(to_json_safe(payload))
+
+
+def _combine_compliance_scores(*scores: Optional[float]) -> Optional[float]:
+    numeric = [s for s in scores if isinstance(s, (int, float))]
+    if not numeric:
+        return None
+    return round(sum(numeric) / len(numeric), 2)
+
+
+def get_fixed_version(scan_id: str) -> Optional[Dict[str, Any]]:
+    """Return the latest fixed file entry for a scan if present."""
+    version_entries = get_versioned_files(scan_id)
+    if version_entries:
+        latest = version_entries[-1]
+        return {
+            "version": latest.get("version"),
+            "filename": latest.get("filename"),
+            "absolute_path": latest.get("absolute_path"),
+            "relative_path": latest.get("relative_path"),
+        }
+
+    fixed_dir = _fixed_root()
+    for ext in ("", ".pdf"):
+        candidate = fixed_dir / f"{scan_id}{ext}"
+        if candidate.exists():
+            relative = candidate.relative_to(fixed_dir)
+            return {
+                "version": 1,
+                "filename": candidate.name,
+                "absolute_path": str(candidate),
+                "relative_path": str(relative),
+            }
+    return None
+
+
+def _perform_automated_fix(
+    scan_id: str,
+    payload: Optional[Dict[str, Any]] = None,
+    expected_batch_id: Optional[str] = None,
+) -> Tuple[int, Dict[str, Any]]:
+    """Apply automated fixes to a scan and update database state."""
+    conn = None
+    cursor = None
+    tracker = get_progress_tracker(scan_id) or create_progress_tracker(scan_id)
+    payload = payload or {}
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            """
+            SELECT id, filename, batch_id, group_id, scan_results,
+                   COALESCE(total_issues, 0) AS total_issues,
+                   COALESCE(issues_fixed, 0) AS issues_fixed,
+                   COALESCE(issues_remaining, 0) AS issues_remaining
+            FROM scans
+            WHERE id = %s
+            """,
+            (scan_id,),
+        )
+        scan_row = cursor.fetchone()
+        if not scan_row:
+            return 404, {
+                "success": False,
+                "error": f"Scan {scan_id} not found",
+            }
+
+        if expected_batch_id and scan_row.get("batch_id") != expected_batch_id:
+            return 400, {
+                "success": False,
+                "error": f"Scan {scan_id} does not belong to batch {expected_batch_id}",
+            }
+
+        initial_scan_payload = scan_row.get("scan_results")
+        if isinstance(initial_scan_payload, str):
+            try:
+                initial_scan_payload = json.loads(initial_scan_payload)
+            except Exception:
+                initial_scan_payload = {}
+        elif not isinstance(initial_scan_payload, dict):
+            initial_scan_payload = {}
+        initial_summary = (
+            initial_scan_payload.get("summary", {})
+            if isinstance(initial_scan_payload, dict)
+            else {}
+        )
+
+        engine = AutoFixEngine()
+        result = engine.apply_automated_fixes(scan_id, scan_row, tracker=tracker)
+        if not result.get("success"):
+            if tracker:
+                tracker.fail_all(result.get("error", "Automated fix failed"))
+            return 500, {
+                "success": False,
+                "error": result.get("error", "Automated fix failed"),
+                "scanId": scan_id,
+            }
+
+        if tracker:
+            tracker.complete_all()
+
+        scan_results_payload = result.get("scanResults") or {
+            "results": result.get("results"),
+            "summary": result.get("summary"),
+            "verapdfStatus": result.get("verapdfStatus"),
+            "fixes": result.get("fixesApplied", []),
+        }
+        summary = scan_results_payload.get("summary") or result.get("summary") or {}
+        remaining_issues = summary.get("totalIssues", 0) or 0
+        total_issues_before = scan_row.get("total_issues") or remaining_issues
+        issues_fixed = max(total_issues_before - remaining_issues, 0)
+        status = "fixed" if remaining_issues == 0 else "processed"
+
+        cursor.execute(
+            """
+            UPDATE scans
+            SET scan_results = %s,
+                status = %s,
+                issues_fixed = %s,
+                issues_remaining = %s,
+                total_issues = %s
+            WHERE id = %s
+            """,
+            (
+                _serialize_scan_results(scan_results_payload),
+                status,
+                issues_fixed,
+                remaining_issues,
+                max(total_issues_before, remaining_issues),
+                scan_id,
+            ),
+        )
+
+        fixes_applied = result.get("fixesApplied", [])
+        try:
+            save_fix_history(
+                scan_id=scan_id,
+                original_filename=scan_row.get("filename"),
+                fixed_filename=result.get("fixedFile") or scan_row.get("filename"),
+                fixes_applied=fixes_applied,
+                fix_type="automated",
+                issues_before=initial_scan_payload.get("results")
+                if isinstance(initial_scan_payload, dict)
+                else {},
+                issues_after=scan_results_payload.get("results"),
+                compliance_before=initial_summary.get("complianceScore"),
+                compliance_after=summary.get("complianceScore"),
+                fix_suggestions=scan_results_payload.get("fixes"),
+                fix_metadata={"automated": True},
+                batch_id=scan_row.get("batch_id"),
+                group_id=scan_row.get("group_id"),
+                total_issues_before=total_issues_before,
+                total_issues_after=remaining_issues,
+                high_severity_before=initial_summary.get("highSeverity"),
+                high_severity_after=summary.get("highSeverity"),
+                success_count=result.get("successCount"),
+            )
+        except Exception:
+            logger.exception("[Backend] Failed to record fix history for %s", scan_id)
+
+        conn.commit()
+
+        batch_id = scan_row.get("batch_id")
+        if batch_id:
+            update_batch_statistics(batch_id)
+
+        response_payload = {
+            "success": True,
+            "scanId": scan_id,
+            "batchId": batch_id,
+            "summary": summary,
+            "results": scan_results_payload.get("results"),
+            "verapdfStatus": scan_results_payload.get("verapdfStatus"),
+            "fixesApplied": fixes_applied,
+            "fixedFile": result.get("fixedFile"),
+            "successCount": result.get("successCount", len(fixes_applied)),
+            "message": result.get("message", "Automated fixes applied"),
+        }
+        return 200, response_payload
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        if tracker:
+            tracker.fail_all(str(exc))
+        logger.exception("[Backend] Error performing automated fix for %s", scan_id)
+        return 500, {
+            "success": False,
+            "error": str(exc),
+            "scanId": scan_id,
+        }
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 def build_verapdf_status(results, analyzer=None):
     status = {
@@ -974,34 +1351,911 @@ async def get_scans():
 # === Batch Upload ===
 @app.post("/api/scan-batch")
 async def scan_batch(
-    files: List[UploadFile] = File(...), group_id: Optional[str] = Form(None)
+    request: Request,
+    files: List[UploadFile] = File(...),
+    group_id: Optional[str] = Form(None),
+    batch_name: Optional[str] = Form(None),
+    scan_mode: Optional[str] = Form(None),
 ):
     try:
         if not files:
             return JSONResponse({"error": "No files provided"}, status_code=400)
+        if not group_id:
+            return JSONResponse({"error": "Group ID is required"}, status_code=400)
+
+        pdf_files = [f for f in files if f.filename.lower().endswith(".pdf")]
+        skipped_files = [f.filename for f in files if f not in pdf_files]
+
+        if not pdf_files:
+            return JSONResponse({"error": "No PDF files provided"}, status_code=400)
+
         batch_id = f"batch_{uuid.uuid4().hex}"
-        results = []
-        for f in files:
-            fname = f.filename
+        batch_title = batch_name or f"Batch {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        scan_now = should_scan_now(scan_mode, request)
+        batch_status = "processing" if scan_now else "uploaded"
+
+        execute_query(
+            """
+            INSERT INTO batches (id, name, group_id, created_at, status, total_files, total_issues, remaining_issues, fixed_issues, unprocessed_files)
+            VALUES (%s, %s, %s, NOW(), %s, %s, 0, 0, 0, %s)
+            """,
+            (
+                batch_id,
+                batch_title,
+                group_id,
+                batch_status,
+                len(pdf_files),
+                len(pdf_files),
+            ),
+        )
+
+        logger.info(
+            "[Backend] ✓ Created batch %s (%s) with %d files (scan_now=%s)",
+            batch_id,
+            batch_title,
+            len(pdf_files),
+            scan_now,
+        )
+
+        _ensure_local_storage("Batch uploads")
+        upload_dir = _uploads_root()
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        scan_results_response: List[Dict[str, Any]] = []
+        total_batch_issues = 0
+        processed_files = len(pdf_files)
+        successful_scans = 0
+
+        for file in pdf_files:
             scan_id = f"scan_{uuid.uuid4().hex}"
-            upload_dir = Path(UPLOAD_FOLDER)
-            upload_dir.mkdir(parents=True, exist_ok=True)
             file_path = upload_dir / f"{scan_id}.pdf"
-            await asyncio.to_thread(_write_uploadfile_to_disk, f, str(file_path))
-            # run analyzer in background thread
+            await asyncio.to_thread(_write_uploadfile_to_disk, file, str(file_path))
+
+            if not scan_now:
+                placeholder = build_placeholder_scan_payload(file.filename)
+                execute_query(
+                    """
+                    INSERT INTO scans (
+                        id, filename, scan_results, status, upload_date, created_at,
+                        group_id, batch_id, total_issues, issues_remaining, issues_fixed
+                    ) VALUES (
+                        %s, %s, %s, %s, NOW(), NOW(),
+                        %s, %s, %s, %s, %s
+                    )
+                    """,
+                    (
+                        scan_id,
+                        file.filename,
+                        _serialize_scan_results(placeholder),
+                        "uploaded",
+                        group_id,
+                        batch_id,
+                        0,
+                        0,
+                        0,
+                    ),
+                )
+                scan_results_response.append(
+                    {
+                        "scanId": scan_id,
+                        "filename": file.filename,
+                        "totalIssues": 0,
+                        "status": "uploaded",
+                        "summary": placeholder.get("summary", {}),
+                        "results": placeholder.get("results", {}),
+                        "verapdfStatus": placeholder.get("verapdfStatus"),
+                        "fixes": placeholder.get("fixes", []),
+                        "groupId": group_id,
+                        "batchId": batch_id,
+                    }
+                )
+                continue
+
             analyzer = PDFAccessibilityAnalyzer()
             analyze_fn = getattr(analyzer, "analyze", None)
-            if analyze_fn:
-                if asyncio.iscoroutinefunction(analyze_fn):
-                    # schedule coroutine in background using create_task
-                    asyncio.create_task(analyze_fn(str(file_path)))
-                else:
-                    asyncio.create_task(asyncio.to_thread(analyze_fn, str(file_path)))
-            results.append({"scanId": scan_id, "filename": fname})
-        return SafeJSONResponse({"batchId": batch_id, "scans": results})
+            if not analyze_fn:
+                logger.warning("Analyzer missing analyze() method; skipping %s", file.filename)
+                continue
+
+            if asyncio.iscoroutinefunction(analyze_fn):
+                scan_data = await analyze_fn(str(file_path))
+            else:
+                scan_data = await asyncio.to_thread(analyze_fn, str(file_path))
+
+            verapdf_status = build_verapdf_status(scan_data, analyzer)
+            summary = {}
+            try:
+                if hasattr(analyzer, "calculate_summary"):
+                    calc = getattr(analyzer, "calculate_summary")
+                    if asyncio.iscoroutinefunction(calc):
+                        summary = await calc(scan_data, verapdf_status)
+                    else:
+                        summary = await asyncio.to_thread(calc, scan_data, verapdf_status)
+            except Exception:
+                logger.exception("calculate_summary failed for %s", file.filename)
+                summary = {}
+
+            if isinstance(summary, dict) and verapdf_status:
+                summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+                summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+
+            fixes = (
+                generate_fix_suggestions(scan_data)
+                if callable(generate_fix_suggestions)
+                else []
+            )
+
+            formatted_results = {
+                "results": scan_data,
+                "summary": summary,
+                "verapdfStatus": verapdf_status,
+                "fixes": fixes,
+            }
+
+            total_issues = summary.get("totalIssues", 0) if isinstance(summary, dict) else 0
+            total_batch_issues += total_issues
+
+            execute_query(
+                """
+                INSERT INTO scans (
+                    id, filename, scan_results, status, upload_date, created_at,
+                    group_id, batch_id, total_issues, issues_remaining, issues_fixed
+                ) VALUES (
+                    %s, %s, %s, %s, NOW(), NOW(),
+                    %s, %s, %s, %s, %s
+                )
+                """,
+                (
+                    scan_id,
+                    file.filename,
+                    _serialize_scan_results(formatted_results),
+                    "unprocessed",
+                    group_id,
+                    batch_id,
+                    total_issues,
+                    total_issues,
+                    0,
+                ),
+            )
+
+            scan_results_response.append(
+                {
+                    "scanId": scan_id,
+                    "filename": file.filename,
+                    "totalIssues": total_issues,
+                    "status": "unprocessed",
+                    "summary": summary,
+                    "results": scan_data,
+                    "verapdfStatus": verapdf_status,
+                    "fixes": fixes,
+                    "groupId": group_id,
+                    "batchId": batch_id,
+                }
+            )
+            successful_scans += 1
+
+        if not scan_now:
+            unprocessed_files = len(pdf_files)
+            batch_status = "uploaded"
+            remaining_issues = 0
+        else:
+            unprocessed_files = max(len(pdf_files) - successful_scans, 0)
+            remaining_issues = total_batch_issues
+            if successful_scans == len(pdf_files):
+                batch_status = "completed"
+            elif successful_scans == 0:
+                batch_status = "failed"
+            else:
+                batch_status = "partial"
+
+        execute_query(
+            """
+            UPDATE batches
+            SET total_issues = %s,
+                remaining_issues = %s,
+                unprocessed_files = %s,
+                status = %s,
+                total_files = %s
+            WHERE id = %s
+            """,
+            (
+                total_batch_issues,
+                remaining_issues,
+                unprocessed_files,
+                batch_status,
+                len(pdf_files),
+                batch_id,
+            ),
+        )
+
+        update_batch_statistics(batch_id)
+        update_group_file_count(group_id)
+
+        logger.info(
+            "[Backend] ✓ Batch %s upload complete: %d scans, %d issues",
+            batch_id,
+            len(scan_results_response),
+            total_batch_issues,
+        )
+
+        return SafeJSONResponse(
+            {
+                "batchId": batch_id,
+                "groupId": group_id,
+                "scans": scan_results_response,
+                "totalIssues": total_batch_issues,
+                "timestamp": datetime.now().isoformat(),
+                "processedFiles": processed_files,
+                "successfulScans": successful_scans,
+                "skippedFiles": skipped_files,
+                "scanDeferred": not scan_now,
+                "batchStatus": batch_status,
+            }
+        )
 
     except Exception as e:
         logger.exception("scan_batch failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# === Batch fix/download/details endpoints ===
+@app.post("/api/batch/{batch_id}/fix-file/{scan_id}")
+async def apply_batch_fix(batch_id: str, scan_id: str):
+    status, payload = await asyncio.to_thread(
+        _perform_automated_fix, scan_id, {}, batch_id
+    )
+    if status == 200:
+        payload.setdefault("batchId", batch_id)
+    return JSONResponse(payload, status_code=status)
+
+
+@app.post("/api/batch/{batch_id}/fix-all")
+async def apply_batch_fix_all(batch_id: str):
+    scans = execute_query(
+        "SELECT id FROM scans WHERE batch_id = %s",
+        (batch_id,),
+        fetch=True,
+    )
+    if not scans:
+        return JSONResponse(
+            {"success": False, "error": f"No scans found for batch {batch_id}"},
+            status_code=404,
+        )
+
+    success_count = 0
+    errors: List[Dict[str, Any]] = []
+
+    for scan in scans:
+        scan_id = scan.get("id") if isinstance(scan, dict) else scan[0]
+        status, payload = await asyncio.to_thread(
+            _perform_automated_fix, scan_id, {}, batch_id
+        )
+        if status == 200 and payload.get("success"):
+            success_count += 1
+        else:
+            errors.append(
+                {
+                    "scanId": scan_id,
+                    "error": payload.get("error", "Unknown error"),
+                }
+            )
+
+    update_batch_statistics(batch_id)
+
+    total_files = len(scans)
+    response_payload = {
+        "success": success_count > 0,
+        "successCount": success_count,
+        "totalFiles": total_files,
+        "errors": errors,
+        "batchId": batch_id,
+    }
+    status_code = 200 if success_count > 0 else 500
+    return JSONResponse(response_payload, status_code=status_code)
+
+
+@app.get("/api/batch/{batch_id}")
+async def get_batch_details(batch_id: str):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute(
+            """
+            SELECT 
+                id,
+                name,
+                created_at,
+                group_id,
+                status,
+                total_files,
+                total_issues,
+                fixed_issues,
+                remaining_issues,
+                unprocessed_files
+            FROM batches
+            WHERE id = %s
+            """,
+            (batch_id,),
+        )
+        batch = cursor.fetchone()
+        if not batch:
+            return JSONResponse({"error": f"Batch {batch_id} not found"}, status_code=404)
+
+        cursor.execute(
+            """
+            SELECT 
+                s.id AS scan_id,
+                s.filename,
+                s.scan_results,
+                s.status,
+                s.upload_date,
+                s.group_id,
+                s.total_issues AS initial_total_issues,
+                s.issues_fixed,
+                s.issues_remaining,
+                fh.id AS fix_id,
+                fh.fixed_filename,
+                fh.fixes_applied,
+                fh.applied_at AS applied_at,
+                fh.fix_type,
+                fh.issues_after,
+                fh.compliance_after,
+                fh.total_issues_after,
+                fh.high_severity_after
+            FROM scans s
+            LEFT JOIN LATERAL (
+                SELECT 
+                    fh_inner.*
+                FROM fix_history fh_inner
+                WHERE fh_inner.scan_id = s.id
+                ORDER BY fh_inner.applied_at DESC
+                LIMIT 1
+            ) fh ON true
+            WHERE s.batch_id = %s
+            ORDER BY COALESCE(s.upload_date, s.created_at) DESC
+            """,
+            (batch_id,),
+        )
+        scans = cursor.fetchall()
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+    processed_scans = []
+    total_issues = 0
+    total_compliance = 0
+    total_high = 0
+
+    for scan in scans or []:
+        scan_results = scan.get("scan_results")
+        if isinstance(scan_results, str):
+            try:
+                scan_results = json.loads(scan_results)
+            except Exception:
+                scan_results = {}
+        elif not isinstance(scan_results, dict):
+            scan_results = {}
+
+        initial_summary = (
+            scan_results.get("summary", {}) if isinstance(scan_results, dict) else {}
+        )
+        results = scan_results.get("results", scan_results) or {}
+
+        if scan.get("fix_id"):
+            fixes_applied = scan.get("fixes_applied")
+            if isinstance(fixes_applied, str):
+                try:
+                    fixes_applied = json.loads(fixes_applied)
+                except Exception:
+                    fixes_applied = []
+            elif not isinstance(fixes_applied, list):
+                fixes_applied = []
+            issues_after = scan.get("issues_after")
+            if isinstance(issues_after, str):
+                try:
+                    issues_after = json.loads(issues_after)
+                except Exception:
+                    issues_after = {}
+            current_issues = scan.get("total_issues_after")
+            if current_issues is None:
+                current_issues = scan.get("issues_remaining") or initial_summary.get(
+                    "totalIssues", 0
+                )
+            current_compliance = scan.get("compliance_after")
+            if current_compliance is None:
+                current_compliance = initial_summary.get("complianceScore", 0)
+            current_high = scan.get("high_severity_after")
+            if current_high is None:
+                current_high = initial_summary.get("highSeverity", 0)
+            current_status = "fixed"
+        else:
+            fixes_applied = []
+            current_issues = scan.get("issues_remaining") or initial_summary.get(
+                "totalIssues", 0
+            )
+            current_compliance = initial_summary.get("complianceScore", 0)
+            current_high = initial_summary.get("highSeverity", 0)
+            current_status = scan.get("status") or "scanned"
+
+        current_issues = current_issues or 0
+        current_compliance = current_compliance or 0
+        current_high = current_high or 0
+
+        total_issues += current_issues
+        total_high += current_high
+        total_compliance += current_compliance
+
+        version_entries = get_versioned_files(scan["scan_id"])
+        latest_version_entry = version_entries[-1] if version_entries else None
+        version_history = []
+        if version_entries:
+            for entry in reversed(version_entries):
+                created_at = entry.get("created_at")
+                if hasattr(created_at, "isoformat"):
+                    created = created_at.isoformat()
+                else:
+                    created = created_at
+                version_history.append(
+                    {
+                        "version": entry.get("version"),
+                        "label": f"V{entry.get('version')}",
+                        "relativePath": entry.get("relative_path"),
+                        "createdAt": created,
+                        "downloadable": latest_version_entry
+                        and entry.get("version") == latest_version_entry.get("version"),
+                        "fileSize": entry.get("size"),
+                    }
+                )
+
+        processed_scans.append(
+            {
+                "scanId": scan["scan_id"],
+                "filename": scan["filename"],
+                "status": current_status,
+                "uploadDate": scan.get("upload_date"),
+                "groupId": scan.get("group_id"),
+                "fixedFilename": scan.get("fixed_filename"),
+                "lastFixApplied": scan.get("applied_at"),
+                "fixType": scan.get("fix_type"),
+                "fixesApplied": fixes_applied,
+                "summary": {
+                    "totalIssues": current_issues,
+                    "highSeverity": current_high,
+                    "complianceScore": current_compliance,
+                },
+                "initialSummary": {
+                    "totalIssues": initial_summary.get("totalIssues", 0),
+                    "highSeverity": initial_summary.get("highSeverity", 0),
+                    "complianceScore": initial_summary.get("complianceScore", 0),
+                },
+                "results": results if isinstance(results, dict) else {},
+                "latestVersion": latest_version_entry.get("version")
+                if latest_version_entry
+                else None,
+                "latestFixedFile": latest_version_entry.get("relative_path")
+                if latest_version_entry
+                else None,
+                "versionHistory": version_history,
+            }
+        )
+
+    avg_compliance = (
+        round(total_compliance / len(processed_scans), 2) if processed_scans else 0
+    )
+
+    batch_total_issues = batch.get("total_issues")
+    batch_fixed_issues = batch.get("fixed_issues")
+    batch_remaining_issues = batch.get("remaining_issues")
+    batch_unprocessed_files = batch.get("unprocessed_files")
+    batch_total_files = batch.get("total_files")
+
+    response = {
+        "batchId": batch_id,
+        "batchName": batch.get("name"),
+        "name": batch.get("name"),
+        "createdAt": batch.get("created_at"),
+        "uploadDate": batch.get("created_at"),
+        "groupId": batch.get("group_id"),
+        "status": batch.get("status"),
+        "fileCount": batch_total_files
+        if batch_total_files is not None
+        else len(processed_scans),
+        "totalIssues": batch_total_issues
+        if batch_total_issues is not None
+        else total_issues,
+        "fixedIssues": batch_fixed_issues
+        if batch_fixed_issues is not None
+        else max(
+            (batch_total_issues if batch_total_issues is not None else total_issues)
+            - (batch_remaining_issues or 0),
+            0,
+        ),
+        "remainingIssues": batch_remaining_issues
+        if batch_remaining_issues is not None
+        else max(total_issues - (batch_fixed_issues or 0), 0),
+        "unprocessedFiles": batch_unprocessed_files
+        if batch_unprocessed_files is not None
+        else sum(
+            1
+            for scan in processed_scans
+            if (scan.get("status") or "").lower()
+            in {"uploaded", "unprocessed", "processing"}
+        ),
+        "highSeverity": total_high,
+        "avgCompliance": avg_compliance,
+        "scans": processed_scans,
+    }
+    return SafeJSONResponse(response)
+
+
+@app.delete("/api/batch/{batch_id}")
+async def delete_batch(batch_id: str):
+    try:
+        logger.info("[Backend] Deleting batch: %s", batch_id)
+        scans_query = "SELECT id, group_id FROM scans WHERE batch_id = %s"
+        scans = execute_query(scans_query, (batch_id,), fetch=True) or []
+        if not scans:
+            return JSONResponse(
+                {"success": False, "error": f"Batch {batch_id} not found"},
+                status_code=404,
+            )
+
+        affected_groups = {scan["group_id"] for scan in scans if scan.get("group_id")}
+
+        uploads_dir = _uploads_root()
+        fixed_dir = _fixed_root()
+        deleted_files = 0
+
+        for scan in scans:
+            scan_id = scan["id"]
+            for folder in [uploads_dir, fixed_dir]:
+                for ext in ("", ".pdf"):
+                    file_path = folder / f"{scan_id}{ext}"
+                    if file_path.exists():
+                        file_path.unlink()
+                        deleted_files += 1
+
+        execute_query(
+            "DELETE FROM fix_history WHERE scan_id IN (SELECT id FROM scans WHERE batch_id = %s)",
+            (batch_id,),
+            fetch=False,
+        )
+        execute_query("DELETE FROM scans WHERE batch_id = %s", (batch_id,), fetch=False)
+        execute_query("DELETE FROM batches WHERE id = %s", (batch_id,), fetch=False)
+
+        for group_id in affected_groups:
+            update_group_file_count(group_id)
+            logger.info("[Backend] Updated file count for group: %s", group_id)
+
+        logger.info(
+            "[Backend] ✓ Deleted batch %s with %d scans and %d files",
+            batch_id,
+            len(scans),
+            deleted_files,
+        )
+
+        return SafeJSONResponse(
+            {
+                "success": True,
+                "message": f"Deleted batch with {len(scans)} scans",
+                "deletedFiles": deleted_files,
+                "affectedGroups": list(affected_groups),
+            }
+        )
+    except Exception as e:
+        logger.exception("[Backend] Error deleting batch")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/batch/{batch_id}/download")
+async def download_batch(batch_id: str):
+    try:
+        scans = execute_query(
+            "SELECT id, filename FROM scans WHERE batch_id = %s",
+            (batch_id,),
+            fetch=True,
+        )
+        if not scans:
+            return JSONResponse({"error": "No files found in batch"}, status_code=404)
+
+        zip_buffer = BytesIO()
+        uploads_dir = _uploads_root()
+        fixed_dir = _fixed_root()
+
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for scan in scans:
+                scan_id = scan["id"]
+                filename = scan["filename"]
+                file_path = None
+
+                for folder in [fixed_dir, uploads_dir]:
+                    for ext in ("", ".pdf"):
+                        candidate = folder / f"{scan_id}{ext}"
+                        if candidate.exists():
+                            file_path = candidate
+                            break
+                    if file_path:
+                        break
+
+                if file_path and file_path.exists():
+                    zip_file.write(file_path, filename)
+                    logger.info("[Backend] Added to ZIP: %s", filename)
+
+        zip_buffer.seek(0)
+        batch_result = execute_query(
+            "SELECT name FROM batches WHERE id = %s", (batch_id,), fetch=True
+        )
+        batch_name = batch_result[0]["name"] if batch_result else batch_id
+        headers = {
+            "Content-Disposition": f'attachment; filename="{batch_name}.zip"',
+        }
+        return StreamingResponse(
+            iter([zip_buffer.getvalue()]),
+            media_type="application/zip",
+            headers=headers,
+        )
+
+    except Exception as e:
+        logger.exception("[Backend] Error creating batch ZIP")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/batch/{batch_id}/export")
+async def export_batch(batch_id: str):
+    try:
+        update_batch_statistics(batch_id)
+
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            SELECT id, name, group_id, created_at, status,
+                   total_files, total_issues, fixed_issues,
+                   remaining_issues, unprocessed_files
+            FROM batches
+            WHERE id = %s
+            """,
+            (batch_id,),
+        )
+        batch = cur.fetchone()
+        if not batch:
+            cur.close()
+            conn.close()
+            return JSONResponse({"error": f"Batch {batch_id} not found"}, status_code=404)
+
+        cur.execute(
+            """
+            SELECT s.id, s.filename, s.scan_results, s.status, s.upload_date,
+                   s.total_issues, s.issues_fixed, s.issues_remaining,
+                   fh.fixed_filename, fh.fixes_applied, fh.applied_at AS applied_at, fh.fix_type,
+                   fh.issues_after, fh.compliance_after, fh.total_issues_after, fh.high_severity_after
+            FROM scans s
+            LEFT JOIN LATERAL (
+                SELECT fh_inner.*
+                FROM fix_history fh_inner
+                WHERE fh_inner.scan_id = s.id
+                ORDER BY fh_inner.applied_at DESC
+                LIMIT 1
+            ) fh ON true
+            WHERE s.batch_id = %s
+            ORDER BY COALESCE(s.upload_date, s.created_at)
+            """,
+            (batch_id,),
+        )
+        scans = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if not scans:
+            return JSONResponse({"error": "No scans found for this batch"}, status_code=404)
+
+        def _sanitize(value: Optional[str], fallback: str) -> str:
+            text = value or fallback
+            return re.sub(r"[^A-Za-z0-9._-]", "_", text)
+
+        def _deserialize_payload(value, fallback):
+            if not value:
+                return fallback
+            if isinstance(value, (list, dict)):
+                return value
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except Exception:
+                    return fallback
+            return fallback
+
+        def _to_export_payload(scan_row):
+            scan_results = scan_row.get("scan_results", {})
+            if isinstance(scan_results, str):
+                try:
+                    scan_results = json.loads(scan_results)
+                except Exception:
+                    scan_results = {}
+
+            results = scan_results.get("results", scan_results) or {}
+            summary = scan_results.get("summary", {}) or {}
+            verapdf_status = scan_results.get("verapdfStatus")
+
+            if verapdf_status is None:
+                verapdf_status = build_verapdf_status(results)
+
+            if not summary or "totalIssues" not in summary:
+                try:
+                    summary = PDFAccessibilityAnalyzer.calculate_summary(
+                        results, verapdf_status
+                    )
+                except Exception as calc_error:
+                    logger.warning(
+                        "[Backend] Warning: unable to regenerate summary for export (%s): %s",
+                        scan_row.get("id"),
+                        calc_error,
+                    )
+                    total_issues = sum(
+                        len(v) if isinstance(v, list) else 0 for v in results.values()
+                    )
+                    summary = {
+                        "totalIssues": total_issues,
+                        "highSeverity": 0,
+                        "complianceScore": max(0, 100 - total_issues * 2),
+                    }
+
+            if isinstance(summary, dict) and verapdf_status:
+                summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+                summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+                summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+                combined_score = _combine_compliance_scores(
+                    summary.get("wcagCompliance"),
+                    summary.get("pdfuaCompliance"),
+                    summary.get("pdfaCompliance"),
+                )
+                if combined_score is not None:
+                    summary["complianceScore"] = combined_score
+
+            latest_fix = None
+            if scan_row.get("applied_at"):
+                fix_list = _deserialize_payload(scan_row.get("fixes_applied"), [])
+                latest_fix = {
+                    "fixedFilename": scan_row.get("fixed_filename"),
+                    "fixType": scan_row.get("fix_type"),
+                    "appliedAt": scan_row.get("applied_at").isoformat()
+                    if scan_row.get("applied_at")
+                    else None,
+                    "fixesApplied": fix_list,
+                    "issuesAfter": scan_row.get("issues_after"),
+                    "complianceAfter": scan_row.get("compliance_after"),
+                }
+
+            export_payload = {
+                "scanId": scan_row.get("id"),
+                "filename": scan_row.get("filename"),
+                "status": scan_row.get("status"),
+                "uploadDate": scan_row.get("upload_date").isoformat()
+                if scan_row.get("upload_date")
+                else None,
+                "summary": summary,
+                "results": results,
+                "verapdfStatus": verapdf_status,
+                "issues": {
+                    "total": scan_row.get("total_issues"),
+                    "fixed": scan_row.get("issues_fixed"),
+                    "remaining": scan_row.get("issues_remaining"),
+                },
+                "latestFix": latest_fix,
+            }
+            return export_payload
+
+        batch_name = batch.get("name") or batch_id
+        safe_batch_name = _sanitize(batch_name, batch_id)
+
+        export_summary = {
+            "batch": {
+                "id": batch_id,
+                "name": batch_name,
+                "groupId": batch.get("group_id"),
+                "createdAt": batch.get("created_at").isoformat()
+                if batch.get("created_at")
+                else None,
+                "status": batch.get("status"),
+            },
+            "totals": {
+                "files": batch.get("total_files"),
+                "issues": batch.get("total_issues"),
+                "fixedIssues": batch.get("fixed_issues"),
+                "remainingIssues": batch.get("remaining_issues"),
+                "unprocessedFiles": batch.get("unprocessed_files"),
+            },
+            "generatedAt": datetime.utcnow().isoformat() + "Z",
+        }
+
+        zip_buffer = BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            zip_file.writestr(
+                f"{safe_batch_name}/batch_summary.json",
+                json.dumps(export_summary, indent=2, default=str),
+            )
+
+            uploads_dir = _uploads_root()
+            fixed_dir = _fixed_root()
+
+            for scan_row in scans:
+                scan_export = _to_export_payload(scan_row)
+                sanitized_filename = _sanitize(
+                    scan_row.get("filename"), scan_row.get("id")
+                )
+
+                zip_file.writestr(
+                    f"{safe_batch_name}/scans/{sanitized_filename}.json",
+                    json.dumps(scan_export, indent=2, default=str),
+                )
+
+                scan_id = scan_row.get("id")
+                pdf_added = False
+                latest_fixed_entry = get_fixed_version(scan_id)
+                if latest_fixed_entry and latest_fixed_entry.get("absolute_path"):
+                    arcname = (
+                        f"{safe_batch_name}/files/{latest_fixed_entry['filename']}"
+                    )
+                    zip_file.write(latest_fixed_entry["absolute_path"], arcname)
+                    pdf_added = True
+                    logger.info(
+                        "[Backend] Added latest fixed PDF to export: %s",
+                        latest_fixed_entry["absolute_path"],
+                    )
+
+                if not pdf_added:
+                    candidates = [uploads_dir / f"{scan_id}.pdf"]
+                    original_name = scan_row.get("filename")
+                    if original_name:
+                        candidates.append(uploads_dir / original_name)
+                    for candidate in candidates:
+                        if candidate and candidate.exists():
+                            arcname = f"{safe_batch_name}/files/{candidate.name}"
+                            zip_file.write(candidate, arcname)
+                            pdf_added = True
+                            logger.info(
+                                "[Backend] Added original PDF to export: %s", candidate
+                            )
+                            break
+
+                version_entries = get_versioned_files(scan_id)
+                if version_entries:
+                    for entry in version_entries:
+                        arcname = (
+                            f"{safe_batch_name}/fixed/{scan_id}/{entry['filename']}"
+                        )
+                        zip_file.write(entry["absolute_path"], arcname)
+                        logger.info(
+                            "[Backend] Added version V%s to export: %s",
+                            entry["version"],
+                            entry["absolute_path"],
+                        )
+
+        zip_buffer.seek(0)
+        download_name = f"{safe_batch_name}.zip"
+        headers = {
+            "Content-Disposition": f'attachment; filename="{download_name}"',
+        }
+        logger.info(
+            "[Backend] ✓ Batch export prepared: %s with %d scans",
+            download_name,
+            len(scans),
+        )
+        return StreamingResponse(
+            iter([zip_buffer.getvalue()]),
+            media_type="application/zip",
+            headers=headers,
+        )
+
+    except Exception as e:
+        logger.exception("[Backend] Error exporting batch")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -1157,6 +2411,21 @@ async def apply_manual_fix(request: Request):
                 compliance_after=summary.get("complianceScore", None),
                 fix_suggestions=suggestions,
                 fix_metadata={"page": page, "manual": True},
+                batch_id=scan_data.get("batch_id") if isinstance(scan_data, dict) else None,
+                group_id=scan_data.get("group_id") if isinstance(scan_data, dict) else None,
+                total_issues_before=(
+                    rescan_data.get("before_summary", {}).get("totalIssues")
+                    if isinstance(rescan_data.get("before_summary"), dict)
+                    else None
+                ),
+                total_issues_after=summary.get("totalIssues"),
+                high_severity_before=(
+                    rescan_data.get("before_summary", {}).get("highSeverity")
+                    if isinstance(rescan_data.get("before_summary"), dict)
+                    else None
+                ),
+                high_severity_after=summary.get("highSeverity"),
+                success_count=len(fixes_applied),
             )
         except Exception:
             logger.exception("Failed to save fix history")
@@ -1317,7 +2586,7 @@ async def apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
 async def fix_history(scan_id: str):
     try:
         rows = execute_query(
-            "SELECT * FROM fixes WHERE scan_id=%s ORDER BY created_at DESC",
+            "SELECT * FROM fix_history WHERE scan_id=%s ORDER BY applied_at DESC",
             (scan_id,),
             fetch=True,
         )
