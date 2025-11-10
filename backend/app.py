@@ -1,18 +1,26 @@
 # backend/app.py
+
+# Standard library imports
 import os
+import re
+import sys
 import json
-import shutil
-import threading
 import time
 import uuid
-import logging
+import shutil
 import asyncio
-import re
-from datetime import datetime
+import logging
+import threading
+import traceback
+from datetime import datetime, date
+from decimal import Decimal
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
-# FastAPI imports
+# Third-party imports
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from fastapi import (
     FastAPI,
     Request,
@@ -25,18 +33,23 @@ from fastapi import (
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from werkzeug.utils import secure_filename
 
-# DB (psycopg2) - preserving your original DB usage (Neon)
-import psycopg2
-from psycopg2.extras import RealDictCursor
+# Ensure project root in sys.path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-# Business logic modules (preserve exact imports and names)
+# Local application imports
 from backend.multi_tier_storage import upload_file_with_fallback
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
-from backend.fix_progress_tracker import create_progress_tracker, get_progress_tracker
-# The original used PDFGenerator; keep it
+from backend.fix_progress_tracker import (
+    create_progress_tracker,
+    get_progress_tracker,
+)
+
 try:
     from backend.pdf_generator import PDFGenerator
 except Exception:
@@ -48,18 +61,12 @@ except Exception:
         def generate(self, *args, **kwargs):
             return None
 
-# werkzeug secure_filename used previously
-from werkzeug.utils import secure_filename
-
 # ----------------------
 # Logging & Config
 # ----------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("doca11y-backend")
-import json
-from datetime import datetime, date
-from decimal import Decimal
-from uuid import UUID
+
 
 def to_json_safe(data):
     """
@@ -92,11 +99,14 @@ def to_json_safe(data):
         return tuple(to_json_safe(v) for v in data)
     else:
         return data
-        
+
+
 class SafeJSONResponse(JSONResponse):
     def render(self, content: any) -> bytes:
         safe = to_json_safe(content)
         return json.dumps(safe, ensure_ascii=False).encode("utf-8")
+
+
 # CORS / environment config
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://document-a11y-accelerator.vercel.app")
 NEON_DATABASE_URL = os.getenv("NEON_DATABASE_URL")
@@ -127,23 +137,27 @@ app = FastAPI(title="Doc A11y Accelerator API")
 
 # === Allow frontend (Vercel) to call backend (Render) ===
 origins = [
-   "https://document-a11y-acclerator.vercel.app",  # your Vercel frontend
-   "https://document-a11y-acclerator.onrender.com",  # backend Render domain
-  "http://localhost:3000",  # local dev
+    "https://document-a11y-acclerator.vercel.app",  # your Vercel frontend
+    "https://document-a11y-acclerator.onrender.com",  # backend Render domain
+    "http://localhost:3000",  # local dev
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,         # exact origins allowed
+    allow_origins=origins,  # exact origins allowed
     allow_credentials=True,
-    allow_methods=["*"],           # allow all HTTP verbs
-    allow_headers=["*"],           # allow all headers
+    allow_methods=["*"],  # allow all HTTP verbs
+    allow_headers=["*"],  # allow all headers
 )
 
 # serve uploaded files (development/test)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
 app.mount("/fixed", StaticFiles(directory=FIXED_FOLDER), name="fixed")
-app.mount("/generated_pdfs", StaticFiles(directory=GENERATED_PDFS_FOLDER), name="generated_pdfs")
+app.mount(
+    "/generated_pdfs",
+    StaticFiles(directory=GENERATED_PDFS_FOLDER),
+    name="generated_pdfs",
+)
 
 
 # ----------------------
@@ -216,7 +230,15 @@ def save_scan_to_db(
                 INSERT INTO scans (scan_id, filename, results, batch_id, group_id, status, upload_date)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
-                (scan_id, original_filename, results_json, batch_id, group_id, "completed", now),
+                (
+                    scan_id,
+                    original_filename,
+                    results_json,
+                    batch_id,
+                    group_id,
+                    "completed",
+                    now,
+                ),
             )
         else:
             # Update existing
@@ -225,7 +247,15 @@ def save_scan_to_db(
                 UPDATE scans SET filename=%s, results=%s, batch_id=%s, group_id=%s, status=%s, upload_date=%s
                 WHERE scan_id=%s
                 """,
-                (original_filename, results_json, batch_id, group_id, "completed", now, scan_id),
+                (
+                    original_filename,
+                    results_json,
+                    batch_id,
+                    group_id,
+                    "completed",
+                    now,
+                    scan_id,
+                ),
             )
         return scan_id
     except Exception:
@@ -388,6 +418,7 @@ def build_verapdf_status(results, analyzer=None):
 # Routes — keep original function names, adapted for FastAPI
 # ----------------------
 
+
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     try:
@@ -403,14 +434,18 @@ async def upload_file(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": str(e)}
 
+
 @app.get("/api/groups")
 async def get_groups():
     try:
-        rows = execute_query("SELECT * FROM groups ORDER BY created_at DESC", fetch=True)
+        rows = execute_query(
+            "SELECT * FROM groups ORDER BY created_at DESC", fetch=True
+        )
         return SafeJSONResponse({"groups": rows})
     except Exception as e:
         logger.exception("doca11y-backend:get_groups DB error")
         return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @app.get("/api/health")
 async def health():
@@ -467,7 +502,9 @@ async def scan_pdf(file: UploadFile = File(...), group_id: Optional[str] = Form(
         else:
             scan_results = await asyncio.to_thread(analyze_fn, str(file_path))
     else:
-        logger.warning("PDFAccessibilityAnalyzer.analyze not found; returning empty results")
+        logger.warning(
+            "PDFAccessibilityAnalyzer.analyze not found; returning empty results"
+        )
         scan_results = {}
 
     verapdf_status = build_verapdf_status(scan_results, analyzer)
@@ -488,7 +525,11 @@ async def scan_pdf(file: UploadFile = File(...), group_id: Optional[str] = Form(
         summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
         summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
 
-    fix_suggestions = generate_fix_suggestions(scan_results) if callable(generate_fix_suggestions) else []
+    fix_suggestions = (
+        generate_fix_suggestions(scan_results)
+        if callable(generate_fix_suggestions)
+        else []
+    )
 
     formatted_results = {
         "results": scan_results,
@@ -499,9 +540,13 @@ async def scan_pdf(file: UploadFile = File(...), group_id: Optional[str] = Form(
 
     # Save to DB preserving original function name and logic
     try:
-        saved_id = save_scan_to_db(scan_uid, file.filename, formatted_results, group_id=group_id)
+        saved_id = save_scan_to_db(
+            scan_uid, file.filename, formatted_results, group_id=group_id
+        )
         total_issues = formatted_results.get("summary", {}).get("totalIssues", 0)
-        logger.info(f"[Backend] ✓ Scan record saved as {saved_id} with {total_issues} issues in group {group_id}")
+        logger.info(
+            f"[Backend] ✓ Scan record saved as {saved_id} with {total_issues} issues in group {group_id}"
+        )
     except Exception:
         logger.exception("Failed to save scan to DB")
         # still return results but note DB failure
@@ -534,7 +579,8 @@ def _write_uploadfile_to_disk(upload_file: UploadFile, dest_path: str):
 async def get_scans():
     try:
         rows = execute_query(
-            "SELECT id, filename, upload_date, status FROM scans ORDER BY upload_date DESC", fetch=True
+            "SELECT id, filename, upload_date, status FROM scans ORDER BY upload_date DESC",
+            fetch=True,
         )
         return SafeJSONResponse({"scans": rows})
     except Exception as e:
@@ -544,7 +590,9 @@ async def get_scans():
 
 # === Batch Upload ===
 @app.post("/api/scan-batch")
-async def scan_batch(files: List[UploadFile] = File(...), group_id: Optional[str] = Form(None)):
+async def scan_batch(
+    files: List[UploadFile] = File(...), group_id: Optional[str] = Form(None)
+):
     try:
         if not files:
             return JSONResponse({"error": "No files provided"}, status_code=400)
@@ -568,7 +616,7 @@ async def scan_batch(files: List[UploadFile] = File(...), group_id: Optional[str
                     asyncio.create_task(asyncio.to_thread(analyze_fn, str(file_path)))
             results.append({"scanId": scan_id, "filename": fname})
         return SafeJSONResponse({"batchId": batch_id, "scans": results})
-       
+
     except Exception as e:
         logger.exception("scan_batch failed")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -595,7 +643,9 @@ async def apply_manual_fix(request: Request):
         scan_id = payload.get("scan_id") or payload.get("scanId")
         fix_type = payload.get("fix_type") or payload.get("fixType")
         fix_data = payload.get("fix_data") or payload.get("fixData") or {}
-        original_filename = payload.get("original_filename") or payload.get("originalFilename")
+        original_filename = payload.get("original_filename") or payload.get(
+            "originalFilename"
+        )
         page = payload.get("page")
 
         # Find pdf path using same heuristics as original code
@@ -603,7 +653,9 @@ async def apply_manual_fix(request: Request):
         # attempt DB lookup for scan metadata if available
         try:
             if NEON_DATABASE_URL:
-                rows = execute_query("SELECT * FROM scans WHERE scan_id=%s", (scan_id,), fetch=True)
+                rows = execute_query(
+                    "SELECT * FROM scans WHERE scan_id=%s", (scan_id,), fetch=True
+                )
                 if rows:
                     scan_data = rows[0]
         except Exception:
@@ -613,7 +665,7 @@ async def apply_manual_fix(request: Request):
         if not pdf_path.exists():
             possible_paths = [
                 Path(UPLOAD_FOLDER) / scan_id,
-                Path(UPLOAD_FOLDER) / f"{scan_id.replace('.pdf','')}.pdf",
+                Path(UPLOAD_FOLDER) / f"{scan_id.replace('.pdf', '')}.pdf",
             ]
             if original_filename:
                 possible_paths.append(Path(UPLOAD_FOLDER) / original_filename)
@@ -639,16 +691,23 @@ async def apply_manual_fix(request: Request):
             apply_manual_fn = getattr(engine, "apply_manual", None)
 
         if apply_manual_fn is None:
-            return JSONResponse({"error": "Manual fix function not available"}, status_code=500)
+            return JSONResponse(
+                {"error": "Manual fix function not available"}, status_code=500
+            )
 
         # call sync or async appropriately using to_thread if necessary
         if asyncio.iscoroutinefunction(apply_manual_fn):
             fix_result = await apply_manual_fn(str(pdf_path), fix_type, fix_data, page)
         else:
-            fix_result = await asyncio.to_thread(apply_manual_fn, str(pdf_path), fix_type, fix_data, page)
+            fix_result = await asyncio.to_thread(
+                apply_manual_fn, str(pdf_path), fix_type, fix_data, page
+            )
 
         if not fix_result.get("success"):
-            return JSONResponse({"error": fix_result.get("error", "Failed to apply manual fix")}, status_code=500)
+            return JSONResponse(
+                {"error": fix_result.get("error", "Failed to apply manual fix")},
+                status_code=500,
+            )
 
         # re-analyze the fixed pdf using engine._analyze_fixed_pdf if exists
         rescan_data = {}
@@ -677,8 +736,12 @@ async def apply_manual_fix(request: Request):
                 scan_id,
                 original_filename,
                 formatted_results,
-                batch_id=scan_data.get("batch_id") if isinstance(scan_data, dict) else None,
-                group_id=scan_data.get("group_id") if isinstance(scan_data, dict) else None,
+                batch_id=scan_data.get("batch_id")
+                if isinstance(scan_data, dict)
+                else None,
+                group_id=scan_data.get("group_id")
+                if isinstance(scan_data, dict)
+                else None,
                 is_update=True,
             )
         except Exception:
@@ -689,7 +752,9 @@ async def apply_manual_fix(request: Request):
             {
                 "type": "manual",
                 "issueType": fix_type,
-                "description": fix_result.get("description", "Manual fix applied successfully"),
+                "description": fix_result.get(
+                    "description", "Manual fix applied successfully"
+                ),
                 "page": page,
                 "timestamp": datetime.now().isoformat(),
                 "metadata": fix_data,
@@ -747,9 +812,13 @@ async def download_file(filename: str):
     upload_path = Path(UPLOAD_FOLDER) / safe_name
     fixed_path = Path(FIXED_FOLDER) / safe_name
     if upload_path.exists():
-        return FileResponse(str(upload_path), media_type="application/pdf", filename=safe_name)
+        return FileResponse(
+            str(upload_path), media_type="application/pdf", filename=safe_name
+        )
     if fixed_path.exists():
-        return FileResponse(str(fixed_path), media_type="application/pdf", filename=safe_name)
+        return FileResponse(
+            str(fixed_path), media_type="application/pdf", filename=safe_name
+        )
     return JSONResponse({"error": "File not found"}, status_code=404)
 
 
@@ -811,18 +880,20 @@ async def get_history():
             # Default status fallback
             status = scan_dict.get("status") or "unprocessed"
 
-            formatted_scans.append({
-                "id": scan_dict["id"],
-                "filename": scan_dict["filename"],
-                "uploadDate": scan_dict.get("uploadDate"),
-                "status": status,
-                "groupId": scan_dict.get("groupId"),
-                "groupName": scan_dict.get("groupName"),
-                "totalIssues": total_issues,
-                "issuesFixed": scan_dict.get("issuesFixed", 0),
-                "issuesRemaining": scan_dict.get("issuesRemaining", total_issues),
-                "batchId": scan_dict.get("batchId"),
-            })
+            formatted_scans.append(
+                {
+                    "id": scan_dict["id"],
+                    "filename": scan_dict["filename"],
+                    "uploadDate": scan_dict.get("uploadDate"),
+                    "status": status,
+                    "groupId": scan_dict.get("groupId"),
+                    "groupName": scan_dict.get("groupName"),
+                    "totalIssues": total_issues,
+                    "issuesFixed": scan_dict.get("issuesFixed", 0),
+                    "issuesRemaining": scan_dict.get("issuesRemaining", total_issues),
+                    "batchId": scan_dict.get("batchId"),
+                }
+            )
 
         print(f"[v0] Returning {len(batches)} batches and {len(formatted_scans)} scans")
 
@@ -834,16 +905,20 @@ async def get_history():
         print(f"[Backend] Error fetching history: {e}")
         traceback.print_exc()
         return JSONResponse(
-            {"error": str(e), "trace": traceback.format_exc()},
-            status_code=500
+            {"error": str(e), "trace": traceback.format_exc()}, status_code=500
         )
+
 
 # === Apply Fixes Endpoint (wrapper around auto_fix_engine) ===
 @app.post("/api/apply-fixes/{scan_id}")
 async def apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
     # call auto_fix_engine.apply_all or apply_fixes as in your original modules
     engine = AutoFixEngine()
-    fn = getattr(engine, "apply_fixes", None) or getattr(engine, "apply_all", None) or getattr(engine, "apply", None)
+    fn = (
+        getattr(engine, "apply_fixes", None)
+        or getattr(engine, "apply_all", None)
+        or getattr(engine, "apply", None)
+    )
     if not fn:
         return JSONResponse({"error": "Auto fix function not found"}, status_code=500)
     # schedule background job if sync
@@ -858,7 +933,11 @@ async def apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
 @app.get("/api/fix-history/{scan_id}")
 async def fix_history(scan_id: str):
     try:
-        rows = execute_query("SELECT * FROM fixes WHERE scan_id=%s ORDER BY created_at DESC", (scan_id,), fetch=True)
+        rows = execute_query(
+            "SELECT * FROM fixes WHERE scan_id=%s ORDER BY created_at DESC",
+            (scan_id,),
+            fetch=True,
+        )
         return SafeJSONResponse({"history": rows})
     except Exception:
         logger.exception("fix_history DB error")
@@ -878,7 +957,13 @@ async def ai_analyze(scan_id: str):
     analyzer = PDFAccessibilityAnalyzer()
     fn = getattr(analyzer, "ai_analyze", None)
     if not fn:
-        return JSONResponse({"scan_id": scan_id, "issues_detected": 0, "summary": "AI analyzer not implemented"})
+        return JSONResponse(
+            {
+                "scan_id": scan_id,
+                "issues_detected": 0,
+                "summary": "AI analyzer not implemented",
+            }
+        )
     if asyncio.iscoroutinefunction(fn):
         res = await fn(scan_id)
     else:
@@ -888,7 +973,9 @@ async def ai_analyze(scan_id: str):
 
 @app.post("/api/ai-fix-strategy/{scan_id}")
 async def ai_fix_strategy(scan_id: str):
-    fn = getattr(AutoFixEngine(), "generate_ai_strategy", None) or getattr(AutoFixEngine(), "ai_fix_strategy", None)
+    fn = getattr(AutoFixEngine(), "generate_ai_strategy", None) or getattr(
+        AutoFixEngine(), "ai_fix_strategy", None
+    )
     if not fn:
         return JSONResponse({"scan_id": scan_id, "strategy": []})
     if asyncio.iscoroutinefunction(fn):
@@ -912,7 +999,9 @@ async def ai_manual_guide(payload: Dict[str, Any]):
 
 @app.post("/api/ai-generate-alt-text")
 async def ai_generate_alt_text(payload: Dict[str, Any]):
-    fn = getattr(AutoFixEngine(), "generate_alt_text", None) or getattr(PDFAccessibilityAnalyzer(), "generate_alt_text", None)
+    fn = getattr(AutoFixEngine(), "generate_alt_text", None) or getattr(
+        PDFAccessibilityAnalyzer(), "generate_alt_text", None
+    )
     if not fn:
         return JSONResponse({"generated_alt_text": None})
     if asyncio.iscoroutinefunction(fn):
@@ -936,7 +1025,9 @@ async def ai_suggest_structure(scan_id: str):
 
 @app.post("/api/ai-apply-fixes/{scan_id}")
 async def ai_apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
-    fn = getattr(AutoFixEngine(), "apply_ai_fixes", None) or getattr(AutoFixEngine(), "ai_apply_fixes", None)
+    fn = getattr(AutoFixEngine(), "apply_ai_fixes", None) or getattr(
+        AutoFixEngine(), "ai_apply_fixes", None
+    )
     if not fn:
         return JSONResponse({"scan_id": scan_id, "status": "not_supported"})
     if asyncio.iscoroutinefunction(fn):
