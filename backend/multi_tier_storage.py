@@ -11,11 +11,11 @@ def upload_file_with_fallback(file_path, file_name):
         print("[Storage] Trying AWS S3 upload...")
         s3 = boto3.client(
             "s3",
-            aws_access_key_id=os.getenv("AWS_ACC_KEY_ID"),
+            aws_access_key_id=os.getenv("AWS_ACC_KEY"),
             aws_secret_access_key=os.getenv("AWS_SEC_KEY"),
             region_name=os.getenv("AWS_REGION", "us-east-1"),
         )
-        bucket = os.getenv("AWS_S3_BUCKET_NAME")
+        bucket = os.getenv("AWS_S3_BUCKET")
         print(f"[Storage] AWS Bucket: {bucket}")
 
         s3.upload_file(file_path, bucket, file_name)
@@ -33,10 +33,10 @@ def upload_file_with_fallback(file_path, file_name):
         b2_api = b2.B2Api(info)
         b2_api.authorize_account(
             "production",
-            os.getenv("BACKBLAZE_KEY_ID"),
-            os.getenv("BACKBLAZE_APP_KEY"),
+            os.getenv("B2_KEY_ID"),
+            os.getenv("B2_APPLICATION_KEY"),
         )
-        bucket_name = os.getenv("BACKBLAZE_BUCKET")
+        bucket_name = os.getenv("B2_BUCKET_NAME")
         print(f"[Storage] Backblaze Bucket: {bucket_name}")
         bucket = b2_api.get_bucket_by_name(bucket_name)
         bucket.upload_local_file(local_file=file_path, file_name=file_name)
