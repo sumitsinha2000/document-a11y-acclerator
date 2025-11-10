@@ -16,11 +16,12 @@ MODEL_DIR = "/tmp/pdf_extract_models"
 if not os.path.exists(os.path.join(MODEL_DIR, "pdf_extract")):
     print("[PDF-Extract-Kit] Downloading model package from Hugging Face...")
     snapshot_download(
-        repo_id="opendatalab/pdf-extract-kit-1.0",
+        repo_id="opendatalab/pdf-extract-kit-1.0-base",
         local_dir=MODEL_DIR,
-        max_workers=8
+        local_dir_use_symlinks=False,
+        resume_download=True,
     )
-    print("[PDF-Extract-Kit] Download complete.")
+    print(f"[PDFExtract] Model ready at {MODEL_DIR}")
 
 # --- Step 2: Add to Python path so importlib can find it ---
 sys.path.insert(0, MODEL_DIR)

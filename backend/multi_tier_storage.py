@@ -39,8 +39,8 @@ def upload_file_with_fallback(file_path: str, file_name: str):
     try:
         s3_client = boto3.client(
             "s3",
-            aws_access_key_id=AWS_ACCESS_KEY,
-            aws_secret_access_key=AWS_SECRET_KEY,
+            aws_access_key_id=AWS_ACC_KEY,
+            aws_secret_access_key=AWS_SEC_KEY,
             region_name=AWS_REGION,
         )
 
