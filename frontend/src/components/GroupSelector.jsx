@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useId } from "react"
 import groupMasterService from "../services/GroupMasterService"
 
 export default function GroupSelector({ selectedGroup, onGroupChange, required = true }) {
@@ -10,6 +10,13 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
   const [newGroupDescription, setNewGroupDescription] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const componentId = useId()
+  const selectId = `${componentId}-group-select`
+  const helpTextId = `${componentId}-group-help`
+  const createHeadingId = `${componentId}-create-group-heading`
+  const newGroupNameId = `${componentId}-new-group-name`
+  const newGroupDescriptionId = `${componentId}-new-group-description`
+  const createErrorId = `${componentId}-create-error`
 
   useEffect(() => {
     console.log("[v0] GroupSelector mounted, fetching groups...")
@@ -88,59 +95,57 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
 
   return (
     <div className="space-y-3">
-      <label className="block text-sm font-semibold text-gray-900 dark:text-white" id="Selectgroup" htmlFor="groupSelect">
-        Select Group {required && <span className="text-red-600 dark:text-red-300">*</span>}
-      </label>
-
       {!isCreatingNew ? (
-        <div className="space-y-2">
-          <select
-            id="groupSelect"
-            name="group"
-            value={selectedGroup || ""}
-            onChange={(e) => onGroupChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
-                 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm
-                 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required={required}
-            aria-describedby="groupHelp"
-            autoComplete="on"
-          >
-            <option value="">-- Select a group --</option>
-            {groups.map((group) => (
-              <option key={group.id} value={group.id}>
-                {group.name} {group.file_count > 0 && `(${group.file_count} files)`}
-              </option>
-            ))}
-          </select>
+        <>
+          <label className="block text-sm font-semibold text-gray-900 dark:text-white" htmlFor={selectId}>
+            Select Group {required && <span className="text-red-600 dark:text-red-300">*</span>}
+          </label>
+          <div className="space-y-2">
+            <select
+              id={selectId}
+              name="group"
+              value={selectedGroup || ""}
+              onChange={(e) => onGroupChange(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
+                   bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm
+                   focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              aria-required={required || undefined}
+              aria-describedby={helpTextId}
+              autoComplete="organization"
+            >
+              <option value="">-- Select a group --</option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name} {group.file_count > 0 && `(${group.file_count} files)`}
+                </option>
+              ))}
+            </select>
 
-          <p
-            id="groupHelp"
-            className="text-xs text-gray-600 dark:text-gray-400 mt-1"
-          >
-            Choose an existing group or create a new one.
-          </p>
+            <p id={helpTextId} className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+              Choose an existing group or create a new one.
+            </p>
 
-          <button
-            type="button"
-            onClick={() => setIsCreatingNew(true)}
-            className="w-full px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400
-                 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800
-                 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors
-                 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                 dark:focus:ring-offset-gray-800"
-          >
-            + Create New Group
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setIsCreatingNew(true)}
+              className="w-full px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400
+                   bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800
+                   rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors
+                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                   dark:focus:ring-offset-gray-800"
+            >
+              + Create New Group
+            </button>
+          </div>
+        </>
       ) : (
         <div
           className="space-y-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
           role="form"
-          aria-labelledby="createGroupHeading"
+          aria-labelledby={createHeadingId}
         >
           <h3
-            id="createGroupHeading"
+            id={createHeadingId}
             className="text-sm font-semibold text-gray-800 dark:text-gray-100"
           >
             Create a New Group
@@ -148,13 +153,13 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
 
           <div>
             <label
-              htmlFor="newGroupName"
+              htmlFor={newGroupNameId}
               className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
             >
               Group Name <span className="text-red-600 dark:text-red-300">*</span>
             </label>
             <input
-              id="newGroupName"
+              id={newGroupNameId}
               type="text"
               value={newGroupName}
               onChange={(e) => setNewGroupName(e.target.value)}
@@ -163,19 +168,22 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
                    bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2
                    focus:ring-blue-500 focus:border-transparent text-sm"
               disabled={loading}
-              required
+              aria-required="true"
+              aria-invalid={error ? "true" : undefined}
+              aria-describedby={error ? createErrorId : undefined}
+              autoComplete="organization"
             />
           </div>
 
           <div>
             <label
-              htmlFor="newGroupDescription"
+              htmlFor={newGroupDescriptionId}
               className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
             >
               Description (Optional)
             </label>
             <textarea
-              id="newGroupDescription"
+              id={newGroupDescriptionId}
               value={newGroupDescription}
               onChange={(e) => setNewGroupDescription(e.target.value)}
               placeholder="Brief description of this group"
@@ -184,6 +192,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
                    bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2
                    focus:ring-blue-500 focus:border-transparent text-sm resize-none"
               disabled={loading}
+              autoComplete="off"
             />
           </div>
 
@@ -193,6 +202,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
               className="text-xs text-red-600 dark:text-red-400"
               role="alert"
               aria-live="assertive"
+              id={createErrorId}
             >
               {error}
             </p>
