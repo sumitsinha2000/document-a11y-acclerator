@@ -355,49 +355,164 @@ def save_scan_to_db(
     batch_id: Optional[str] = None,
     group_id: Optional[str] = None,
     is_update: bool = False,
+    status: str = "completed",
+    upload_date: Optional[datetime] = None,
+    total_issues: Optional[int] = None,
+    issues_fixed: Optional[int] = None,
+    issues_remaining: Optional[int] = None,
 ):
     """
-    Insert or update a scan record into scans table. Preserves your original DB logic style.
+    Insert or update a scan record while keeping compatibility with older schemas.
     Returns saved scan_id or raises on error.
     """
-    # Convert results to JSON
-    results_json = json.dumps(scan_results)
-    now = datetime.utcnow()
+    payload_dict = scan_results if isinstance(scan_results, dict) else {}
+    summary = payload_dict.get("summary", {}) if isinstance(payload_dict, dict) else {}
+    computed_total = (
+        total_issues if total_issues is not None else summary.get("totalIssues", 0)
+    ) or 0
+    computed_fixed = (
+        issues_fixed if issues_fixed is not None else summary.get("issuesFixed", 0)
+    ) or 0
+    computed_remaining = (
+        issues_remaining
+        if issues_remaining is not None
+        else summary.get("issuesRemaining", summary.get("remainingIssues"))
+    )
+    if computed_remaining is None:
+        computed_remaining = max(computed_total - computed_fixed, 0)
+
+    payload_json = _serialize_scan_results(payload_dict)
+    timestamp = upload_date or datetime.utcnow()
+
     try:
         if not is_update:
-            # Insert new
-            execute_query(
-                """
-                INSERT INTO scans (scan_id, filename, results, batch_id, group_id, status, upload_date)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    scan_id,
-                    original_filename,
-                    results_json,
-                    batch_id,
-                    group_id,
-                    "completed",
-                    now,
-                ),
-            )
+            try:
+                execute_query(
+                    """
+                    INSERT INTO scans (
+                        scan_id,
+                        filename,
+                        results,
+                        scan_results,
+                        batch_id,
+                        group_id,
+                        status,
+                        upload_date,
+                        total_issues,
+                        issues_remaining,
+                        issues_fixed
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        scan_id,
+                        original_filename,
+                        payload_json,
+                        payload_json,
+                        batch_id,
+                        group_id,
+                        status,
+                        timestamp,
+                        computed_total,
+                        computed_remaining,
+                        computed_fixed,
+                    ),
+                )
+            except Exception:
+                logger.debug(
+                    "save_scan_to_db insert fallback without scan_results column"
+                )
+                execute_query(
+                    """
+                    INSERT INTO scans (
+                        scan_id,
+                        filename,
+                        results,
+                        batch_id,
+                        group_id,
+                        status,
+                        upload_date,
+                        total_issues,
+                        issues_remaining,
+                        issues_fixed
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        scan_id,
+                        original_filename,
+                        payload_json,
+                        batch_id,
+                        group_id,
+                        status,
+                        timestamp,
+                        computed_total,
+                        computed_remaining,
+                        computed_fixed,
+                    ),
+                )
         else:
-            # Update existing
-            execute_query(
-                """
-                UPDATE scans SET filename=%s, results=%s, batch_id=%s, group_id=%s, status=%s, upload_date=%s
-                WHERE scan_id=%s
-                """,
-                (
-                    original_filename,
-                    results_json,
-                    batch_id,
-                    group_id,
-                    "completed",
-                    now,
-                    scan_id,
-                ),
-            )
+            try:
+                execute_query(
+                    """
+                    UPDATE scans
+                    SET filename=%s,
+                        results=%s,
+                        scan_results=%s,
+                        batch_id=%s,
+                        group_id=%s,
+                        status=%s,
+                        upload_date=%s,
+                        total_issues=%s,
+                        issues_remaining=%s,
+                        issues_fixed=%s
+                    WHERE scan_id=%s
+                    """,
+                    (
+                        original_filename,
+                        payload_json,
+                        payload_json,
+                        batch_id,
+                        group_id,
+                        status,
+                        timestamp,
+                        computed_total,
+                        computed_remaining,
+                        computed_fixed,
+                        scan_id,
+                    ),
+                )
+            except Exception:
+                logger.debug(
+                    "save_scan_to_db update fallback without scan_results column"
+                )
+                execute_query(
+                    """
+                    UPDATE scans
+                    SET filename=%s,
+                        results=%s,
+                        batch_id=%s,
+                        group_id=%s,
+                        status=%s,
+                        upload_date=%s,
+                        total_issues=%s,
+                        issues_remaining=%s,
+                        issues_fixed=%s
+                    WHERE scan_id=%s
+                    """,
+                    (
+                        original_filename,
+                        payload_json,
+                        batch_id,
+                        group_id,
+                        status,
+                        timestamp,
+                        computed_total,
+                        computed_remaining,
+                        computed_fixed,
+                        scan_id,
+                    ),
+                )
         return scan_id
     except Exception:
         logger.exception("save_scan_to_db failed")
@@ -626,6 +741,72 @@ def _combine_compliance_scores(*scores: Optional[float]) -> Optional[float]:
     return round(sum(numeric) / len(numeric), 2)
 
 
+async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
+    """
+    Run the PDF accessibility analyzer for the given file and return the normalized payload.
+    """
+    try:
+        analyzer = PDFAccessibilityAnalyzer()
+    except Exception:
+        logger.exception("[Backend] Failed to initialize PDFAccessibilityAnalyzer")
+        return {"results": {}, "summary": {}, "verapdfStatus": None, "fixes": []}
+
+    analyze_fn = getattr(analyzer, "analyze", None)
+    scan_results: Dict[str, Any] = {}
+
+    if analyze_fn:
+        try:
+            if asyncio.iscoroutinefunction(analyze_fn):
+                scan_results = await analyze_fn(str(file_path))
+            else:
+                scan_results = await asyncio.to_thread(analyze_fn, str(file_path))
+        except Exception:
+            logger.exception("[Backend] Analyzer analyze() failed for %s", file_path)
+            scan_results = {}
+    else:
+        logger.warning(
+            "PDFAccessibilityAnalyzer.analyze not found; returning empty results"
+        )
+        scan_results = {}
+
+    if not isinstance(scan_results, dict):
+        scan_results = {}
+
+    verapdf_status = build_verapdf_status(scan_results, analyzer)
+    summary: Dict[str, Any] = {}
+    try:
+        if hasattr(analyzer, "calculate_summary"):
+            calc = getattr(analyzer, "calculate_summary")
+            if asyncio.iscoroutinefunction(calc):
+                summary = await calc(scan_results, verapdf_status)
+            else:
+                summary = await asyncio.to_thread(calc, scan_results, verapdf_status)
+    except Exception:
+        logger.exception("calculate_summary failed")
+        summary = {}
+
+    if isinstance(summary, dict) and verapdf_status:
+        summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+        summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+
+    try:
+        fix_suggestions = (
+            generate_fix_suggestions(scan_results)
+            if callable(generate_fix_suggestions)
+            else []
+        )
+    except Exception:
+        logger.exception("generate_fix_suggestions failed")
+        fix_suggestions = []
+
+    return {
+        "results": scan_results,
+        "summary": summary if isinstance(summary, dict) else {},
+        "verapdfStatus": verapdf_status,
+        "fixes": fix_suggestions,
+    }
+
+
 def annotate_wcag_mappings(results: Any) -> Any:
     """
     Placeholder hook for enriching WCAG issue mappings.
@@ -653,6 +834,11 @@ def _fetch_scan_record(scan_id: str) -> Optional[Dict[str, Any]]:
         fetch=True,
     )
     return rows[0] if rows else None
+
+
+def get_scan_by_id(scan_id: str) -> Optional[Dict[str, Any]]:
+    """Legacy compatibility wrapper."""
+    return _fetch_scan_record(scan_id)
 
 
 def _resolve_scan_file_path(
@@ -689,17 +875,93 @@ def _resolve_scan_file_path(
     return None
 
 
-def get_fixed_version(scan_id: str) -> Optional[Dict[str, Any]]:
-    """Return the latest fixed file entry for a scan if present."""
+def resolve_uploaded_file_path(
+    scan_id: str, scan_record: Optional[Dict[str, Any]] = None
+) -> Optional[Path]:
+    """Compatibility wrapper used by legacy code paths."""
+    return _resolve_scan_file_path(scan_id, scan_record)
+
+
+def scan_results_changed(
+    *,
+    issues_before: Optional[Dict[str, Any]],
+    summary_before: Optional[Dict[str, Any]],
+    compliance_before: Optional[float],
+    issues_after: Optional[Dict[str, Any]],
+    summary_after: Optional[Dict[str, Any]],
+    compliance_after: Optional[float],
+) -> bool:
+    """Detect whether scan result payloads changed in a meaningful way."""
+    if compliance_before != compliance_after:
+        return True
+    before_summary = to_json_safe(summary_before or {})
+    after_summary = to_json_safe(summary_after or {})
+    if before_summary != after_summary:
+        return True
+    before_issues = to_json_safe(issues_before or {})
+    after_issues = to_json_safe(issues_after or {})
+    return before_issues != after_issues
+
+
+def archive_fixed_pdf_version(
+    *,
+    scan_id: str,
+    original_filename: Optional[str],
+    source_path: Optional[Path],
+) -> Optional[Dict[str, Any]]:
+    """Copy the provided PDF into the versioned fixed directory."""
+    if not source_path or not Path(source_path).exists():
+        return None
+    scan_dir = _fixed_scan_dir(scan_id, ensure_exists=True)
+    existing_versions = get_versioned_files(scan_id)
+    next_version = existing_versions[-1]["version"] + 1 if existing_versions else 1
+    base_name = _sanitize_version_base(original_filename, scan_id)
+    dest_name = f"{base_name}_v{next_version}.pdf"
+    dest_path = scan_dir / dest_name
+    try:
+        shutil.copy2(source_path, dest_path)
+    except Exception:
+        logger.exception(
+            "[Backend] Failed to archive fixed PDF for %s into %s", scan_id, dest_path
+        )
+        return None
+
+    try:
+        stat = dest_path.stat()
+    except FileNotFoundError:
+        return None
+
+    relative_path = dest_path.relative_to(_fixed_root())
+    return {
+        "version": next_version,
+        "filename": dest_path.name,
+        "absolute_path": str(dest_path),
+        "relative_path": str(relative_path),
+        "size": stat.st_size,
+        "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+    }
+
+
+def get_fixed_version(scan_id: str, version: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """Return the latest or specific fixed file entry for a scan if present."""
     version_entries = get_versioned_files(scan_id)
     if version_entries:
-        latest = version_entries[-1]
-        return {
-            "version": latest.get("version"),
-            "filename": latest.get("filename"),
-            "absolute_path": latest.get("absolute_path"),
-            "relative_path": latest.get("relative_path"),
-        }
+        if version is None:
+            latest = version_entries[-1]
+            return {
+                "version": latest.get("version"),
+                "filename": latest.get("filename"),
+                "absolute_path": latest.get("absolute_path"),
+                "relative_path": latest.get("relative_path"),
+            }
+        match = next((entry for entry in version_entries if entry.get("version") == version), None)
+        if match:
+            return {
+                "version": match.get("version"),
+                "filename": match.get("filename"),
+                "absolute_path": match.get("absolute_path"),
+                "relative_path": match.get("relative_path"),
+            }
 
     fixed_dir = _fixed_root()
     for ext in ("", ".pdf"):
@@ -991,6 +1253,74 @@ def upload_file(file: UploadFile = File(...)):
                 logger.debug(f"[API] Temporary file removed: {temp_path}")
             except Exception as cleanup_error:
                 logger.warning(f"[API] Cleanup failed for {temp_path}: {cleanup_error}")
+
+
+@app.get("/api/scans")
+async def get_scans():
+    try:
+        rows = execute_query(
+            """
+            SELECT
+                id,
+                scan_id,
+                filename,
+                group_id,
+                batch_id,
+                status,
+                upload_date,
+                created_at,
+                total_issues,
+                issues_fixed,
+                issues_remaining,
+                scan_results,
+                results
+            FROM scans
+            ORDER BY COALESCE(upload_date, created_at) DESC
+            LIMIT 250
+            """,
+            fetch=True,
+        ) or []
+
+        scans: List[Dict[str, Any]] = []
+        for row in rows:
+            row_dict = dict(row)
+            raw_payload = (
+                row_dict.get("scan_results") or row_dict.get("results") or {}
+            )
+            parsed_payload = _parse_scan_results_json(raw_payload)
+            summary = parsed_payload.get("summary", {}) or {}
+            results = parsed_payload.get("results", parsed_payload) or {}
+
+            scan_identifier = row_dict.get("scan_id") or row_dict.get("id")
+
+            scans.append(
+                {
+                    "id": scan_identifier,
+                    "scanId": scan_identifier,
+                    "filename": row_dict.get("filename"),
+                    "groupId": row_dict.get("group_id"),
+                    "batchId": row_dict.get("batch_id"),
+                    "status": row_dict.get("status", "unprocessed"),
+                    "uploadDate": row_dict.get("upload_date")
+                    or row_dict.get("created_at"),
+                    "summary": summary,
+                    "results": results if isinstance(results, dict) else {},
+                    "verapdfStatus": parsed_payload.get("verapdfStatus"),
+                    "totalIssues": summary.get(
+                        "totalIssues", row_dict.get("total_issues", 0)
+                    ),
+                    "issuesFixed": row_dict.get("issues_fixed")
+                    or summary.get("issuesFixed", 0),
+                    "issuesRemaining": row_dict.get("issues_remaining")
+                    or summary.get("issuesRemaining", summary.get("remainingIssues", 0)),
+                    "complianceScore": summary.get("complianceScore"),
+                }
+            )
+
+        return SafeJSONResponse({"scans": scans})
+    except Exception as e:
+        logger.exception("doca11y-backend:get_scans DB error")
+        return JSONResponse({"scans": [], "error": str(e)}, status_code=500)
 
 
 @app.get("/api/groups")
@@ -1357,6 +1687,67 @@ async def download_generated_pdf(filename: str):
     return FileResponse(file_path, media_type="application/pdf", filename=safe_name)
 
 
+@app.post("/api/generate-pdf")
+async def generate_pdf_endpoint(request: Request):
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    if not isinstance(payload, dict):
+        payload = {}
+
+    pdf_type = (payload.get("pdfType") or "inaccessible").lower()
+    company_name = payload.get("companyName") or "BrightPath Consulting"
+    services = payload.get("services") if isinstance(payload.get("services"), list) else None
+    accessibility_options = (
+        payload.get("accessibilityOptions")
+        if isinstance(payload.get("accessibilityOptions"), dict)
+        else None
+    )
+
+    try:
+        accessible_fn = getattr(pdf_generator, "create_accessible_pdf", None)
+        inaccessible_fn = getattr(pdf_generator, "create_inaccessible_pdf", None)
+        if pdf_type == "accessible":
+            if not callable(accessible_fn):
+                raise AttributeError("Accessible PDF generator unavailable")
+            output_path = await asyncio.to_thread(
+                accessible_fn,
+                company_name,
+                services,
+            )
+        else:
+            if not callable(inaccessible_fn):
+                raise AttributeError("Inaccessible PDF generator unavailable")
+            output_path = await asyncio.to_thread(
+                inaccessible_fn,
+                company_name,
+                services,
+                accessibility_options,
+            )
+        filename = os.path.basename(output_path) if output_path else None
+        if not filename:
+            raise RuntimeError("PDF generator returned no output path")
+        return SafeJSONResponse({"filename": filename}, status_code=201)
+    except Exception as exc:
+        logger.exception("[Backend] PDF generation failed")
+        return JSONResponse({"error": str(exc) or "Failed to generate PDF"}, status_code=500)
+
+
+@app.get("/api/generated-pdfs")
+async def list_generated_pdfs():
+    try:
+        list_fn = getattr(pdf_generator, "get_generated_pdfs", None)
+        if not callable(list_fn):
+            raise AttributeError("PDF generator list function unavailable")
+        pdfs = await asyncio.to_thread(list_fn)
+        return SafeJSONResponse({"pdfs": pdfs or []})
+    except Exception:
+        logger.exception("[Backend] Listing generated PDFs failed")
+        return JSONResponse({"error": "Unable to list generated PDFs"}, status_code=500)
+
+
 # === PDF Scan ===
 # Preserve function name: scan_pdf
 @app.post("/api/scan")
@@ -1387,50 +1778,11 @@ async def scan_pdf(file: UploadFile = File(...), group_id: Optional[str] = Form(
 
     logger.info(f"[Backend] ✓ File saved: {file_path}")
 
-    # Run analyzer (prefer async if available, else to_thread)
-    analyzer = PDFAccessibilityAnalyzer()
-    analyze_fn = getattr(analyzer, "analyze", None)
-    if analyze_fn:
-        if asyncio.iscoroutinefunction(analyze_fn):
-            scan_results = await analyze_fn(str(file_path))
-        else:
-            scan_results = await asyncio.to_thread(analyze_fn, str(file_path))
-    else:
-        logger.warning(
-            "PDFAccessibilityAnalyzer.analyze not found; returning empty results"
-        )
-        scan_results = {}
-
-    verapdf_status = build_verapdf_status(scan_results, analyzer)
-    # some analyzers define calculate_summary
-    summary = {}
-    try:
-        if hasattr(analyzer, "calculate_summary"):
-            calc = getattr(analyzer, "calculate_summary")
-            if asyncio.iscoroutinefunction(calc):
-                summary = await calc(scan_results, verapdf_status)
-            else:
-                summary = await asyncio.to_thread(calc, scan_results, verapdf_status)
-    except Exception:
-        logger.exception("calculate_summary failed")
-        summary = {}
-
-    if isinstance(summary, dict) and verapdf_status:
-        summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
-        summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
-
-    fix_suggestions = (
-        generate_fix_suggestions(scan_results)
-        if callable(generate_fix_suggestions)
-        else []
-    )
-
-    formatted_results = {
-        "results": scan_results,
-        "summary": summary,
-        "verapdfStatus": verapdf_status,
-        "fixes": fix_suggestions,
-    }
+    formatted_results = await _analyze_pdf_document(file_path)
+    scan_results = formatted_results.get("results", {})
+    summary = formatted_results.get("summary", {}) or {}
+    verapdf_status = formatted_results.get("verapdfStatus")
+    fix_suggestions = formatted_results.get("fixes", [])
 
     # Save to DB preserving original function name and logic
     try:
@@ -1458,6 +1810,210 @@ async def scan_pdf(file: UploadFile = File(...), group_id: Optional[str] = Form(
             "verapdfStatus": verapdf_status,
         }
     )
+
+
+@app.post("/api/scan-batch")
+async def scan_batch(
+    request: Request,
+    files: List[UploadFile] = File(...),
+    group_id: Optional[str] = Form(None),
+    batch_name: Optional[str] = Form(None),
+    scan_mode: Optional[str] = Form(None),
+):
+    try:
+        if not files:
+            return JSONResponse({"error": "No files provided"}, status_code=400)
+        if not group_id:
+            return JSONResponse({"error": "Group ID is required"}, status_code=400)
+
+        pdf_files = [f for f in files if f.filename.lower().endswith(".pdf")]
+        skipped_files = [f.filename for f in files if f not in pdf_files]
+
+        if not pdf_files:
+            return JSONResponse(
+                {"error": "No PDF files provided", "skippedFiles": skipped_files},
+                status_code=400,
+            )
+
+        batch_id = f"batch_{uuid.uuid4().hex}"
+        batch_title = batch_name or f"Batch {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        scan_now = should_scan_now(scan_mode, request)
+        batch_status = "processing" if scan_now else "uploaded"
+
+        try:
+            execute_query(
+                """
+                INSERT INTO batches (
+                    id,
+                    name,
+                    group_id,
+                    created_at,
+                    status,
+                    total_files,
+                    total_issues,
+                    remaining_issues,
+                    fixed_issues,
+                    unprocessed_files
+                )
+                VALUES (%s, %s, %s, NOW(), %s, %s, 0, 0, 0, %s)
+                """,
+                (
+                    batch_id,
+                    batch_title,
+                    group_id,
+                    batch_status,
+                    len(pdf_files),
+                    len(pdf_files),
+                ),
+            )
+        except Exception:
+            logger.exception("[Backend] Failed to create batch %s", batch_id)
+            return JSONResponse(
+                {"error": "Failed to create batch record"}, status_code=500
+            )
+
+        _ensure_local_storage("Batch uploads")
+        upload_dir = _uploads_root()
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        scan_results_response: List[Dict[str, Any]] = []
+        total_batch_issues = 0
+        processed_files = 0
+        successful_scans = 0
+        errors: List[str] = []
+
+        for upload in pdf_files:
+            scan_id = f"scan_{uuid.uuid4().hex}"
+            file_path = upload_dir / f"{scan_id}.pdf"
+
+            try:
+                await asyncio.to_thread(_write_uploadfile_to_disk, upload, str(file_path))
+            except Exception as write_err:
+                logger.exception(
+                    "[Backend] Failed to save %s for batch %s", upload.filename, batch_id
+                )
+                errors.append(f"{upload.filename}: {write_err}")
+                scan_results_response.append(
+                    {
+                        "scanId": scan_id,
+                        "filename": upload.filename,
+                        "batchId": batch_id,
+                        "groupId": group_id,
+                        "status": "error",
+                        "error": str(write_err),
+                    }
+                )
+                continue
+
+            try:
+                if scan_now:
+                    record_payload = await _analyze_pdf_document(file_path)
+                    summary = record_payload.get("summary", {}) or {}
+                    total_issues_file = summary.get("totalIssues", 0) or 0
+                    remaining_issues = summary.get(
+                        "issuesRemaining",
+                        summary.get("remainingIssues", total_issues_file),
+                    )
+                    saved_id = save_scan_to_db(
+                        scan_id,
+                        upload.filename,
+                        record_payload,
+                        batch_id=batch_id,
+                        group_id=group_id,
+                        status="completed",
+                        total_issues=total_issues_file,
+                        issues_fixed=0,
+                        issues_remaining=remaining_issues,
+                    )
+                    successful_scans += 1
+                    total_batch_issues += total_issues_file
+                    status_value = "completed"
+                else:
+                    record_payload = build_placeholder_scan_payload(upload.filename)
+                    saved_id = save_scan_to_db(
+                        scan_id,
+                        upload.filename,
+                        record_payload,
+                        batch_id=batch_id,
+                        group_id=group_id,
+                        status="uploaded",
+                        total_issues=0,
+                        issues_fixed=0,
+                        issues_remaining=0,
+                    )
+                    status_value = "uploaded"
+
+                processed_files += 1
+                scan_results_response.append(
+                    {
+                        "scanId": saved_id,
+                        "id": saved_id,
+                        "filename": upload.filename,
+                        "batchId": batch_id,
+                        "groupId": group_id,
+                        "status": status_value,
+                        "summary": record_payload.get("summary", {}),
+                        "results": record_payload.get("results", {}),
+                        "fixes": record_payload.get("fixes", []),
+                        "verapdfStatus": record_payload.get("verapdfStatus"),
+                        "uploadDate": datetime.utcnow().isoformat(),
+                    }
+                )
+            except Exception as processing_err:
+                logger.exception(
+                    "[Backend] Failed to process %s in batch %s",
+                    upload.filename,
+                    batch_id,
+                )
+                errors.append(f"{upload.filename}: {processing_err}")
+                scan_results_response.append(
+                    {
+                        "scanId": scan_id,
+                        "filename": upload.filename,
+                        "batchId": batch_id,
+                        "groupId": group_id,
+                        "status": "error",
+                        "error": str(processing_err),
+                    }
+                )
+
+        try:
+            update_batch_statistics(batch_id)
+        except Exception:
+            logger.exception(
+                "[Backend] Failed to refresh statistics for batch %s", batch_id
+            )
+
+        try:
+            update_group_file_count(group_id)
+        except Exception:
+            logger.exception("[Backend] Failed to refresh group %s counts", group_id)
+
+        response_payload = {
+            "batchId": batch_id,
+            "batchName": batch_title,
+            "scanDeferred": not scan_now,
+            "scans": scan_results_response,
+            "skippedFiles": skipped_files,
+            "processedFiles": processed_files,
+            "successfulScans": successful_scans,
+            "totalBatchIssues": total_batch_issues,
+            "errors": errors,
+        }
+
+        if errors:
+            response_payload["message"] = (
+                f"Processed {processed_files} of {len(pdf_files)} files with {len(errors)} error(s)."
+            )
+        else:
+            response_payload["message"] = (
+                f"Processed {processed_files} file(s) in batch {batch_title}."
+            )
+
+        return SafeJSONResponse(response_payload)
+    except Exception as e:
+        logger.exception("scan_batch failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.post("/api/scan/{scan_id}/start")
@@ -2695,6 +3251,417 @@ async def export_batch(batch_id: str):
     except Exception as e:
         logger.exception("[Backend] Error exporting batch")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# === Apply Semi-Automated Fixes ===
+@app.post("/api/apply-semi-automated-fixes/{scan_id}")
+async def apply_semi_automated_fixes(scan_id: str, request: Request):
+    tracker = None
+    try:
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        fixes = payload.get("fixes") or []
+        use_ai = payload.get("useAI")
+        if use_ai:
+            return JSONResponse(
+                {
+                    "error": "AI-powered semi-automated fixes are no longer available.",
+                    "success": False,
+                },
+                status_code=400,
+            )
+
+        scan_data = _fetch_scan_record(scan_id)
+        if not scan_data:
+            return JSONResponse({"error": "Scan not found"}, status_code=404)
+
+        original_filename = scan_data.get("filename")
+        if not original_filename:
+            return JSONResponse({"error": "Scan filename not found"}, status_code=400)
+
+        initial_scan_results = _parse_scan_results_json(
+            scan_data.get("scan_results") or scan_data.get("results")
+        )
+        issues_before = initial_scan_results.get("results", {})
+        summary_before = initial_scan_results.get("summary", {}) or {}
+        compliance_before = summary_before.get("complianceScore", 0)
+        total_issues_before = summary_before.get("totalIssues", 0)
+        high_severity_before = summary_before.get("highSeverity", 0)
+
+        tracker = create_progress_tracker(scan_id)
+        engine = AutoFixEngine()
+        apply_fn = getattr(engine, "apply_semi_automated_fixes", None)
+        if not apply_fn:
+            raise RuntimeError("Semi-automated fix function unavailable")
+
+        if asyncio.iscoroutinefunction(apply_fn):
+            result = await apply_fn(scan_id, scan_data, tracker)
+        else:
+            result = await asyncio.to_thread(apply_fn, scan_id, scan_data, tracker)
+
+        if not result.get("success"):
+            if tracker:
+                tracker.fail_all(result.get("error", "Unknown error"))
+            return JSONResponse(
+                {"status": "error", "error": result.get("error", "Unknown error")},
+                status_code=500,
+            )
+
+        if tracker:
+            tracker.complete_all()
+
+        fixes_applied = result.get("fixesApplied") or []
+        if not fixes_applied and fixes:
+            fixes_applied = [
+                {
+                    "type": "semi-automated",
+                    "issueType": fix.get("type", "unknown"),
+                    "description": fix.get(
+                        "description", "Semi-automated fix applied"
+                    ),
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+                for fix in fixes
+            ]
+
+        scan_results_after = result.get("scanResults") or {}
+        issues_after = scan_results_after.get("results", issues_before) or {}
+        summary_after = scan_results_after.get("summary", summary_before) or {}
+        compliance_after = summary_after.get("complianceScore", compliance_before)
+        total_issues_after = summary_after.get("totalIssues", total_issues_before)
+        high_severity_after = summary_after.get("highSeverity", high_severity_before)
+        fixed_filename = result.get("fixedFile")
+
+        changes_detected = scan_results_changed(
+            issues_before=issues_before,
+            summary_before=summary_before,
+            compliance_before=compliance_before,
+            issues_after=issues_after,
+            summary_after=summary_after,
+            compliance_after=compliance_after,
+        )
+
+        formatted_results = {
+            "results": issues_after,
+            "summary": summary_after,
+            "verapdfStatus": scan_results_after.get("verapdfStatus"),
+            "fixes": result.get("suggestions", []),
+        }
+
+        try:
+            save_scan_to_db(
+                scan_id,
+                original_filename,
+                formatted_results,
+                batch_id=scan_data.get("batch_id"),
+                group_id=scan_data.get("group_id"),
+                is_update=True,
+                status="fixed" if total_issues_after == 0 else "processed",
+                total_issues=total_issues_after,
+                issues_fixed=max(total_issues_before - total_issues_after, 0),
+                issues_remaining=total_issues_after,
+            )
+        except Exception:
+            logger.exception(
+                "[Backend] Failed to save semi-automated scan results for %s", scan_id
+            )
+
+        archive_info = None
+        if changes_detected:
+            source_path = resolve_uploaded_file_path(scan_id, scan_data)
+            archive_info = archive_fixed_pdf_version(
+                scan_id=scan_id,
+                original_filename=original_filename,
+                source_path=source_path,
+            )
+            if archive_info:
+                fixed_filename = archive_info.get("relative_path")
+
+        save_success = False
+        if changes_detected:
+            metadata_payload: Dict[str, Any] = {
+                "user_selected_fixes": len(fixes),
+                "engine_version": "1.0",
+            }
+            if archive_info:
+                metadata_payload.update(
+                    {
+                        "version": archive_info.get("version"),
+                        "versionLabel": f"V{archive_info.get('version')}",
+                        "relativePath": archive_info.get("relative_path"),
+                        "storedFilename": archive_info.get("filename"),
+                        "fileSize": archive_info.get("size"),
+                    }
+                )
+            try:
+                save_fix_history(
+                    scan_id=scan_id,
+                    original_filename=original_filename,
+                    fixed_filename=fixed_filename or original_filename,
+                    fixes_applied=fixes_applied,
+                    fix_type="semi-automated",
+                    issues_before=issues_before,
+                    issues_after=issues_after,
+                    compliance_before=compliance_before,
+                    compliance_after=compliance_after,
+                    total_issues_before=total_issues_before,
+                    total_issues_after=total_issues_after,
+                    high_severity_before=high_severity_before,
+                    high_severity_after=high_severity_after,
+                    fix_suggestions=fixes,
+                    fix_metadata=metadata_payload,
+                )
+                save_success = True
+            except Exception:
+                logger.exception(
+                    "[Backend] Failed to record semi-automated fix history for %s",
+                    scan_id,
+                )
+        else:
+            logger.info(
+                "[Backend] No changes detected after semi-automated fixes for %s",
+                scan_id,
+            )
+
+        update_scan_status(
+            scan_id, "fixed" if total_issues_after == 0 else "processed"
+        )
+
+        response_payload: Dict[str, Any] = {
+            "status": "success",
+            "fixedFile": fixed_filename,
+            "fixedFilePath": fixed_filename,
+            "scanResults": scan_results_after,
+            "summary": summary_after,
+            "fixesApplied": fixes_applied,
+            "historyRecorded": save_success,
+            "changesDetected": changes_detected,
+        }
+        if archive_info:
+            response_payload.update(
+                {
+                    "version": archive_info.get("version"),
+                    "versionLabel": f"V{archive_info.get('version')}",
+                    "fixedFile": archive_info.get("relative_path"),
+                    "fixedFilePath": archive_info.get("relative_path"),
+                }
+            )
+
+        return SafeJSONResponse(response_payload)
+    except Exception as exc:
+        logger.exception("[Backend] ERROR in apply_semi_automated_fixes for %s", scan_id)
+        if tracker:
+            tracker.fail_all(str(exc))
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# === Progress Tracker ===
+@app.get("/api/progress/{scan_id}")
+async def get_fix_progress(scan_id: str):
+    """Get real-time progress of fix application."""
+    try:
+        tracker = get_progress_tracker(scan_id)
+        if not tracker:
+            return JSONResponse(
+                {
+                    "error": "No progress tracking found for this scan",
+                    "scanId": scan_id,
+                },
+                status_code=404,
+            )
+        return SafeJSONResponse(tracker.get_progress())
+    except Exception as exc:
+        logger.exception("[Backend] Error getting fix progress for %s", scan_id)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.get("/api/fix-progress/{scan_id}")
+async def get_fix_progress_alias(scan_id: str):
+    """Alias endpoint for legacy compatibility."""
+    return await get_fix_progress(scan_id)
+
+
+@app.get("/api/download-fixed/{filename:path}")
+async def download_fixed_file(filename: str, request: Request):
+    """Download a fixed PDF file."""
+    try:
+        fixed_dir = _fixed_root()
+        uploads_dir = _uploads_root()
+
+        allow_old = _truthy(request.query_params.get("allowDownload"))
+        version_param = request.query_params.get("version")
+        scan_id_param = request.query_params.get("scanId")
+
+        file_path: Optional[Path] = None
+        selected_version: Optional[Dict[str, Any]] = None
+        scan_id_for_version = scan_id_param
+
+        requested_path: Optional[Path]
+        try:
+            requested_path = (fixed_dir / filename).resolve()
+        except Exception:
+            requested_path = None
+
+        base_fixed = fixed_dir.resolve()
+        if (
+            requested_path
+            and requested_path.exists()
+            and str(requested_path).startswith(str(base_fixed))
+        ):
+            file_path = requested_path
+            scan_id_for_version = requested_path.parent.name
+            version_number = _extract_version_from_path(requested_path)
+            if scan_id_for_version:
+                versions = get_versioned_files(scan_id_for_version)
+                latest = versions[-1] if versions else None
+                if version_number and latest:
+                    selected_version = next(
+                        (
+                            entry
+                            for entry in versions
+                            if entry.get("version") == version_number
+                        ),
+                        None,
+                    )
+                    if (
+                        selected_version
+                        and latest
+                        and version_number != latest.get("version")
+                        and not allow_old
+                    ):
+                        return JSONResponse(
+                            {
+                                "error": "Only the latest version is downloadable by default",
+                                "latestVersion": latest.get("version"),
+                                "requestedVersion": version_number,
+                            },
+                            status_code=403,
+                        )
+        else:
+            target_scan_id = scan_id_param or filename
+            versions = get_versioned_files(target_scan_id)
+            if versions:
+                latest = versions[-1]
+                selected_version = latest
+                if version_param:
+                    try:
+                        requested_number = int(version_param)
+                    except (ValueError, TypeError):
+                        return JSONResponse(
+                            {"error": "Invalid version specified"}, status_code=400
+                        )
+                    match = next(
+                        (
+                            entry
+                            for entry in versions
+                            if entry.get("version") == requested_number
+                        ),
+                        None,
+                    )
+                    if not match:
+                        return JSONResponse(
+                            {"error": f"Version {requested_number} not found"},
+                            status_code=404,
+                        )
+                    if (
+                        match.get("version") != latest.get("version")
+                        and not allow_old
+                    ):
+                        return JSONResponse(
+                            {
+                                "error": "Only the latest version is downloadable by default",
+                                "latestVersion": latest.get("version"),
+                                "requestedVersion": match.get("version"),
+                            },
+                            status_code=403,
+                        )
+                    selected_version = match
+
+                file_path = Path(selected_version["absolute_path"])
+                scan_id_for_version = target_scan_id
+            else:
+                for folder in (fixed_dir, uploads_dir):
+                    for ext in ("", ".pdf"):
+                        candidate = folder / f"{filename}{ext}"
+                        if candidate.exists():
+                            file_path = candidate
+                            break
+                    if file_path:
+                        break
+
+        if not file_path:
+            return JSONResponse({"error": "File not found"}, status_code=404)
+
+        original_filename = None
+        if scan_id_for_version:
+            scan_record = get_scan_by_id(scan_id_for_version)
+            if scan_record:
+                original_filename = scan_record.get("filename")
+
+        if selected_version and original_filename:
+            download_name = (
+                f"{Path(original_filename).stem}_V{selected_version['version']}.pdf"
+            )
+        elif selected_version:
+            download_name = selected_version.get("filename") or file_path.name
+        else:
+            download_name = file_path.name
+        if not download_name.lower().endswith(".pdf"):
+            download_name = f"{Path(download_name).stem}.pdf"
+
+        return FileResponse(file_path, media_type="application/pdf", filename=download_name)
+    except Exception as exc:
+        logger.exception("[Backend] Error downloading fixed file %s", filename)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.get("/api/pdf-file/{scan_id}")
+async def serve_pdf_file(scan_id: str, request: Request):
+    """Serve PDF file for preview in PDF Editor."""
+    try:
+        uploads_dir = _uploads_root()
+        fixed_dir = _fixed_root()
+
+        version_param = request.query_params.get("version")
+        file_path: Optional[Path] = None
+
+        if version_param:
+            try:
+                requested_version = int(version_param)
+            except (ValueError, TypeError):
+                return JSONResponse(
+                    {"error": "Invalid version parameter"}, status_code=400
+                )
+            version_info = get_fixed_version(scan_id, requested_version)
+            if version_info:
+                file_path = Path(version_info["absolute_path"])
+        else:
+            latest_version = get_fixed_version(scan_id)
+            if latest_version:
+                file_path = Path(latest_version["absolute_path"])
+
+        if not file_path:
+            for folder in (fixed_dir, uploads_dir):
+                for ext in ("", ".pdf"):
+                    candidate = folder / f"{scan_id}{ext}"
+                    if candidate.exists():
+                        file_path = candidate
+                        break
+                if file_path:
+                    break
+
+        if not file_path:
+            return JSONResponse({"error": "PDF file not found"}, status_code=404)
+
+        return FileResponse(file_path, media_type="application/pdf")
+    except Exception as exc:
+        logger.exception("[Backend] Error serving PDF file for %s", scan_id)
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 # === Apply manual fix ===
