@@ -13,6 +13,7 @@ import asyncio
 import logging
 import threading
 import traceback
+import tempfile
 from datetime import datetime, date
 from decimal import Decimal
 from pathlib import Path
@@ -66,6 +67,7 @@ except Exception:
         def generate(self, *args, **kwargs):
             return None
 
+
 # ----------------------
 # Logging & Config
 # ----------------------
@@ -73,6 +75,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("doca11y-backend")
 
 load_dotenv()
+
 
 def to_json_safe(data):
     """
@@ -111,6 +114,7 @@ class SafeJSONResponse(JSONResponse):
     def render(self, content: any) -> bytes:
         safe = to_json_safe(content)
         return json.dumps(safe, ensure_ascii=False).encode("utf-8")
+
 
 MAX_GROUP_NAME_LENGTH = 255
 
@@ -298,7 +302,9 @@ def update_batch_statistics(batch_id: str):
     except Exception:
         if conn:
             conn.rollback()
-        logger.exception("[Backend] ⚠ Failed to update batch statistics for %s", batch_id)
+        logger.exception(
+            "[Backend] ⚠ Failed to update batch statistics for %s", batch_id
+        )
     finally:
         if cursor:
             cursor.close()
@@ -593,7 +599,9 @@ def build_placeholder_scan_payload(filename: Optional[str] = None) -> Dict[str, 
     }
 
 
-def should_scan_now(scan_mode: Optional[str] = None, request: Optional[Request] = None) -> bool:
+def should_scan_now(
+    scan_mode: Optional[str] = None, request: Optional[Request] = None
+) -> bool:
     """Determine whether files should be scanned immediately."""
     mode = (scan_mode or "").strip().lower()
     if not mode and request:
@@ -904,6 +912,7 @@ def _perform_automated_fix(
         if conn:
             conn.close()
 
+
 def build_verapdf_status(results, analyzer=None):
     status = {
         "isActive": False,
@@ -942,19 +951,46 @@ def build_verapdf_status(results, analyzer=None):
 
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+def upload_file(file: UploadFile = File(...)):
+    """
+    Upload endpoint (synchronous):
+    - Saves uploaded file to a temporary location
+    - Uses upload_file_with_fallback() for multi-tier storage
+    - Cleans up temporary file
+    """
+    temp_path = None
     try:
-        # Save temp file locally
-        temp_path = f"/tmp/{file.filename}"
-        with open(temp_path, "wb") as buffer:
-            buffer.write(await file.read())
+        # Save temp file safely
+        with tempfile.NamedTemporaryFile(
+            delete=False, dir="/tmp", suffix=f"_{file.filename}"
+        ) as tmp:
+            temp_path = tmp.name
+            tmp.write(file.file.read())
 
-        # Upload with fallback logic
+        file_size = os.path.getsize(temp_path)
+        logger.info(f"[API] Received upload: {file.filename} ({file_size} bytes)")
+
+        # Upload with fallback
         result = upload_file_with_fallback(temp_path, file.filename)
-        return {"message": "File uploaded successfully", "result": result}
+
+        return {
+            "message": "File uploaded successfully",
+            "result": result,
+        }
 
     except Exception as e:
+        logger.error(f"[API] Upload failed: {e}")
+        logger.debug(traceback.format_exc())
         return {"error": str(e)}
+
+    finally:
+        # Always clean up temp file
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+                logger.debug(f"[API] Temporary file removed: {temp_path}")
+            except Exception as cleanup_error:
+                logger.warning(f"[API] Cleanup failed for {temp_path}: {cleanup_error}")
 
 
 @app.get("/api/groups")
@@ -999,15 +1035,18 @@ async def get_group_details(group_id: str):
                 {"error": f"Group {group_id} not found"}, status_code=404
             )
 
-        scans = execute_query(
-            """
+        scans = (
+            execute_query(
+                """
             SELECT scan_results, status
             FROM scans
             WHERE group_id = %s
             """,
-            (group_id,),
-            fetch=True,
-        ) or []
+                (group_id,),
+                fetch=True,
+            )
+            or []
+        )
 
         total_files = len(scans)
         total_issues = 0
@@ -1033,8 +1072,8 @@ async def get_group_details(group_id: str):
                 for category, issues in results.items():
                     if not isinstance(issues, list):
                         continue
-                    category_totals[category] = (
-                        category_totals.get(category, 0) + len(issues)
+                    category_totals[category] = category_totals.get(category, 0) + len(
+                        issues
                     )
                     for issue in issues:
                         if not isinstance(issue, dict):
@@ -1069,9 +1108,7 @@ async def get_group_details(group_id: str):
         return SafeJSONResponse(response)
     except Exception:
         logger.exception("doca11y-backend:get_group_details DB error")
-        return JSONResponse(
-            {"error": "Failed to fetch group details"}, status_code=500
-        )
+        return JSONResponse({"error": "Failed to fetch group details"}, status_code=500)
 
 
 @app.get("/api/groups/{group_id}/files")
@@ -1090,9 +1127,7 @@ async def get_group_files(group_id: str):
         files = []
         for row in rows:
             row_dict = dict(row)
-            scan_results = _parse_scan_results_json(
-                row_dict.get("scan_results") or {}
-            )
+            scan_results = _parse_scan_results_json(row_dict.get("scan_results") or {})
             summary = scan_results.get("summary", {})
             files.append(
                 {
@@ -1507,7 +1542,9 @@ async def start_deferred_scan(scan_id: str):
             ),
         )
     except Exception:
-        logger.exception("[Backend] Failed to update scan %s after deferred run", scan_id)
+        logger.exception(
+            "[Backend] Failed to update scan %s after deferred run", scan_id
+        )
         return JSONResponse(
             {"error": "Failed to update scan record after analysis"}, status_code=500
         )
@@ -1547,7 +1584,9 @@ async def prune_fixed_files(scan_id: str, request: Request):
         except Exception:
             payload = {}
 
-        keep_latest = bool(payload.get("keepLatest", True)) if isinstance(payload, dict) else True
+        keep_latest = (
+            bool(payload.get("keepLatest", True)) if isinstance(payload, dict) else True
+        )
         result = prune_fixed_versions(scan_id, keep_latest=keep_latest)
 
         message = (
@@ -1699,16 +1738,18 @@ async def get_scan(scan_id: str):
             )
             if rows:
                 result = rows
-                resolved_scan_id = str(rows[0].get("id") or rows[0].get("scan_id") or scan_id)
+                resolved_scan_id = str(
+                    rows[0].get("id") or rows[0].get("scan_id") or scan_id
+                )
 
         if not result:
             logger.warning("[Backend] Scan not found: %s", scan_id)
-            return JSONResponse({"error": f"Scan not found: {scan_id}"}, status_code=404)
+            return JSONResponse(
+                {"error": f"Scan not found: {scan_id}"}, status_code=404
+            )
 
         scan = dict(result[0])
-        raw_scan_results = (
-            scan.get("scan_results") or scan.get("results") or {}
-        )
+        raw_scan_results = scan.get("scan_results") or scan.get("results") or {}
         scan_results = _parse_scan_results_json(raw_scan_results)
         results = scan_results.get("results", scan_results) or {}
         if isinstance(results, dict):
@@ -1736,11 +1777,10 @@ async def get_scan(scan_id: str):
                     scan_id,
                     calc_error,
                 )
-                issue_lists = (
-                    results.values() if isinstance(results, dict) else []
-                )
+                issue_lists = results.values() if isinstance(results, dict) else []
                 total_issues = sum(
-                    len(items) if isinstance(items, list) else 0 for items in issue_lists
+                    len(items) if isinstance(items, list) else 0
+                    for items in issue_lists
                 )
                 high_severity = len(
                     [
@@ -1775,7 +1815,9 @@ async def get_scan(scan_id: str):
         latest_version = get_fixed_version(resolved_scan_id)
         version_entries = get_versioned_files(resolved_scan_id)
         version_history: List[Dict[str, Any]] = []
-        latest_version_number = latest_version.get("version") if latest_version else None
+        latest_version_number = (
+            latest_version.get("version") if latest_version else None
+        )
 
         for entry in reversed(version_entries or []):
             created_at = entry.get("created_at")
@@ -1930,7 +1972,9 @@ async def get_scan_current_state(scan_id: str):
             }
 
             if latest_version_entry:
-                response["currentState"]["version"] = latest_version_entry.get("version")
+                response["currentState"]["version"] = latest_version_entry.get(
+                    "version"
+                )
                 response["currentState"]["fixedFilePath"] = latest_version_entry.get(
                     "relative_path"
                 )
@@ -1979,6 +2023,7 @@ def _write_uploadfile_to_disk(upload_file: UploadFile, dest_path: str):
     upload_file.file.seek(0)
     with open(dest_path, "wb") as out_f:
         shutil.copyfileobj(upload_file.file, out_f)
+
 
 @app.post("/api/batch/{batch_id}/fix-file/{scan_id}")
 async def apply_batch_fix(batch_id: str, scan_id: str):
@@ -2063,7 +2108,9 @@ async def get_batch_details(batch_id: str):
         )
         batch = cursor.fetchone()
         if not batch:
-            return JSONResponse({"error": f"Batch {batch_id} not found"}, status_code=404)
+            return JSONResponse(
+                {"error": f"Batch {batch_id} not found"}, status_code=404
+            )
 
         cursor.execute(
             """
@@ -2408,7 +2455,9 @@ async def export_batch(batch_id: str):
         if not batch:
             cur.close()
             conn.close()
-            return JSONResponse({"error": f"Batch {batch_id} not found"}, status_code=404)
+            return JSONResponse(
+                {"error": f"Batch {batch_id} not found"}, status_code=404
+            )
 
         cur.execute(
             """
@@ -2434,7 +2483,9 @@ async def export_batch(batch_id: str):
         conn.close()
 
         if not scans:
-            return JSONResponse({"error": "No scans found for this batch"}, status_code=404)
+            return JSONResponse(
+                {"error": "No scans found for this batch"}, status_code=404
+            )
 
         def _sanitize(value: Optional[str], fallback: str) -> str:
             text = value or fallback
@@ -2488,9 +2539,15 @@ async def export_batch(batch_id: str):
                     }
 
             if isinstance(summary, dict) and verapdf_status:
-                summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
-                summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
-                summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+                summary.setdefault(
+                    "wcagCompliance", verapdf_status.get("wcagCompliance")
+                )
+                summary.setdefault(
+                    "pdfuaCompliance", verapdf_status.get("pdfuaCompliance")
+                )
+                summary.setdefault(
+                    "pdfaCompliance", verapdf_status.get("pdfaCompliance")
+                )
                 combined_score = _combine_compliance_scores(
                     summary.get("wcagCompliance"),
                     summary.get("pdfuaCompliance"),
@@ -2792,8 +2849,12 @@ async def apply_manual_fix(request: Request):
                 compliance_after=summary.get("complianceScore", None),
                 fix_suggestions=suggestions,
                 fix_metadata={"page": page, "manual": True},
-                batch_id=scan_data.get("batch_id") if isinstance(scan_data, dict) else None,
-                group_id=scan_data.get("group_id") if isinstance(scan_data, dict) else None,
+                batch_id=scan_data.get("batch_id")
+                if isinstance(scan_data, dict)
+                else None,
+                group_id=scan_data.get("group_id")
+                if isinstance(scan_data, dict)
+                else None,
                 total_issues_before=(
                     rescan_data.get("before_summary", {}).get("totalIssues")
                     if isinstance(rescan_data.get("before_summary"), dict)
@@ -3076,7 +3137,9 @@ async def ai_apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
     logger.exception("doca11y-backend:" + str(exc))
-    return JSONResponse(status_code=404, content={"error": "Route not found:" + str(exc)})
+    return JSONResponse(
+        status_code=404, content={"error": "Route not found:" + str(exc)}
+    )
 
 
 @app.exception_handler(Exception)
