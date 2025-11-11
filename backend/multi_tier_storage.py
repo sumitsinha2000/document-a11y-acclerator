@@ -142,9 +142,21 @@ def stream_remote_file(identifier: str, chunk_size: int = 8192) -> Iterator[byte
     """
     Stream bytes from a remote storage reference. Identifier can be a URL or
     a Backblaze key (e.g., 'uploads/file.pdf').
+    Automatically attaches an auth token if the bucket is private.
     """
     url = _resolve_remote_identifier(identifier)
-    response = requests.get(url, stream=True, timeout=60)
+
+    headers = {}
+    # Add Backblaze auth header for private buckets
+    if has_backblaze_storage() and "backblaze" in url or "b2.com" in url:
+        try:
+            auth_data = _get_b2_authorization()
+            headers["Authorization"] = auth_data["authorizationToken"]
+        except Exception as e:
+            logger.warning(f"[Storage] Could not get Backblaze auth token: {e}")
+
+    response = requests.get(url, headers=headers, stream=True, timeout=60)
+
     if response.status_code == 404:
         response.close()
         raise FileNotFoundError(identifier)
@@ -218,7 +230,9 @@ def _get_b2_authorization() -> dict:
         bucket_id = auth_data["allowed"].get("bucketId")
         if not bucket_id:
             bucket_id = _lookup_bucket_id(
-                auth_data["apiUrl"], auth_data["authorizationToken"], auth_data["accountId"]
+                auth_data["apiUrl"],
+                auth_data["authorizationToken"],
+                auth_data["accountId"],
             )
         if not bucket_id:
             raise RuntimeError(
