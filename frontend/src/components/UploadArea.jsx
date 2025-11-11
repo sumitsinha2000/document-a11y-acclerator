@@ -333,6 +333,13 @@ const handleMultipleFileUpload = async (files) => {
     try {
       const formData = new FormData()
       formData.append("file", file)
+      if (selectedGroup) {
+        const groupId = typeof selectedGroup === "object"
+          ? selectedGroup.id || selectedGroup.group_id || selectedGroup.value
+          : selectedGroup
+        formData.append("group_id", groupId)
+      }
+      formData.append("scan_mode", isDeferred ? "upload_only" : "scan_now")
 
       // Use environment variable if set, fallback to default
       const uploadUrl = `${API_BASE_URL}/api/upload`

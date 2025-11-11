@@ -47,7 +47,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # Local application imports
-from backend.multi_tier_storage import upload_file_with_fallback
+from backend.multi_tier_storage import (
+    upload_file_with_fallback,
+    download_remote_file,
+    stream_remote_file,
+    has_backblaze_storage,
+)
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
@@ -75,7 +80,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("doca11y-backend")
 
 load_dotenv()
-
 
 def to_json_safe(data):
     """
@@ -127,25 +131,64 @@ class GroupPayload(BaseModel):
 # CORS / environment config
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://document-a11y-accelerator.vercel.app")
 NEON_DATABASE_URL = os.getenv("NEON_DATABASE_URL")
-UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
-FIXED_FOLDER = os.getenv("FIXED_FOLDER", "fixed")
-GENERATED_PDFS_FOLDER = None
+DB_SCHEMA = os.getenv("DB_SCHEMA", "public")
 
-# create folders
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(FIXED_FOLDER, exist_ok=True)
+def _init_storage_dir(env_value: Optional[str], default_suffix: str) -> Path:
+    """
+    Resolve a storage directory path. Prefer the explicit env var; otherwise
+    fall back to a temp-based runtime directory that is always writable in
+    deployment environments without persistent disks.
+    """
+    candidates = []
+    if env_value:
+        candidates.append(Path(env_value).expanduser())
+    runtime_base = Path(tempfile.gettempdir()) / "doca11y"
+    candidates.append(runtime_base / default_suffix)
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except Exception:
+            logger.warning(
+                "[Backend] Failed to create storage dir %s; trying fallback", candidate
+            )
+            logger.debug(traceback.format_exc())
+    # Last resort: use the system temp dir itself
+    fallback = Path(tempfile.gettempdir()) / f"doca11y_{default_suffix}"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+UPLOAD_FOLDER_PATH = _init_storage_dir(os.getenv("UPLOAD_FOLDER"), "uploads")
+FIXED_FOLDER_PATH = _init_storage_dir(os.getenv("FIXED_FOLDER"), "fixed")
+TEMP_UPLOAD_DIR_PATH = _init_storage_dir(os.getenv("TEMP_UPLOAD_DIR"), "tmp")
+GENERATED_PDFS_BASE = _init_storage_dir(os.getenv("GENERATED_PDFS_FOLDER"), "generated")
+
+UPLOAD_FOLDER = str(UPLOAD_FOLDER_PATH)
+FIXED_FOLDER = str(FIXED_FOLDER_PATH)
+TEMP_UPLOAD_DIR = str(TEMP_UPLOAD_DIR_PATH)
+GENERATED_PDFS_FOLDER = str(GENERATED_PDFS_BASE)
 
 # PDF generator instance - keep original pattern
 pdf_generator = PDFGenerator()
-GENERATED_PDFS_FOLDER = getattr(pdf_generator, "output_dir", "generated_pdfs")
-os.makedirs(GENERATED_PDFS_FOLDER, exist_ok=True)
+generator_dir = getattr(pdf_generator, "output_dir", None)
+if generator_dir:
+    try:
+        Path(generator_dir).mkdir(parents=True, exist_ok=True)
+        GENERATED_PDFS_FOLDER = generator_dir
+    except Exception:
+        logger.warning(
+            "[Backend] Could not use PDF generator output dir %s, defaulting to %s",
+            generator_dir,
+            GENERATED_PDFS_FOLDER,
+        )
 
 # Version pattern used in your original code
 VERSION_FILENAME_PATTERN = re.compile(r"_v(\d+)\.pdf$", re.IGNORECASE)
 
 # thread lock for psycopg2 usage (synchronous)
 db_lock = threading.Lock()
-
 # ----------------------
 # FastAPI app + CORS
 # ----------------------
@@ -167,14 +210,29 @@ app.add_middleware(
     allow_headers=["*"],  # allow all headers
 )
 
-# serve uploaded files (development/test)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
-app.mount("/fixed", StaticFiles(directory=FIXED_FOLDER), name="fixed")
-app.mount(
-    "/generated_pdfs",
-    StaticFiles(directory=GENERATED_PDFS_FOLDER),
-    name="generated_pdfs",
-)
+
+def _mount_static_if_available(prefix: str, directory: str, name: str):
+    path = Path(directory)
+    try:
+        if path.exists():
+            app.mount(prefix, StaticFiles(directory=directory), name=name)
+        else:
+            logger.info(
+                "[Backend] Skipping static mount for %s; directory %s not available",
+                prefix,
+                directory,
+            )
+    except Exception:
+        logger.warning(
+            "[Backend] Failed to mount static directory %s at %s", directory, prefix
+        )
+        logger.debug(traceback.format_exc())
+
+
+# serve uploaded files (development/test only; remote storage is canonical)
+_mount_static_if_available("/uploads", UPLOAD_FOLDER, "uploads")
+_mount_static_if_available("/fixed", FIXED_FOLDER, "fixed")
+_mount_static_if_available("/generated_pdfs", GENERATED_PDFS_FOLDER, "generated_pdfs")
 
 
 # ----------------------
@@ -191,7 +249,7 @@ def get_db_connection():
         conn = psycopg2.connect(NEON_DATABASE_URL, cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
-        logger.exception("Database connection failed")
+        logger.exception("Database connection failed: ", e)
         raise
 
 
@@ -219,8 +277,9 @@ def execute_query(query: str, params: Optional[tuple] = None, fetch: bool = Fals
             if conn:
                 conn.rollback()
                 conn.close()
-            logger.exception("Query execution failed")
+            logger.exception("Query execution failed: ", e)
             raise
+
 
 
 def update_batch_statistics(batch_id: str):
@@ -360,6 +419,7 @@ def save_scan_to_db(
     total_issues: Optional[int] = None,
     issues_fixed: Optional[int] = None,
     issues_remaining: Optional[int] = None,
+    file_path: Optional[str] = None,
 ):
     """
     Insert or update a scan record while keeping compatibility with older schemas.
@@ -386,133 +446,67 @@ def save_scan_to_db(
 
     try:
         if not is_update:
-            try:
-                execute_query(
-                    """
-                    INSERT INTO scans (
-                        scan_id,
-                        filename,
-                        results,
-                        scan_results,
-                        batch_id,
-                        group_id,
-                        status,
-                        upload_date,
-                        total_issues,
-                        issues_remaining,
-                        issues_fixed
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        scan_id,
-                        original_filename,
-                        payload_json,
-                        payload_json,
-                        batch_id,
-                        group_id,
-                        status,
-                        timestamp,
-                        computed_total,
-                        computed_remaining,
-                        computed_fixed,
-                    ),
+            execute_query(
+                """
+                INSERT INTO scans (
+                    id,
+                    filename,
+                    scan_results,
+                    batch_id,
+                    group_id,
+                    status,
+                    upload_date,
+                    total_issues,
+                    issues_remaining,
+                    issues_fixed,
+                    file_path
                 )
-            except Exception:
-                logger.debug(
-                    "save_scan_to_db insert fallback without scan_results column"
-                )
-                execute_query(
-                    """
-                    INSERT INTO scans (
-                        scan_id,
-                        filename,
-                        results,
-                        batch_id,
-                        group_id,
-                        status,
-                        upload_date,
-                        total_issues,
-                        issues_remaining,
-                        issues_fixed
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        scan_id,
-                        original_filename,
-                        payload_json,
-                        batch_id,
-                        group_id,
-                        status,
-                        timestamp,
-                        computed_total,
-                        computed_remaining,
-                        computed_fixed,
-                    ),
-                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    scan_id,
+                    original_filename,
+                    payload_json,
+                    batch_id,
+                    group_id,
+                    status,
+                    timestamp,
+                    computed_total,
+                    computed_remaining,
+                    computed_fixed,
+                    file_path,
+                ),
+            )
         else:
-            try:
-                execute_query(
-                    """
-                    UPDATE scans
-                    SET filename=%s,
-                        results=%s,
-                        scan_results=%s,
-                        batch_id=%s,
-                        group_id=%s,
-                        status=%s,
-                        upload_date=%s,
-                        total_issues=%s,
-                        issues_remaining=%s,
-                        issues_fixed=%s
-                    WHERE scan_id=%s
-                    """,
-                    (
-                        original_filename,
-                        payload_json,
-                        payload_json,
-                        batch_id,
-                        group_id,
-                        status,
-                        timestamp,
-                        computed_total,
-                        computed_remaining,
-                        computed_fixed,
-                        scan_id,
-                    ),
-                )
-            except Exception:
-                logger.debug(
-                    "save_scan_to_db update fallback without scan_results column"
-                )
-                execute_query(
-                    """
-                    UPDATE scans
-                    SET filename=%s,
-                        results=%s,
-                        batch_id=%s,
-                        group_id=%s,
-                        status=%s,
-                        upload_date=%s,
-                        total_issues=%s,
-                        issues_remaining=%s,
-                        issues_fixed=%s
-                    WHERE scan_id=%s
-                    """,
-                    (
-                        original_filename,
-                        payload_json,
-                        batch_id,
-                        group_id,
-                        status,
-                        timestamp,
-                        computed_total,
-                        computed_remaining,
-                        computed_fixed,
-                        scan_id,
-                    ),
-                )
+            execute_query(
+                """
+                UPDATE scans
+                SET filename=%s,
+                    scan_results=%s,
+                    batch_id=%s,
+                    group_id=%s,
+                    status=%s,
+                    upload_date=%s,
+                    total_issues=%s,
+                    issues_remaining=%s,
+                    issues_fixed=%s,
+                    file_path=%s
+                WHERE id=%s
+                """,
+                (
+                    original_filename,
+                    payload_json,
+                    batch_id,
+                    group_id,
+                    status,
+                    timestamp,
+                    computed_total,
+                    computed_remaining,
+                    computed_fixed,
+                    file_path,
+                    scan_id,
+                ),
+            )
         return scan_id
     except Exception:
         logger.exception("save_scan_to_db failed")
@@ -605,7 +599,7 @@ def save_fix_history(
 def update_scan_status(scan_id: str, status: str = "completed"):
     try:
         execute_query(
-            "UPDATE scans SET status=%s WHERE scan_id=%s",
+            "UPDATE scans SET status=%s WHERE id=%s",
             (status, scan_id),
         )
     except Exception:
@@ -681,11 +675,11 @@ def get_versioned_files(scan_id: str):
 
 
 def _uploads_root() -> Path:
-    return Path(UPLOAD_FOLDER).resolve()
+    return UPLOAD_FOLDER_PATH
 
 
 def _fixed_root() -> Path:
-    return Path(FIXED_FOLDER).resolve()
+    return FIXED_FOLDER_PATH
 
 
 def _ensure_local_storage(context: str = ""):
@@ -697,11 +691,89 @@ def _ensure_local_storage(context: str = ""):
         logger.exception("[Backend] Failed to ensure local storage for %s", context)
 
 
+def _temp_storage_root() -> Path:
+    TEMP_UPLOAD_DIR_PATH.mkdir(parents=True, exist_ok=True)
+    return TEMP_UPLOAD_DIR_PATH
+
+
+def _mirror_file_to_remote(local_path: Path, folder: str) -> Optional[str]:
+    """
+    Upload a local file to remote storage (if configured) and return the remote path.
+    """
+    if not local_path or not local_path.exists():
+        return None
+    try:
+        result = upload_file_with_fallback(str(local_path), local_path.name, folder=folder)
+        remote_path = result.get("url")
+        if remote_path:
+            return remote_path
+        return result.get("path")
+    except Exception:
+        logger.exception(
+            "[Storage] Failed to mirror %s to remote folder '%s'",
+            local_path,
+            folder,
+        )
+        return None
+
+
+def _download_remote_to_temp(remote_identifier: str, scan_id: str) -> Optional[Path]:
+    """
+    Download a remote file (URL or storage key) into the temp directory for processing.
+    """
+    if not remote_identifier:
+        return None
+    tmp_dir = _temp_storage_root()
+    suffix = Path(remote_identifier).suffix or ".pdf"
+    safe_prefix = secure_filename(scan_id) or scan_id or "scan"
+    tmp_path = tmp_dir / f"{safe_prefix}_{uuid.uuid4().hex}{suffix}"
+    try:
+        logger.info(
+            "[Storage] Downloading remote file for scan %s from %s",
+            scan_id,
+            remote_identifier,
+        )
+        download_remote_file(remote_identifier, tmp_path)
+        if tmp_path.exists():
+            logger.info(
+                "[Storage] Remote download complete for scan %s -> %s",
+                scan_id,
+                tmp_path,
+            )
+            return tmp_path
+        return None
+    except FileNotFoundError:
+        logger.warning(
+            "[Storage] Remote reference not found for scan %s: %s",
+            scan_id,
+            remote_identifier,
+        )
+        return None
+    except Exception:
+        logger.exception(
+            "[Storage] Failed to download remote file %s for scan %s",
+            remote_identifier,
+            scan_id,
+        )
+        return None
+
+
 def build_placeholder_scan_payload(filename: Optional[str] = None) -> Dict[str, Any]:
+    base_status = build_verapdf_status({})
     summary = {
         "totalIssues": 0,
         "highSeverity": 0,
-        "complianceScore": 0,
+        "mediumSeverity": 0,
+        "lowSeverity": 0,
+        "wcagCompliance": base_status.get("wcagCompliance"),
+        "pdfuaCompliance": base_status.get("pdfuaCompliance"),
+        "pdfaCompliance": base_status.get("pdfaCompliance"),
+        "complianceScore": _combine_compliance_scores(
+            base_status.get("wcagCompliance"),
+            base_status.get("pdfuaCompliance"),
+            base_status.get("pdfaCompliance"),
+        )
+        or 0,
         "status": "queued",
     }
     if filename:
@@ -709,7 +781,7 @@ def build_placeholder_scan_payload(filename: Optional[str] = None) -> Dict[str, 
     return {
         "results": {},
         "summary": summary,
-        "verapdfStatus": None,
+        "verapdfStatus": base_status,
         "fixes": [],
     }
 
@@ -817,20 +889,31 @@ def annotate_wcag_mappings(results: Any) -> Any:
 
 def _fetch_scan_record(scan_id: str) -> Optional[Dict[str, Any]]:
     """
-    Retrieve a scan row using either the primary id or legacy scan_id column.
-    Returns None if no database is configured or no record exists.
+    Retrieve a scan row by its primary id. Returns None if no record exists.
     """
     if not NEON_DATABASE_URL:
         return None
 
     rows = execute_query(
         """
-        SELECT id, scan_id, filename, group_id, batch_id, scan_results, status
+        SELECT
+            id,
+            filename,
+            group_id,
+            batch_id,
+            scan_results,
+            status,
+            file_path,
+            upload_date,
+            created_at,
+            total_issues,
+            issues_fixed,
+            issues_remaining
         FROM scans
-        WHERE id = %s OR scan_id = %s
+        WHERE id = %s
         LIMIT 1
         """,
-        (scan_id, scan_id),
+        (scan_id,),
         fetch=True,
     )
     return rows[0] if rows else None
@@ -852,6 +935,7 @@ def _resolve_scan_file_path(
         upload_dir / f"{scan_id}.pdf",
         upload_dir / scan_id,
     ]
+    remote_references: List[str] = []
 
     if scan_record:
         filename = scan_record.get("filename")
@@ -859,8 +943,25 @@ def _resolve_scan_file_path(
             candidates.append(upload_dir / filename)
 
         stored_path = scan_record.get("path") or scan_record.get("file_path")
+        if not stored_path:
+            parsed_results = _parse_scan_results_json(
+                scan_record.get("scan_results")
+            )
+            if isinstance(parsed_results, dict):
+                stored_path = (
+                    parsed_results.get("filePath")
+                    or parsed_results.get("file_path")
+                )
         if stored_path:
-            candidates.append(Path(stored_path))
+            stored_str = str(stored_path)
+            if stored_str.lower().startswith(("http://", "https://")):
+                remote_references.append(stored_str)
+            else:
+                path_obj = Path(stored_str)
+                candidates.append(path_obj)
+                # If the stored path does not currently exist locally, treat it as remote key
+                if not path_obj.exists():
+                    remote_references.append(stored_str)
 
     seen = set()
     for candidate in candidates:
@@ -872,6 +973,17 @@ def _resolve_scan_file_path(
         seen.add(key)
         if candidate.exists():
             return candidate
+
+    for remote_ref in remote_references:
+        remote_file = _download_remote_to_temp(remote_ref, scan_id)
+        if remote_file and remote_file.exists():
+            return remote_file
+    logger.error(
+        "[Backend] Unable to resolve file path for scan %s; tried %s and remote refs %s",
+        scan_id,
+        [str(c) for c in candidates],
+        remote_references,
+    )
     return None
 
 
@@ -1213,7 +1325,12 @@ def build_verapdf_status(results, analyzer=None):
 
 
 @app.post("/api/upload")
-def upload_file(file: UploadFile = File(...)):
+def upload_file(
+    request: Request,
+    file: UploadFile = File(...),
+    group_id: Optional[str] = Form(None),
+    scan_mode: Optional[str] = Form(None),
+):
     """
     Upload endpoint (synchronous):
     - Saves uploaded file to a temporary location
@@ -1233,12 +1350,73 @@ def upload_file(file: UploadFile = File(...)):
         logger.info(f"[API] Received upload: {file.filename} ({file_size} bytes)")
 
         # Upload with fallback
-        result = upload_file_with_fallback(temp_path, file.filename)
+        result = upload_file_with_fallback(temp_path, file.filename, folder="uploads")
+        storage_reference = result.get("url") or result.get("path") or result.get("key")
 
-        return {
+        response_payload: Dict[str, Any] = {
             "message": "File uploaded successfully",
-            "result": result,
+            "result": dict(result),
         }
+        logger.info(
+            "[API] Upload received: filename=%s, group_id=%s (type=%s), NEON_DATABASE_URL=%s",
+            file.filename,
+            group_id,
+            type(group_id),
+            bool(NEON_DATABASE_URL),
+        )
+
+        # When a group is provided, create a placeholder scan entry so dashboards
+        # can track the upload even before analysis runs.
+        if group_id and NEON_DATABASE_URL:
+            logger.info("[API] saving scan metadata for %s", file.filename)
+
+            placeholder = build_placeholder_scan_payload(file.filename)
+            if storage_reference:
+                placeholder = dict(placeholder)
+                placeholder["filePath"] = storage_reference
+            scan_id = f"scan_{uuid.uuid4().hex}"
+            try:
+                saved_id = save_scan_to_db(
+                    scan_id,
+                    file.filename,
+                    placeholder,
+                    group_id=group_id,
+                    status="uploaded",
+                    file_path=storage_reference,
+                    total_issues=0,
+                    issues_remaining=0,
+                    issues_fixed=0,
+                )
+                response_payload.update(
+                    {
+                        "scanId": saved_id,
+                        "groupId": group_id,
+                        "scanDeferred": True,
+                        "status": "uploaded",
+                        "filePath": storage_reference,
+                    }
+                )
+                response_payload["result"].update(
+                    {
+                        "scanId": saved_id,
+                        "groupId": group_id,
+                        "status": "uploaded",
+                        "filePath": storage_reference,
+                    }
+                )
+                try:
+                    update_group_file_count(group_id)
+                except Exception:
+                    logger.exception(
+                        "[API] Failed to refresh group %s counts after upload", group_id
+                    )
+            except Exception:
+                logger.exception("[API] Failed to create placeholder scan for upload")
+                response_payload["warning"] = (
+                    "File stored, but metadata was not saved. Please retry later."
+                )
+
+        return response_payload
 
     except Exception as e:
         logger.error(f"[API] Upload failed: {e}")
@@ -1262,7 +1440,6 @@ async def get_scans():
             """
             SELECT
                 id,
-                scan_id,
                 filename,
                 group_id,
                 batch_id,
@@ -1273,7 +1450,7 @@ async def get_scans():
                 issues_fixed,
                 issues_remaining,
                 scan_results,
-                results
+                file_path
             FROM scans
             ORDER BY COALESCE(upload_date, created_at) DESC
             LIMIT 250
@@ -1291,7 +1468,7 @@ async def get_scans():
             summary = parsed_payload.get("summary", {}) or {}
             results = parsed_payload.get("results", parsed_payload) or {}
 
-            scan_identifier = row_dict.get("scan_id") or row_dict.get("id")
+            scan_identifier = row_dict.get("id")
 
             scans.append(
                 {
@@ -1303,6 +1480,7 @@ async def get_scans():
                     "status": row_dict.get("status", "unprocessed"),
                     "uploadDate": row_dict.get("upload_date")
                     or row_dict.get("created_at"),
+                    "filePath": row_dict.get("file_path"),
                     "summary": summary,
                     "results": results if isinstance(results, dict) else {},
                     "verapdfStatus": parsed_payload.get("verapdfStatus"),
@@ -1511,6 +1689,19 @@ async def get_group(group_id: str):
     except Exception:
         logger.exception("doca11y-backend:get_group DB error")
         return JSONResponse({"error": "Internal error"}, status_code=500)
+
+
+# @app.get("/api/scans")
+# def get_scans():
+#     scans = execute_query(
+#         """
+#         SELECT id, filename, upload_date, status
+#         FROM scans
+#         ORDER BY upload_date DESC NULLS LAST, created_at DESC
+#         """,
+#         fetch=True,
+#     )
+#     return SafeJSONResponse({"scans": scans or []})
 
 
 @app.post("/api/groups")
@@ -1751,7 +1942,12 @@ async def list_generated_pdfs():
 # === PDF Scan ===
 # Preserve function name: scan_pdf
 @app.post("/api/scan")
-async def scan_pdf(file: UploadFile = File(...), group_id: Optional[str] = Form(None)):
+async def scan_pdf(
+    request: Request,
+    file: UploadFile = File(...),
+    group_id: Optional[str] = Form(None),
+    scan_mode: Optional[str] = Form(None),
+):
     # validate file presence and extension (same checks as original)
     if not file or not file.filename:
         return JSONResponse({"error": "No file provided"}, status_code=400)
@@ -1762,8 +1958,7 @@ async def scan_pdf(file: UploadFile = File(...), group_id: Optional[str] = Form(
 
     # create unique scan id and save file
     scan_uid = f"scan_{uuid.uuid4().hex}"
-    upload_dir = Path(UPLOAD_FOLDER)
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = _temp_storage_root()
     file_path = upload_dir / f"{scan_uid}.pdf"
 
     # Save file using non-blocking thread
@@ -1786,13 +1981,28 @@ async def scan_pdf(file: UploadFile = File(...), group_id: Optional[str] = Form(
 
     # Save to DB preserving original function name and logic
     try:
-        saved_id = save_scan_to_db(
-            scan_uid, file.filename, formatted_results, group_id=group_id
-        )
         total_issues = formatted_results.get("summary", {}).get("totalIssues", 0)
+        saved_id = save_scan_to_db(
+            scan_uid,
+            file.filename,
+            formatted_results,
+            group_id=group_id,
+            file_path=file_path,
+            total_issues=total_issues,
+            issues_remaining=total_issues,
+            issues_fixed=0,
+        )
         logger.info(
             f"[Backend] ✓ Scan record saved as {saved_id} with {total_issues} issues in group {group_id}"
         )
+        if group_id and NEON_DATABASE_URL:
+            try:
+                update_group_file_count(group_id)
+            except Exception:
+                logger.exception(
+                    "[Backend] Failed to refresh group %s counts after scan",
+                    group_id,
+                )
     except Exception:
         logger.exception("Failed to save scan to DB")
         # still return results but note DB failure
@@ -2085,7 +2295,7 @@ async def start_deferred_scan(scan_id: str):
                 total_issues = %s,
                 issues_remaining = %s,
                 issues_fixed = %s
-            WHERE id = %s OR scan_id = %s
+            WHERE id = %s
             """,
             (
                 _serialize_scan_results(formatted_results),
@@ -2093,7 +2303,6 @@ async def start_deferred_scan(scan_id: str):
                 total_issues,
                 total_issues,
                 0,
-                scan_id,
                 scan_id,
             ),
         )
@@ -2174,7 +2383,7 @@ async def delete_scan(scan_id: str):
         if not scan_record:
             return JSONResponse({"error": "Scan not found"}, status_code=404)
 
-        resolved_id = scan_record.get("id") or scan_record.get("scan_id") or scan_id
+        resolved_id = scan_record.get("id") or scan_id
         group_id = scan_record.get("group_id")
         original_filename = scan_record.get("filename")
 
@@ -2222,7 +2431,6 @@ async def delete_scan(scan_id: str):
 
         # Delete related DB records
         primary_id = scan_record.get("id")
-        legacy_id = scan_record.get("scan_id")
 
         if primary_id:
             execute_query(
@@ -2230,16 +2438,9 @@ async def delete_scan(scan_id: str):
                 (primary_id,),
                 fetch=False,
             )
-        if legacy_id and legacy_id != primary_id:
-            execute_query(
-                "DELETE FROM fix_history WHERE scan_id = %s",
-                (legacy_id,),
-                fetch=False,
-            )
-
         execute_query(
-            "DELETE FROM scans WHERE id = %s OR scan_id = %s",
-            (primary_id or resolved_id, resolved_id),
+            "DELETE FROM scans WHERE id = %s",
+            (primary_id or resolved_id,),
             fetch=False,
         )
 
@@ -2294,9 +2495,7 @@ async def get_scan(scan_id: str):
             )
             if rows:
                 result = rows
-                resolved_scan_id = str(
-                    rows[0].get("id") or rows[0].get("scan_id") or scan_id
-                )
+                resolved_scan_id = str(rows[0].get("id") or scan_id)
 
         if not result:
             logger.warning("[Backend] Scan not found: %s", scan_id)
@@ -2407,7 +2606,7 @@ async def get_scan(scan_id: str):
         }
 
         response_data = {
-            "scanId": scan.get("id") or scan.get("scan_id"),
+            "scanId": scan.get("id"),
             "filename": scan.get("filename"),
             "status": scan.get("status", "completed"),
             "groupId": scan.get("group_id"),
@@ -2442,13 +2641,13 @@ async def get_scan_current_state(scan_id: str):
     try:
         scan_rows = execute_query(
             """
-            SELECT id, scan_id, filename, group_id, status, upload_date,
+            SELECT id, filename, group_id, status, upload_date,
                    scan_results, total_issues, issues_fixed, issues_remaining
             FROM scans
-            WHERE id = %s OR scan_id = %s
+            WHERE id = %s
             LIMIT 1
             """,
-            (scan_id, scan_id),
+            (scan_id,),
             fetch=True,
         )
 
@@ -2456,7 +2655,7 @@ async def get_scan_current_state(scan_id: str):
             return JSONResponse({"error": "Scan not found"}, status_code=404)
 
         scan = dict(scan_rows[0])
-        resolved_id = scan.get("id") or scan.get("scan_id") or scan_id
+        resolved_id = scan.get("id") or scan_id
 
         latest_fix_rows = execute_query(
             """
@@ -2468,7 +2667,7 @@ async def get_scan_current_state(scan_id: str):
             ORDER BY applied_at DESC
             LIMIT 1
             """,
-            (scan.get("id") or scan.get("scan_id") or scan_id,),
+            (resolved_id,),
             fetch=True,
         )
         latest_fix = dict(latest_fix_rows[0]) if latest_fix_rows else None
@@ -2671,7 +2870,7 @@ async def get_batch_details(batch_id: str):
         cursor.execute(
             """
             SELECT 
-                s.id AS scan_id,
+                s.id,
                 s.filename,
                 s.scan_results,
                 s.status,
@@ -2774,7 +2973,7 @@ async def get_batch_details(batch_id: str):
         total_high += current_high
         total_compliance += current_compliance
 
-        version_entries = get_versioned_files(scan["scan_id"])
+        version_entries = get_versioned_files(scan["id"])
         latest_version_entry = version_entries[-1] if version_entries else None
         version_history = []
         if version_entries:
@@ -2798,7 +2997,7 @@ async def get_batch_details(batch_id: str):
 
         processed_scans.append(
             {
-                "scanId": scan["scan_id"],
+                "scanId": scan["id"],
                 "filename": scan["filename"],
                 "status": current_status,
                 "uploadDate": scan.get("upload_date"),
@@ -3696,34 +3895,33 @@ async def apply_manual_fix(request: Request):
         try:
             if NEON_DATABASE_URL:
                 rows = execute_query(
-                    "SELECT * FROM scans WHERE scan_id=%s", (scan_id,), fetch=True
+                    "SELECT * FROM scans WHERE id=%s",
+                    (scan_id,),
+                    fetch=True,
                 )
                 if rows:
                     scan_data = rows[0]
         except Exception:
             logger.exception("DB lookup for scan data failed; proceeding")
 
-        pdf_path = Path(UPLOAD_FOLDER) / f"{scan_id}.pdf"
-        if not pdf_path.exists():
-            possible_paths = [
-                Path(UPLOAD_FOLDER) / scan_id,
-                Path(UPLOAD_FOLDER) / f"{scan_id.replace('.pdf', '')}.pdf",
-            ]
-            if original_filename:
-                possible_paths.append(Path(UPLOAD_FOLDER) / original_filename)
-            if scan_data.get("path"):
-                possible_paths.append(Path(scan_data["path"]))
+        pdf_path = _resolve_scan_file_path(scan_id, scan_data if isinstance(scan_data, dict) else None)
+        if not pdf_path and original_filename:
+            candidate = Path(UPLOAD_FOLDER) / original_filename
+            if candidate.exists():
+                pdf_path = candidate
 
-            found = None
-            for candidate in possible_paths:
-                if candidate and candidate.exists():
-                    found = candidate
-                    break
-            if found:
-                pdf_path = found
-
-        if not pdf_path.exists():
+        if not pdf_path or not pdf_path.exists():
             return JSONResponse({"error": "PDF file not found"}, status_code=404)
+
+        uploads_root = _uploads_root().resolve()
+        pdf_resolved = pdf_path.resolve()
+        try:
+            pdf_resolved.relative_to(uploads_root)
+        except ValueError:
+            target_path = uploads_root / pdf_path.name
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(pdf_path, target_path)
+            pdf_path = target_path
 
         # call your AutoFixEngine.apply_manual_fix (preserve name)
         engine = AutoFixEngine()
@@ -3772,6 +3970,10 @@ async def apply_manual_fix(request: Request):
             "fixes": suggestions,
         }
 
+        remote_file_path = _mirror_file_to_remote(
+            pdf_path, folder=f"fixed/{scan_id or 'manual'}"
+        )
+
         # Save scan update to DB
         try:
             save_scan_to_db(
@@ -3785,6 +3987,7 @@ async def apply_manual_fix(request: Request):
                 if isinstance(scan_data, dict)
                 else None,
                 is_update=True,
+                file_path=remote_file_path,
             )
         except Exception:
             logger.exception("Failed to save updated scan to DB after manual fix")
@@ -3880,6 +4083,32 @@ async def download_file(filename: str):
         return FileResponse(
             str(fixed_path), media_type="application/pdf", filename=safe_name
         )
+
+    if has_backblaze_storage():
+        remote_candidates = [
+            f"uploads/{safe_name}",
+            f"fixed/{safe_name}",
+        ]
+        for remote_key in remote_candidates:
+            try:
+                remote_stream = stream_remote_file(remote_key)
+            except FileNotFoundError:
+                continue
+            except Exception:
+                logger.exception(
+                    "[Storage] Remote download failed for %s", remote_key
+                )
+                continue
+
+            headers = {
+                "Content-Disposition": f'attachment; filename="{safe_name}"'
+            }
+            return StreamingResponse(
+                remote_stream,
+                media_type="application/pdf",
+                headers=headers,
+            )
+
     return JSONResponse({"error": "File not found"}, status_code=404)
 
 
