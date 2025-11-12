@@ -123,13 +123,13 @@ class AutoFixEngine:
             summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
             summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
 
-        suggestions = generate_fix_suggestions(results)
+        fixes = generate_fix_suggestions(results)
 
         return {
             "results": results,
             "summary": summary,
             "verapdfStatus": verapdf_status,
-            "suggestions": suggestions,
+            "fixes": fixes,
         }
     
     def generate_fixes(self, scan_results):
@@ -550,23 +550,53 @@ class AutoFixEngine:
         pdf = None
         temp_path = None
         upload_dir = Path("uploads")
-        pdf_path = upload_dir / f"{scan_id}.pdf"
+        resolved_path = None
+        if scan_data:
+            resolved_path = scan_data.get("resolved_file_path")
+        if resolved_path:
+            pdf_path = Path(resolved_path)
+        else:
+            pdf_path = upload_dir / f"{scan_id}.pdf"
+
+        locate_step_id = None
+        if tracker:
+            locate_step_id = tracker.add_step(
+                "Locate PDF File",
+                "Resolving the uploaded document for remediation",
+                "pending",
+            )
+            tracker.start_step(locate_step_id)
 
         try:
-            if not pdf_path.exists():
+            if pdf_path.exists():
+                if tracker and locate_step_id:
+                    tracker.complete_step(locate_step_id, "PDF located in uploads")
+            else:
                 possible_names = [
                     upload_dir / scan_id,
                     upload_dir / f"{scan_id.replace('.pdf', '')}.pdf",
-                    upload_dir / scan_data.get("filename", ""),
-                    Path(scan_data.get("file_path", "")) if scan_data.get("file_path") else None
+                    upload_dir / scan_data.get("filename", "")
+                    if scan_data and scan_data.get("filename")
+                    else None,
+                    Path(scan_data.get("file_path", ""))
+                    if scan_data and scan_data.get("file_path")
+                    else None,
+                    Path(resolved_path) if resolved_path else None,
                 ]
 
+                pdf_found = False
                 for alt_path in possible_names:
                     if alt_path and alt_path.exists():
                         pdf_path = alt_path
+                        pdf_found = True
                         print(f"[AutoFixEngine] Found existing PDF file: {pdf_path}")
                         break
+                if pdf_found:
+                    if tracker and locate_step_id:
+                        tracker.complete_step(locate_step_id, "PDF located in uploads")
                 else:
+                    if tracker and locate_step_id:
+                        tracker.fail_step(locate_step_id, "Uploaded document could not be located")
                     raise FileNotFoundError(f"PDF not found for scan ID: {scan_id} in uploads/")
             
             print(f"[AutoFixEngine] File size: {os.path.getsize(pdf_path)} bytes")
@@ -904,7 +934,7 @@ class AutoFixEngine:
                 'scanResults': rescan_data,
                 'summary': rescan_data.get('summary'),
                 'verapdfStatus': rescan_data.get('verapdfStatus'),
-                'suggestions': rescan_data.get('suggestions', [])
+                'fixes': rescan_data.get('fixes', [])
             }
             
         except Exception as e:
@@ -933,37 +963,48 @@ class AutoFixEngine:
                 'successCount': 0
             }
     
-    def apply_semi_automated_fixes(self, scan_id, scan_data, tracker=None):
+    def apply_semi_automated_fixes(self, scan_id, scan_data, tracker=None, resolved_path=None):
         """Apply semi-automated fixes with progress tracking"""
-        if not scan_id.endswith('.pdf'):
-            pdf_path = os.path.join('uploads', f"{scan_id}.pdf")
+        pdf_candidates = []
+        if resolved_path:
+            pdf_candidates.append(resolved_path)
+        if scan_data:
+            file_path_ref = scan_data.get("file_path")
+            if file_path_ref:
+                pdf_candidates.append(file_path_ref)
+            original_filename = scan_data.get("filename")
+            if original_filename:
+                pdf_candidates.append(os.path.join("uploads", original_filename))
+
+        if scan_id.endswith(".pdf"):
+            pdf_candidates.append(os.path.join("uploads", scan_id))
         else:
-            pdf_path = os.path.join('uploads', scan_id)
-        
-        # Verify file exists before proceeding
-        if not os.path.exists(pdf_path):
-            # Try alternate paths
-            alt_paths = [
-                os.path.join('uploads', scan_id),
-                os.path.join('uploads', f"{scan_id.replace('.pdf', '')}.pdf"),
-                scan_data.get('file_path', '') if scan_data else ''
-            ]
-            
-            for alt_path in alt_paths:
-                if alt_path and os.path.exists(alt_path):
-                    pdf_path = alt_path
-                    print(f"[AutoFixEngine] Found file at alternate path: {pdf_path}")
-                    break
-            else:
-                return {
-                    'success': False,
-                    'error': f'PDF file not found: {pdf_path}',
-                    'fixesApplied': [],
-                    'successCount': 0
-                }
-        
-        # For now, semi-automated fixes are similar to automated
-        # In the future, this could include OCR, user confirmations, etc.
+            pdf_candidates.append(os.path.join("uploads", f"{scan_id}.pdf"))
+            pdf_candidates.append(os.path.join("uploads", scan_id))
+            pdf_candidates.append(os.path.join("uploads", f"{scan_id.replace('.pdf', '')}.pdf"))
+
+        pdf_path = None
+        for candidate in pdf_candidates:
+            if not candidate:
+                continue
+            candidate_str = str(candidate)
+            candidate_path = candidate_str
+            if not os.path.isabs(candidate_path):
+                candidate_path = os.path.join("uploads", candidate_path) if not candidate_path.startswith("uploads/") else candidate_path
+            if os.path.exists(candidate_path):
+                pdf_path = candidate_path
+                print(f"[AutoFixEngine] Found PDF for semi-automated fixes: {pdf_path}")
+                break
+
+        if not pdf_path:
+            return {
+                "success": False,
+                "error": f"PDF file not found: {pdf_candidates[0] if pdf_candidates else scan_id}",
+                "fixesApplied": [],
+                "successCount": 0,
+            }
+
+        scan_data["resolved_file_path"] = pdf_path
         return self.apply_automated_fixes(scan_id, scan_data, tracker)
     
     def apply_single_fix(self, pdf_path, fix_config):

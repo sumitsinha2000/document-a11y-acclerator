@@ -1,5 +1,12 @@
 // API configuration
-const API_BASE_URL = "https://document-a11y-acclerator.onrender.com" || "http://localhost:5000"
+const DEFAULT_API_BASE_URL = "https://document-a11y-acclerator.onrender.com" || "http://localhost:5000"
+const sanitize = (value) => {
+  if (!value) return null
+  return value.replace(/\/+$/, "")
+}
+const rawBaseUrl =
+  typeof process !== "undefined" ? process.env.NEXT_PUBLIC_API_BASE_URL : null
+const API_BASE_URL = sanitize(rawBaseUrl) || sanitize(DEFAULT_API_BASE_URL)
 
 export const API_ENDPOINTS = {
   upload: `${API_BASE_URL}/api/upload`,
@@ -32,6 +39,9 @@ export const API_ENDPOINTS = {
   aiGenerateAltText: `${API_BASE_URL}/api/ai-generate-alt-text`,
   aiSuggestStructure: (scanId) => `${API_BASE_URL}/api/ai-suggest-structure/${scanId}`,
   aiApplyFixes: (scanId) => `${API_BASE_URL}/api/ai-apply-fixes/${scanId}`,
+  applySemiAutomatedFixes: (scanId) =>
+    `${API_BASE_URL}/api/apply-semi-automated-fixes/${scanId}`,
+  fixProgress: (scanId) => `${API_BASE_URL}/api/fix-progress/${scanId}`,
 }
 
 export default API_BASE_URL

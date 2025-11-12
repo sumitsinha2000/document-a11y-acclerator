@@ -6,16 +6,23 @@ import {
   getIssuePagesText,
   getIssueClause,
   getRecommendationLabel,
+  getIssueWcagCriteria,
   escapeCsvValue,
+  UTF8_BOM,
 } from "../utils/exportUtils"
 import API_BASE_URL from "../config/api"
 
 export default function ExportOptions({ scanId, filename }) {
+  const JSON_MIME = "application/json;charset=UTF-8"
+  const CSV_MIME = "text/csv;charset=UTF-8"
+  const HTML_MIME = "text/html;charset=UTF-8"
+
   const handleExportJSON = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
-      const dataStr = JSON.stringify(response.data, null, 2)
-      const dataBlob = new Blob([dataStr], { type: "application/json" })
+      const data = response.data || {}
+      const dataStr = JSON.stringify(data, null, 2)
+      const dataBlob = new Blob([dataStr], { type: JSON_MIME })
       const url = URL.createObjectURL(dataBlob)
       const link = document.createElement("a")
       link.href = url
@@ -30,32 +37,38 @@ export default function ExportOptions({ scanId, filename }) {
   const handleExportCSV = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
-      const data = response.data
-      let csv = "Issue Category,Severity,Description,Pages,Recommendation\n"
+      const data = response.data || {}
+      let csv = `${UTF8_BOM}Issue Category,Severity,Description,Pages,Recommendation,WCAG Criteria\n`
+      const sanitizedFilename =
+        filename?.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9._-]/g, "_") || `scan-${scanId}`
 
-      Object.entries(data.results).forEach(([category, issues]) => {
+      const results = data.results || {}
+      Object.entries(results).forEach(([category, issues]) => {
         issues.forEach((issue) => {
           const severity = issue.severity || "medium"
           const description = buildDescriptionWithClause(issue)
           const pages = getIssuePagesText(issue)
+          const normalizedPages = pages === "N/A" ? "" : pages
           const recommendation = getIssueRecommendation(issue)
+          const wcagCriteria = getIssueWcagCriteria(issue)
 
           const row = [
             escapeCsvValue(category),
             escapeCsvValue(severity),
             escapeCsvValue(description),
-            escapeCsvValue(pages),
+            escapeCsvValue(normalizedPages),
             escapeCsvValue(recommendation),
+            escapeCsvValue(wcagCriteria),
           ].join(",")
           csv += row + "\n"
         })
       })
 
-      const dataBlob = new Blob([csv], { type: "text/csv" })
+      const dataBlob = new Blob([csv], { type: CSV_MIME })
       const url = URL.createObjectURL(dataBlob)
       const link = document.createElement("a")
       link.href = url
-      link.download = `accessibility-report-${scanId}.csv`
+      link.download = `${sanitizedFilename}-accessibility-report.csv`
       link.click()
       URL.revokeObjectURL(url)
     } catch (error) {
@@ -66,7 +79,27 @@ export default function ExportOptions({ scanId, filename }) {
   const handleExportHTML = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
-      const data = response.data
+      const data = response.data || {}
+      const generatedDate = data.uploadDate ? new Date(data.uploadDate) : new Date()
+      const generatedDisplay = generatedDate.toLocaleString()
+      const readableFilename = filename || data.filename || `scan-${scanId}`
+      const results = data.results || {}
+      const summary = data.summary || {}
+      const totalIssues =
+        typeof summary.totalIssues === "number"
+          ? summary.totalIssues
+          : Object.values(results).reduce((sum, arr) => sum + arr.length, 0)
+      const highSeverity =
+        typeof summary.highSeverity === "number"
+          ? summary.highSeverity
+          : Object.values(results).reduce(
+              (sum, arr) =>
+                sum +
+                arr.filter((issue) => (issue.severity || "medium").toString().toLowerCase() === "high").length,
+              0,
+            )
+      const complianceScore =
+        typeof summary.complianceScore === "number" ? `${summary.complianceScore}%` : "N/A"
 
       let html = `
 <!DOCTYPE html>
@@ -98,26 +131,26 @@ export default function ExportOptions({ scanId, filename }) {
 <body>
   <div class="container">
     <h1>Accessibility Compliance Report</h1>
-    <p><strong>Document:</strong> ${filename}</p>
-    <p><strong>Scan Date:</strong> ${new Date(data.uploadDate).toLocaleString()}</p>
+    <p><strong>Document:</strong> ${readableFilename}</p>
+    <p><strong>Scan Date:</strong> ${generatedDisplay}</p>
     
     <div class="summary">
       <div class="summary-card">
-        <div class="value">${data.results ? Object.values(data.results).reduce((sum, arr) => sum + arr.length, 0) : 0}</div>
+        <div class="value">${totalIssues}</div>
         <div class="label">Total Issues</div>
       </div>
       <div class="summary-card">
-        <div class="value">${data.results ? Object.values(data.results).reduce((sum, arr) => sum + arr.filter((i) => i.severity === "high").length, 0) : 0}</div>
+        <div class="value">${highSeverity}</div>
         <div class="label">High Severity</div>
       </div>
       <div class="summary-card">
-        <div class="value">N/A</div>
+        <div class="value">${complianceScore}</div>
         <div class="label">Compliance Score</div>
       </div>
     </div>
 `
 
-      Object.entries(data.results).forEach(([category, issues]) => {
+      Object.entries(results).forEach(([category, issues]) => {
         html += `<div class="issue-category"><h2>${category}</h2>`
         issues.forEach((issue) => {
           const severity = (issue.severity || "medium").toLowerCase()
@@ -126,12 +159,14 @@ export default function ExportOptions({ scanId, filename }) {
           const clause = getIssueClause(issue)
           const recommendation = getIssueRecommendation(issue)
           const recommendationLabel = getRecommendationLabel(issue)
+          const wcagCriteria = getIssueWcagCriteria(issue)
           html += `
     <div class="issue-item ${severity}">
       <span class="severity ${severity}">${severity.toUpperCase()}</span>
       <p><strong>${description}</strong></p>
       <p>Pages: ${pages}</p>
       ${clause ? `<p><strong>Clause:</strong> ${clause}</p>` : ""}
+      ${wcagCriteria ? `<p><strong>WCAG Criteria:</strong> ${wcagCriteria}</p>` : ""}
       ${
         recommendation
           ? `<div class="recommendation">
@@ -151,7 +186,7 @@ export default function ExportOptions({ scanId, filename }) {
 </html>
 `
 
-      const dataBlob = new Blob([html], { type: "text/html" })
+      const dataBlob = new Blob([html], { type: HTML_MIME })
       const url = URL.createObjectURL(dataBlob)
       const link = document.createElement("a")
       link.href = url

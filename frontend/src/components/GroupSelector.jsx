@@ -127,51 +127,56 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
 
   return (
     <div className="space-y-3">
-      <label className="block text-sm font-semibold text-gray-900 dark:text-white" id="Selectgroup" htmlFor="groupSelect">
-        Select Group {required && <span className="text-red-500">*</span>}
-      </label>
-
       {!isCreatingNew ? (
-        <div className="space-y-2">
-          <select
-            id="groupSelect"
-            name="group"
-            value={selectedGroup || ""}
-            onChange={(e) => onGroupChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
+        <>
+          <label
+            className="block text-sm font-semibold text-gray-900 dark:text-white"
+            htmlFor="groupSelect"
+          >
+            Select Group {required && <span className="text-red-500">*</span>}
+          </label>
+
+          <div className="space-y-2">
+            <select
+              id="groupSelect"
+              name="group"
+              value={selectedGroup || ""}
+              onChange={(e) => onGroupChange(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                  bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm
                  focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required={required}
-            aria-describedby="groupHelp"
-            autoComplete="on"
-          >
-            <option value="">-- Select a group --</option>
-            {groups.map((group) => (
-              <option key={group.id} value={group.id}>
-                {group.name} {group.file_count > 0 && `(${group.file_count} files)`}
-              </option>
-            ))}
-          </select>
+              aria-required={required}
+              aria-describedby="groupHelp"
+              autoComplete="organization"
+            >
+              <option value="">-- Select a group --</option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name} {group.file_count > 0 && `(${group.file_count} files)`}
+                </option>
+              ))}
+            </select>
 
-          <p
-            id="groupHelp"
-            className="text-xs text-gray-600 dark:text-gray-400 mt-1"
-          >
-            Choose an existing group or create a new one.
-          </p>
+            <p
+              id="groupHelp"
+              className="text-xs text-gray-600 dark:text-gray-400 mt-1"
+            >
+              Choose an existing group or create a new one.
+            </p>
 
-          <button
-            type="button"
-            onClick={() => setIsCreatingNew(true)}
-            className="w-full px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400
+            <button
+              type="button"
+              onClick={() => setIsCreatingNew(true)}
+              className="w-full px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400
                  bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800
                  rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors
                  focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
                  dark:focus:ring-offset-gray-800"
-          >
-            + Create New Group
-          </button>
-        </div>
+            >
+              + Create New Group
+            </button>
+          </div>
+        </>
       ) : (
         <div
           className="space-y-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
@@ -202,7 +207,10 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
                    bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2
                    focus:ring-blue-500 focus:border-transparent text-sm"
               disabled={loading}
-              required
+              aria-required="true"
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? "createGroupError" : undefined}
+              autoComplete="organization"
             />
           </div>
 
@@ -223,6 +231,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
                    bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2
                    focus:ring-blue-500 focus:border-transparent text-sm resize-none"
               disabled={loading}
+              autoComplete="off"
             />
           </div>
 
@@ -232,6 +241,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
               className="text-xs text-red-600 dark:text-red-400"
               role="alert"
               aria-live="assertive"
+              id="createGroupError"
             >
               {error}
             </p>

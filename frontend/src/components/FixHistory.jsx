@@ -32,6 +32,29 @@ const safeRenderFix = (fix) => {
   return "Unknown fix"
 }
 
+const parseFixesApplied = (item) => {
+  const raw = item.fixesApplied ?? item.fixes_applied ?? item.fixes ?? []
+  if (Array.isArray(raw)) return raw
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+const formatTimestamp = (item) => {
+  const timestampValue = item.timestamp || item.appliedAt || item.applied_at || item.applied_at_iso
+  if (!timestampValue) {
+    return null
+  }
+  const parsed = new Date(timestampValue)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
 export default function FixHistory({ scanId, onRefresh }) {
   const { showError } = useNotification()
 
@@ -68,7 +91,8 @@ export default function FixHistory({ scanId, onRefresh }) {
       const latestVersion = response.data.latestVersion
 
       const transformedHistory = historyData.map((item, index) => {
-        const fixesApplied = item.fixesApplied || []
+        const fixesApplied = parseFixesApplied(item)
+        const parsedTimestamp = formatTimestamp(item)
         const hasExplicitVersion = typeof item.version === "number" && !Number.isNaN(item.version)
         const fallbackFromLatest =
           typeof latestVersion === "number" ? latestVersion - index : null
@@ -86,19 +110,24 @@ export default function FixHistory({ scanId, onRefresh }) {
             ? versionNumber === latestVersion
             : Boolean(item.isLatest)
 
+        const fixedFileReference =
+          item.fixedFilePath ?? item.fixedFile ?? item.fixed_filename ?? item.fixed_filename
+
+        const isLatestEntry = index === 0
         return {
-          id: item.id,
-          timestamp: item.appliedAt,
-          fixedFile: item.fixedFilePath || item.fixedFilename,
-          originalFile: item.originalFilename,
+          id: item.id || item.scan_id || index,
+          timestamp: parsedTimestamp ? parsedTimestamp.toISOString() : null,
+          timestampLabel: parsedTimestamp ? parsedTimestamp.toLocaleString() : "Unknown date",
+          fixedFile: fixedFileReference,
+          originalFile: item.originalFilename || item.original_filename || item.filename,
           fixesApplied,
-          successCount: Array.isArray(fixesApplied) ? fixesApplied.length : 0,
+          successCount: fixesApplied.length,
           version: versionNumber,
           versionLabel,
           downloadable:
             typeof item.downloadable === "boolean"
               ? item.downloadable
-              : isLatestVersion,
+              : isLatestVersion || isLatestEntry,
         }
       })
 
@@ -249,7 +278,7 @@ export default function FixHistory({ scanId, onRefresh }) {
                       Version {item.versionLabel || history.length - index}
                     </span>
                     <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                      {new Date(item.timestamp).toLocaleString()}
+                      {item.timestampLabel || "Unknown date"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">

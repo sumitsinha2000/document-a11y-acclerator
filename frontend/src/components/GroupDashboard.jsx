@@ -238,10 +238,10 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5">
-                      <div className="text-3xl font-bold text-slate-900 dark:text-white">
-                        {nodeData.file_count || 0}
+                      <div className="text-3xl font-bold text-violet-600 dark:text-violet-400">
+                        {nodeData.avg_compliance || 0}%
                       </div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Total Files</div>
+                      <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Avg Compliance</div>
                     </div>
                     <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5">
                       <div className="text-3xl font-bold text-rose-600 dark:text-rose-400">
@@ -256,10 +256,10 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                       <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Fixed Issues</div>
                     </div>
                     <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5">
-                      <div className="text-3xl font-bold text-violet-600 dark:text-violet-400">
-                        {nodeData.avg_compliance || 0}%
+                      <div className="text-3xl font-bold text-slate-900 dark:text-white">
+                        {nodeData.file_count || 0}
                       </div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Avg Compliance</div>
+                      <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Total Files</div>
                     </div>
                   </div>
 

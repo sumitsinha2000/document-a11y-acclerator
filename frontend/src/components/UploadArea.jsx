@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import axios from "axios"
 import GroupSelector from "./GroupSelector"
 import UploadProgressToast from "./UploadProgressToast"
-import API_BASE_URL from "../config/api";
+import { API_ENDPOINTS } from "../config/api";
 
 export default function UploadArea({ onScanComplete, onUploadDeferred }) {
   const [isDragging, setIsDragging] = useState(false)
@@ -112,289 +112,191 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
     await handleMultipleFileUpload(selectedFiles)
   }
 
-  /*const handleMultipleFileUpload = async (files) => {
-    const isDeferred = scanMode === "upload-only"
+  const resolveGroupId = () => {
+    if (!selectedGroup) return null
+    if (typeof selectedGroup === 'object') {
+      return selectedGroup.id || selectedGroup.group_id || selectedGroup.value || null
+    }
+    return selectedGroup
+  }
+
+  const handleMultipleFileUpload = async (files) => {
+    if (!files || files.length === 0) {
+      return
+    }
     setError(null)
     setIsScanning(true)
+
+    const isDeferred = scanMode === 'upload-only'
+    const isBatch = files.length > 1
+    const groupId = resolveGroupId()
     setSrAnnouncement(
       isDeferred
-        ? `Uploading ${files.length} PDF ${files.length === 1 ? "file" : "files"} without scanning`
-        : `Starting scan of ${files.length} PDF ${files.length === 1 ? "file" : "files"}`,
+        ? `Uploading ${files.length} PDF file${files.length === 1 ? '' : 's'} without scanning`
+        : `Uploading and scanning ${files.length} PDF file${files.length === 1 ? '' : 's'}`,
     )
 
     const initialProgress = files.map((file, index) => ({
       id: `upload-${Date.now()}-${index}`,
       filename: file.name,
-      status: "uploading",
+      status: 'uploading',
       progress: 0,
     }))
     setUploadProgress(initialProgress)
 
-    if (files.length > 1) {
-      try {
-        console.log("[v0] Uploading batch of", files.length, "files to group:", selectedGroup)
+    const finalize = () => {
+      setIsScanning(false)
+      setSelectedFiles([])
+      setTimeout(() => setUploadProgress([]), 3000)
+    }
 
+    const handleError = (message) => {
+      setError(message)
+      setSrAnnouncement(`Error: ${message}`)
+      setUploadProgress((prev) =>
+        prev.map((item) => ({
+          ...item,
+          status: 'error',
+          progress: 0,
+          error: message,
+        })),
+      )
+    }
+
+    if (isBatch) {
+      try {
         const formData = new FormData()
-        files.forEach((file) => {
-          formData.append("files", file)
-        })
-        formData.append("group_id", selectedGroup)
-        formData.append("scan_mode", isDeferred ? "upload_only" : "scan_now")
+        files.forEach((file) => formData.append('files', file))
+        if (groupId) {
+          formData.append('group_id', groupId)
+        }
+        formData.append('scan_mode', isDeferred ? 'upload_only' : 'scan_now')
 
         setUploadProgress((prev) =>
           prev.map((item) => ({
             ...item,
-            status: isDeferred ? "uploading" : "processing",
+            status: isDeferred ? 'uploading' : 'processing',
             progress: isDeferred ? 80 : 50,
           })),
         )
 
-        const response = await axios.post(`${API_BASE_URL}/api/scan-batch`, formData, {
+        const response = await axios.post(API_ENDPOINTS.scanBatch, formData, {
           headers: {
-            "Content-Type": "multipart/form-data",
+            'Content-Type': 'multipart/form-data',
           },
           timeout: 120000,
+          withCredentials: true,
         })
 
-        console.log("[v0] Batch scan successful:", response.data)
+        setUploadProgress((prev) =>
+          prev.map((item) => ({ ...item, status: 'completed', progress: 100 })),
+        )
 
-        setUploadProgress((prev) => prev.map((item) => ({ ...item, status: "completed", progress: 100 })))
+        const scans = Array.isArray(response.data?.scans) ? response.data.scans : []
+        const scanIds = scans.map((scan) => scan.scanId || scan.id).filter(Boolean)
 
-        const batchId = response.data.batchId
-        const scanResults = Array.isArray(response.data.scans)
-          ? response.data.scans.map((scan) => ({
-              ...scan,
-              batchId: batchId,
-              groupId: selectedGroup,
-            }))
-          : []
-
-        setIsScanning(false)
-        setSelectedFiles([])
-
-        setTimeout(() => {
-          setUploadProgress([])
-        }, 3000)
-
-        if (response.data.scanDeferred) {
-          console.log("[v0] Batch uploaded with scanning deferred")
-          setSrAnnouncement(
-            `Uploaded ${scanResults.length} file${scanResults.length === 1 ? "" : "s"}. Start scanning later from the dashboard.`,
-          )
+        if (response.data?.scanDeferred) {
+          const uploadedCount = scanIds.length
           setError(null)
+          setSrAnnouncement(
+            `Uploaded ${uploadedCount} file${uploadedCount === 1 ? '' : 's'}. Start scanning later from the dashboard.`,
+          )
           onUploadDeferred?.({
-            batchId,
-            scanIds: scanResults.map((scan) => scan.scanId || scan.id).filter(Boolean),
-            groupId: selectedGroup,
+            batchId: response.data.batchId,
+            scanIds,
+            groupId,
           })
         } else {
-          console.log("[v0] Calling onScanComplete with batch results")
-          onScanComplete(scanResults)
+          setError(null)
+          setSrAnnouncement(`Processed ${scans.length} file${scans.length === 1 ? '' : 's'}.`)
+          onScanComplete(scans)
         }
-        return
       } catch (err) {
-        console.error("[v0] Batch scan error:", err)
-        const errorMsg = "Batch scan failed: " + (err.response?.data?.error || err.message)
-        setError(errorMsg)
-        setSrAnnouncement(`Error: ${errorMsg}`)
-        setUploadProgress((prev) => prev.map((item) => ({ ...item, status: "error", progress: 0, error: errorMsg })))
-        setIsScanning(false)
-        return
+        const errorMsg = err.response?.data?.error || err.message || 'Batch upload failed'
+        console.error('[UploadArea] Batch upload error:', err)
+        handleError(errorMsg)
+      } finally {
+        finalize()
       }
+      return
     }
 
-    const scanResults = []
+    const file = files[0]
+    const endpoint = isDeferred ? API_ENDPOINTS.upload : API_ENDPOINTS.scan
+    const timeout = isDeferred ? 120000 : 60000
 
-    console.log("[v0] Starting", isDeferred ? "upload" : "scan", "for", files.length, "files")
-
-    const deferredUploads = []
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-
-      console.log(`[v0] ${isDeferred ? "Uploading" : "Scanning"} file:`, file.name)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      if (groupId) {
+        formData.append('group_id', groupId)
+      }
+      if (!isDeferred) {
+        formData.append('scan_mode', 'scan_now')
+      }
 
       setUploadProgress((prev) =>
         prev.map((item, idx) =>
-          idx === i
+          idx === 0
             ? {
                 ...item,
-                status: isDeferred ? "uploading" : "processing",
+                status: isDeferred ? 'uploading' : 'processing',
                 progress: isDeferred ? 80 : 50,
               }
             : item,
         ),
       )
 
-      try {
-        const formData = new FormData()
-        formData.append("file", file)
-        formData.append("group_id", selectedGroup)
-        formData.append("scan_mode", isDeferred ? "upload_only" : "scan_now")
-
-        console.log("[v0] Sending request to /api/scan for", file.name, "with mode:", scanMode)
-
-        const response = await axios.post("/api/scan", formData, {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-          timeout: 60000,
-        })
-
-        console.log("[v0] Scan successful for", file.name, response.data)
-
-        setUploadProgress((prev) =>
-          prev.map((item, idx) => (idx === i ? { ...item, status: "completed", progress: 100 } : item)),
-        )
-
-        if (response.data.scanDeferred) {
-          deferredUploads.push(response.data.scanId)
-        } else {
-          scanResults.push({
-            ...response.data,
-            fileName: file.name,
-            groupId: selectedGroup,
-          })
-        }
-      } catch (err) {
-        console.error("[v0] Error scanning", file.name, ":", err)
-        console.error("[v0] Error response:", err.response?.data)
-        console.error("[v0] Error status:", err.response?.status)
-
-        const errorMessage = err.response?.data?.error || err.message || "Scan failed"
-
-        setUploadProgress((prev) =>
-          prev.map((item, idx) => (idx === i ? { ...item, status: "error", progress: 0, error: errorMessage } : item)),
-        )
-      }
-    }
-
-    console.log("[v0] All scans complete. Results:", scanResults)
-
-    setIsScanning(false)
-    setSelectedFiles([])
-
-    setTimeout(() => {
-      setUploadProgress([])
-    }, 3000)
-
-    if (scanResults.length > 0) {
-      setError(null)
-      onScanComplete(scanResults)
-    } else {
-      const errorMsg = "All file scans failed. Please check the console for details and ensure the backend is running."
-      if (deferredUploads.length > 0) {
-        setError(null)
-        setSrAnnouncement(
-          `Uploaded ${deferredUploads.length} file${deferredUploads.length === 1 ? "" : "s"} without scanning.`,
-        )
-        onUploadDeferred?.({
-          scanIds: deferredUploads,
-          groupId: selectedGroup,
-        })
-      } else {
-        setError(errorMsg)
-        setSrAnnouncement(`Error: ${errorMsg}`)
-      }
-    }
-  }*/
-const handleMultipleFileUpload = async (files) => {
-  setError(null)
-  setIsScanning(true)
-
-  const isDeferred = scanMode === "upload-only"
-  setSrAnnouncement(
-    isDeferred
-      ? `Uploading ${files.length} PDF file${files.length === 1 ? "" : "s"} without scanning`
-      : `Uploading and scanning ${files.length} PDF file${files.length === 1 ? "" : "s"}`,
-  )
-
-  const initialProgress = files.map((file, index) => ({
-    id: `upload-${Date.now()}-${index}`,
-    filename: file.name,
-    status: "uploading",
-    progress: 0,
-  }))
-  setUploadProgress(initialProgress)
-
-  const uploadResults = []
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    console.log(`[UploadArea] Uploading ${file.name}...`)
-
-    // Update progress UI
-    setUploadProgress((prev) =>
-      prev.map((item, idx) =>
-        idx === i ? { ...item, status: "uploading", progress: 30 } : item,
-      ),
-    )
-
-    try {
-      const formData = new FormData()
-      formData.append("file", file)
-
-      // Use environment variable if set, fallback to default
-      const uploadUrl = `${API_BASE_URL}/api/upload`
-
-      const response = await axios.post(uploadUrl, formData, {
+      const response = await axios.post(endpoint, formData, {
         headers: {
-          "Content-Type": "multipart/form-data",
+          'Content-Type': 'multipart/form-data',
         },
+        timeout,
         withCredentials: true,
-        timeout: 120000,
         onUploadProgress: (progressEvent) => {
+          if (!progressEvent.total) return
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
           setUploadProgress((prev) =>
             prev.map((item, idx) =>
-              idx === i ? { ...item, progress: percent } : item,
+              idx === 0 ? { ...item, progress: percent } : item,
             ),
           )
         },
       })
 
-      console.log("[UploadArea] File uploaded successfully:", response.data)
-
-      // Update progress
       setUploadProgress((prev) =>
         prev.map((item, idx) =>
-          idx === i ? { ...item, status: "completed", progress: 100 } : item,
+          idx === 0 ? { ...item, status: 'completed', progress: 100 } : item,
         ),
       )
 
-      uploadResults.push({
-        fileName: file.name,
-        ...response.data.result, // contains storage + URL info
-      })
+      if (isDeferred) {
+        const deferredId = response.data?.scanId || response.data?.result?.scanId
+        const scanIds = deferredId ? [deferredId] : []
+        setError(null)
+        setSrAnnouncement(`Uploaded ${scanIds.length || 1} file${scanIds.length === 1 ? '' : 's'} successfully.`)
+        onUploadDeferred?.({
+          scanIds,
+          groupId,
+        })
+      } else {
+        const payload = {
+          ...response.data,
+          fileName: response.data?.filename || file.name,
+          groupId,
+        }
+        setError(null)
+        setSrAnnouncement(`${file.name} scanned successfully.`)
+        onScanComplete([payload])
+      }
     } catch (err) {
-      console.error("[UploadArea] Upload failed for", file.name, err)
-      const errorMsg = err.response?.data?.error || err.message || "Upload failed"
-
-      setUploadProgress((prev) =>
-        prev.map((item, idx) =>
-          idx === i ? { ...item, status: "error", progress: 0, error: errorMsg } : item,
-        ),
-      )
+      const errorMsg = err.response?.data?.error || err.message || 'Upload failed'
+      console.error('[UploadArea] File upload error:', err)
+      handleError(errorMsg)
+    } finally {
+      finalize()
     }
   }
-
-  // Reset state after uploads
-  setIsScanning(false)
-  setSelectedFiles([])
-
-  // Remove progress bars after short delay
-  setTimeout(() => setUploadProgress([]), 4000)
-
-  if (uploadResults.length > 0) {
-    setError(null)
-    setSrAnnouncement(`Uploaded ${uploadResults.length} file${uploadResults.length === 1 ? "" : "s"} successfully`)
-    onUploadDeferred?.(uploadResults)
-  } else {
-    const errorMsg = "All uploads failed. Please check console for details."
-    setError(errorMsg)
-    setSrAnnouncement(`Error: ${errorMsg}`)
-  }
-}
 
   const handleRemoveUpload = (uploadId) => {
     setUploadProgress((prev) => prev.filter((upload) => upload.id !== uploadId))
