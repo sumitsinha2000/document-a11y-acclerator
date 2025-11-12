@@ -50,7 +50,6 @@ function ProgressItem({ label, value, total, colorClass, srLabel }) {
 export function FileInsightPanel({ results, summary }) {
   const severityTotals = { high: 0, medium: 0, low: 0 }
   const categoryTotals = []
-  let hasDetailedSeverity = false
 
   Object.entries(results || {}).forEach(([key, issues]) => {
     const count = Array.isArray(issues) ? issues.length : 0
@@ -69,15 +68,23 @@ export function FileInsightPanel({ results, summary }) {
       const severity = (issue.severity || "").toLowerCase()
       if (severityTotals[severity] !== undefined) {
         severityTotals[severity] += 1
-        hasDetailedSeverity = true
       }
     })
   })
 
-  const totalIssues =
-    typeof summary?.totalIssues === "number"
-      ? summary.totalIssues
-      : severityTotals.high + severityTotals.medium + severityTotals.low
+  const summaryTotalIssues =
+    typeof summary?.totalIssues === "number" ? summary.totalIssues : null
+  const baseSeveritySum =
+    severityTotals.high + severityTotals.medium + severityTotals.low
+  let normalizedSeveritySum = baseSeveritySum
+
+  if (summaryTotalIssues !== null && summaryTotalIssues > normalizedSeveritySum) {
+    severityTotals.low += summaryTotalIssues - normalizedSeveritySum
+    normalizedSeveritySum = summaryTotalIssues
+  }
+
+  const totalIssues = summaryTotalIssues ?? normalizedSeveritySum
+  const hasDetailedSeverity = normalizedSeveritySum > 0
 
   const sortedCategories = categoryTotals
     .sort((a, b) => b.count - a.count)

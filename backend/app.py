@@ -1697,6 +1697,13 @@ async def get_group_details(group_id: str):
         )
 
         group = group_rows[0]
+        total_severity_count = (
+            severity_totals["high"] + severity_totals["medium"] + severity_totals["low"]
+        )
+        severity_gap = total_issues - total_severity_count
+        if severity_gap > 0:
+            severity_totals["low"] += severity_gap
+
         response = {
             "groupId": group["id"],
             "name": group["name"],
