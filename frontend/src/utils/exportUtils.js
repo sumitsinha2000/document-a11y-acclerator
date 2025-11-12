@@ -1,4 +1,5 @@
 const FIRST_NON_EMPTY_FIELDS = ["description", "message", "title", "summary", "detail"]
+export const UTF8_BOM = "\ufeff"
 
 const isPresent = (value) => {
   if (value === null || value === undefined) {
@@ -108,4 +109,21 @@ export const escapeCsvValue = (value) => {
   }
   const stringValue = String(value).replace(/"/g, '""')
   return `"${stringValue}"`
+}
+
+export const getIssueWcagCriteria = (issue) => {
+  if (!issue) {
+    return ""
+  }
+
+  if (isPresent(issue.wcagCriteria)) {
+    return typeof issue.wcagCriteria === "string" ? issue.wcagCriteria.trim() : issue.wcagCriteria
+  }
+
+  if (isPresent(issue.criterion)) {
+    const level = isPresent(issue.level) ? ` (Level ${String(issue.level).toUpperCase()})` : ""
+    return `WCAG ${issue.criterion}${level}`
+  }
+
+  return ""
 }

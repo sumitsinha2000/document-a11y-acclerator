@@ -60,6 +60,7 @@ from backend.fix_progress_tracker import (
     create_progress_tracker,
     get_progress_tracker,
 )
+from backend.utils.wcag_mapping import annotate_wcag_mappings
 
 try:
     from backend.pdf_generator import PDFGenerator
@@ -406,6 +407,8 @@ def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
     results = scan_results.get("results", scan_results) or {}
     if not isinstance(results, dict):
         results = {}
+    else:
+        results = annotate_wcag_mappings(results)
 
     summary = scan_results.get("summary") or {}
     verapdf_status = scan_results.get("verapdfStatus")
@@ -938,6 +941,8 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
 
     if not isinstance(scan_results, dict):
         scan_results = {}
+    else:
+        scan_results = annotate_wcag_mappings(scan_results)
 
     verapdf_status = build_verapdf_status(scan_results, analyzer)
     summary: Dict[str, Any] = {}
@@ -972,14 +977,6 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
         "verapdfStatus": verapdf_status,
         "fixes": fix_suggestions,
     }
-
-
-def annotate_wcag_mappings(results: Any) -> Any:
-    """
-    Placeholder hook for enriching WCAG issue mappings.
-    Currently returns results unchanged but maintains legacy compatibility.
-    """
-    return results
 
 
 def _fetch_scan_record(scan_id: str) -> Optional[Dict[str, Any]]:

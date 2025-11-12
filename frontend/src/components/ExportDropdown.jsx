@@ -12,10 +12,15 @@ import {
   getIssueRecommendation,
   getIssueClause,
   getRecommendationLabel,
+  getIssueWcagCriteria,
+  UTF8_BOM,
 } from "../utils/exportUtils"
 
 export default function ExportDropdown({ scanId, filename }) {
   const { showError } = useNotification()
+  const JSON_MIME = "application/json;charset=UTF-8"
+  const CSV_MIME = "text/csv;charset=UTF-8"
+  const HTML_MIME = "text/html;charset=UTF-8"
 
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef(null)
@@ -50,20 +55,22 @@ export default function ExportDropdown({ scanId, filename }) {
 
     try {
       const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
-      const data = response.data
+      const data = response.data || {}
 
       if (format === "json") {
         const dataStr = JSON.stringify(data, null, 2)
-        const dataBlob = new Blob([dataStr], { type: "application/json" })
+        const dataBlob = new Blob([dataStr], { type: JSON_MIME })
         downloadFile(dataBlob, `accessibility-report-${scanId}.json`)
       } else if (format === "csv") {
-        let csv = "Issue Category,Severity,Description,Pages,Recommendation\n"
-        Object.entries(data.results).forEach(([category, issues]) => {
+        let csv = `${UTF8_BOM}Issue Category,Severity,Description,Pages,Recommendation,WCAG Criteria\n`
+        const results = data.results || {}
+        Object.entries(results).forEach(([category, issues]) => {
           issues.forEach((issue) => {
             const severity = (issue.severity || "medium").toString()
             const description = buildDescriptionWithClause(issue)
             const pages = getIssuePagesText(issue)
             const recommendation = getIssueRecommendation(issue)
+            const wcagCriteria = getIssueWcagCriteria(issue)
 
             const row = [
               escapeCsvValue(category),
@@ -71,16 +78,17 @@ export default function ExportDropdown({ scanId, filename }) {
               escapeCsvValue(description),
               escapeCsvValue(pages),
               escapeCsvValue(recommendation),
+              escapeCsvValue(wcagCriteria),
             ].join(",")
 
             csv += row + "\n"
           })
         })
-        const dataBlob = new Blob([csv], { type: "text/csv" })
+        const dataBlob = new Blob([csv], { type: CSV_MIME })
         downloadFile(dataBlob, `accessibility-report-${scanId}.csv`)
       } else if (format === "html") {
         const html = generateHTMLReport(data, filename)
-        const dataBlob = new Blob([html], { type: "text/html" })
+        const dataBlob = new Blob([html], { type: HTML_MIME })
         downloadFile(dataBlob, `accessibility-report-${scanId}.html`)
       } else if (format === "pdf") {
         generatePDFReport(data, filename, scanId)
@@ -102,6 +110,10 @@ export default function ExportDropdown({ scanId, filename }) {
 
   const generatePDFReport = (data, filename, scanId) => {
     const doc = new jsPDF()
+    const documentLanguage =
+      (typeof navigator !== "undefined" && navigator.language) || "en-US"
+    const generatedDate = data.uploadDate ? new Date(data.uploadDate) : new Date()
+    const generatedDisplay = generatedDate.toLocaleString()
     const summary = data.summary || {}
     const results = data.results || {}
 
@@ -110,9 +122,15 @@ export default function ExportDropdown({ scanId, filename }) {
       title: `Accessibility Report - ${filename}`,
       subject: "Document Accessibility Compliance Report",
       author: "Document Accessibility Accelerator",
-      keywords: "accessibility, compliance, WCAG",
+      keywords: "accessibility, compliance, WCAG, PDF/UA",
       creator: "Document Accessibility Accelerator",
     })
+    if (typeof doc.setLanguage === "function") {
+      doc.setLanguage(documentLanguage)
+    }
+    if (typeof doc.setCreationDate === "function") {
+      doc.setCreationDate(generatedDate)
+    }
 
     // Header with gradient effect (simulated with colored rectangle)
     doc.setFillColor(102, 126, 234)
@@ -128,7 +146,7 @@ export default function ExportDropdown({ scanId, filename }) {
     doc.setFontSize(12)
     doc.setFont("helvetica", "normal")
     doc.text(`Document: ${filename}`, 105, 30, { align: "center" })
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 105, 37, { align: "center" })
+    doc.text(`Generated: ${generatedDisplay}`, 105, 37, { align: "center" })
 
     // Reset text color for body
     doc.setTextColor(0, 0, 0)
@@ -148,6 +166,10 @@ export default function ExportDropdown({ scanId, filename }) {
       ["Compliance Score", `${summary.complianceScore || 0}%`],
       ["Total Issues", `${summary.totalIssues || 0}`],
       ["High Severity Issues", `${summary.highSeverity || 0}`],
+      [
+        "WCAG Compliance",
+        typeof summary.wcagCompliance === "number" ? `${summary.wcagCompliance}%` : "N/A",
+      ],
     ]
 
     autoTable(doc, {
@@ -193,25 +215,27 @@ export default function ExportDropdown({ scanId, filename }) {
           const pages = getIssuePagesText(issue)
           const recommendation = getIssueRecommendation(issue)
           const recommendationLabel = getRecommendationLabel(issue)
+          const wcagCriteria = getIssueWcagCriteria(issue) || "N/A"
           const recommendationCell = recommendation
             ? `${recommendationLabel || "Recommendation"}: ${recommendation}`
             : "N/A"
 
-          return [severityDisplay, descriptionWithClause, pages, recommendationCell]
+          return [severityDisplay, descriptionWithClause, wcagCriteria, pages, recommendationCell]
         })
 
         autoTable(doc, {
           startY: yPos,
-          head: [["Severity", "Description", "Pages", "Recommendation"]],
+          head: [["Severity", "Description", "WCAG Criteria", "Pages", "Recommendation"]],
           body: issuesData,
           theme: "striped",
           headStyles: { fillColor: [102, 126, 234], textColor: 255, fontStyle: "bold" },
           styles: { fontSize: 9, cellPadding: 4 },
           columnStyles: {
-            0: { cellWidth: 25, fontStyle: "bold" },
+            0: { cellWidth: 22, fontStyle: "bold" },
             1: { cellWidth: 60 },
-            2: { cellWidth: 30 },
-            3: { cellWidth: 65 },
+            2: { cellWidth: 40 },
+            3: { cellWidth: 25 },
+            4: { cellWidth: 53 },
           },
           didDrawCell: (data) => {
             // Color code severity
@@ -274,6 +298,7 @@ export default function ExportDropdown({ scanId, filename }) {
                 const showPages = pages && pages !== "N/A"
                 const recommendation = getIssueRecommendation(issue)
                 const recommendationLabel = getRecommendationLabel(issue) || "Recommendation"
+                const wcagCriteria = getIssueWcagCriteria(issue)
 
                 return `
               <div class="issue-item ${severityValue}">
@@ -285,7 +310,7 @@ export default function ExportDropdown({ scanId, filename }) {
                   ${showPages ? `<p><strong>Pages:</strong> ${pages}</p>` : ""}
                   ${clause ? `<p><strong>Clause:</strong> ${clause}</p>` : ""}
                   ${recommendation ? `<p><strong>${recommendationLabel}:</strong> ${recommendation}</p>` : ""}
-                  ${issue.wcagCriteria ? `<p><strong>WCAG Criteria:</strong> ${issue.wcagCriteria}</p>` : ""}
+                  ${wcagCriteria ? `<p><strong>WCAG Criteria:</strong> ${wcagCriteria}</p>` : ""}
                 </div>
               </div>
             `
