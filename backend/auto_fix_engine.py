@@ -123,13 +123,13 @@ class AutoFixEngine:
             summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
             summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
 
-        suggestions = generate_fix_suggestions(results)
+        fixes = generate_fix_suggestions(results)
 
         return {
             "results": results,
             "summary": summary,
             "verapdfStatus": verapdf_status,
-            "suggestions": suggestions,
+            "fixes": fixes,
         }
     
     def generate_fixes(self, scan_results):
@@ -934,7 +934,7 @@ class AutoFixEngine:
                 'scanResults': rescan_data,
                 'summary': rescan_data.get('summary'),
                 'verapdfStatus': rescan_data.get('verapdfStatus'),
-                'suggestions': rescan_data.get('suggestions', [])
+                'fixes': rescan_data.get('fixes', [])
             }
             
         except Exception as e:
