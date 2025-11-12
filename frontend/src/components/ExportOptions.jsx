@@ -32,30 +32,33 @@ export default function ExportOptions({ scanId, filename }) {
       const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
       const data = response.data
       let csv = "Issue Category,Severity,Description,Pages,Recommendation\n"
+      const sanitizedFilename =
+        filename?.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9._-]/g, "_") || `scan-${scanId}`
 
       Object.entries(data.results).forEach(([category, issues]) => {
         issues.forEach((issue) => {
           const severity = issue.severity || "medium"
           const description = buildDescriptionWithClause(issue)
           const pages = getIssuePagesText(issue)
+          const normalizedPages = pages === "N/A" ? "" : pages
           const recommendation = getIssueRecommendation(issue)
 
           const row = [
             escapeCsvValue(category),
             escapeCsvValue(severity),
             escapeCsvValue(description),
-            escapeCsvValue(pages),
+            escapeCsvValue(normalizedPages),
             escapeCsvValue(recommendation),
           ].join(",")
           csv += row + "\n"
         })
       })
 
-      const dataBlob = new Blob([csv], { type: "text/csv" })
+      const dataBlob = new Blob([csv], { type: "text/csv;charset=utf-8" })
       const url = URL.createObjectURL(dataBlob)
       const link = document.createElement("a")
       link.href = url
-      link.download = `accessibility-report-${scanId}.csv`
+      link.download = `${sanitizedFilename}-accessibility-report.csv`
       link.click()
       URL.revokeObjectURL(url)
     } catch (error) {
