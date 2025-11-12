@@ -113,6 +113,7 @@ export default function FixHistory({ scanId, onRefresh }) {
         const fixedFileReference =
           item.fixedFilePath ?? item.fixedFile ?? item.fixed_filename ?? item.fixed_filename
 
+        const isLatestEntry = index === 0
         return {
           id: item.id || item.scan_id || index,
           timestamp: parsedTimestamp ? parsedTimestamp.toISOString() : null,
@@ -126,7 +127,7 @@ export default function FixHistory({ scanId, onRefresh }) {
           downloadable:
             typeof item.downloadable === "boolean"
               ? item.downloadable
-              : isLatestVersion,
+              : isLatestVersion || isLatestEntry,
         }
       })
 
