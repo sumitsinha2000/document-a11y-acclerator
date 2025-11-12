@@ -27,7 +27,7 @@ function AppContent() {
 
   console.log("[v0] AppContent rendering")
 
-  const [isLoading, setIsLoading] = useState(true)
+  // const [isLoading, setIsLoading] = useState(true)
   const [currentView, setCurrentView] = useState("upload")
   const [scanHistory, setScanHistory] = useState([])
   const [scanResults, setScanResults] = useState([])
@@ -58,14 +58,14 @@ function AppContent() {
     fetchScanHistory()
   }, [fetchScanHistory])
 
-  const handleLoadingComplete = () => {
-    console.log("[v0] Loading complete")
-    setIsLoading(false)
-  }
+  // const handleLoadingComplete = () => {
+  //   console.log("[v0] Loading complete")
+  //   setIsLoading(false)
+  // }
 
-  if (isLoading) {
-    return <LoadingScreen onComplete={handleLoadingComplete} />
-  }
+  // if (isLoading) {
+  //   return <LoadingScreen onComplete={handleLoadingComplete} />
+  // }
 
   const handleScanComplete = (scanDataArray) => {
     if (!scanDataArray || scanDataArray.length === 0) {
