@@ -511,6 +511,18 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
               >
                 {applyingTraditional ? "Applying..." : "Apply Traditional Fixes"}
               </button>
+              {/* AI-powered automated fixes currently share the same backend pipeline, so the dedicated button is temporarily disabled */}
+              {/*
+              <button
+                className="w-full px-4 py-2 bg-purple-700 hover:bg-purple-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-purple-600 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+                onClick={handleApplyAIFixes}
+                disabled={applyingAI || applyingTraditional}
+                aria-busy={applyingAI}
+                aria-label={applyingAI ? "Applying AI fixes" : "Apply AI-powered automated fixes"}
+              >
+                {applyingAI ? "Applying..." : "Apply AI Fixes"}
+              </button>
+              */}
             </div>
           </div>
         )}
@@ -595,6 +607,22 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
               >
                 {applyingTraditionalSemi ? "Applying..." : "Apply Traditional Fixes"}
               </button>
+              {/* AI semi-automated fixes share the same backend pipeline and are not currently distinct, so the extra button is commented out */}
+              {/*
+              <button
+                className="w-full px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                onClick={handleApplyAISemiFixes}
+                disabled={applyingAISemi || applyingTraditionalSemi}
+                aria-busy={applyingAISemi}
+                aria-label={
+                  applyingAISemi
+                    ? "Applying AI semi-automated fixes"
+                    : "Apply AI semi-automated fixes"
+                }
+              >
+                {applyingAISemi ? "Applying..." : "Apply AI Semi-Fixes"}
+              </button>
+              */}
             </div>
           </div>
         )}

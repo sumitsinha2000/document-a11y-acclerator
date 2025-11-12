@@ -558,26 +558,45 @@ class AutoFixEngine:
         else:
             pdf_path = upload_dir / f"{scan_id}.pdf"
 
-        try:
-            if not pdf_path.exists():
-                possible_names = [
-                upload_dir / scan_id,
-                upload_dir / f"{scan_id.replace('.pdf', '')}.pdf",
-                upload_dir / scan_data.get("filename", "")
-                if scan_data and scan_data.get("filename")
-                else None,
-                Path(scan_data.get("file_path", ""))
-                if scan_data and scan_data.get("file_path")
-                else None,
-                Path(resolved_path) if resolved_path else None,
-            ]
+        locate_step_id = None
+        if tracker:
+            locate_step_id = tracker.add_step(
+                "Locate PDF File",
+                "Resolving the uploaded document for remediation",
+                "pending",
+            )
+            tracker.start_step(locate_step_id)
 
+        try:
+            if pdf_path.exists():
+                if tracker and locate_step_id:
+                    tracker.complete_step(locate_step_id, "PDF located in uploads")
+            else:
+                possible_names = [
+                    upload_dir / scan_id,
+                    upload_dir / f"{scan_id.replace('.pdf', '')}.pdf",
+                    upload_dir / scan_data.get("filename", "")
+                    if scan_data and scan_data.get("filename")
+                    else None,
+                    Path(scan_data.get("file_path", ""))
+                    if scan_data and scan_data.get("file_path")
+                    else None,
+                    Path(resolved_path) if resolved_path else None,
+                ]
+
+                pdf_found = False
                 for alt_path in possible_names:
                     if alt_path and alt_path.exists():
                         pdf_path = alt_path
+                        pdf_found = True
                         print(f"[AutoFixEngine] Found existing PDF file: {pdf_path}")
                         break
+                if pdf_found:
+                    if tracker and locate_step_id:
+                        tracker.complete_step(locate_step_id, "PDF located in uploads")
                 else:
+                    if tracker and locate_step_id:
+                        tracker.fail_step(locate_step_id, "Uploaded document could not be located")
                     raise FileNotFoundError(f"PDF not found for scan ID: {scan_id} in uploads/")
             
             print(f"[AutoFixEngine] File size: {os.path.getsize(pdf_path)} bytes")

@@ -1237,6 +1237,7 @@ def _perform_automated_fix(
         cursor.execute(
             """
             SELECT id, filename, batch_id, group_id, scan_results,
+                   file_path,
                    COALESCE(total_issues, 0) AS total_issues,
                    COALESCE(issues_fixed, 0) AS issues_fixed,
                    COALESCE(issues_remaining, 0) AS issues_remaining
@@ -1272,6 +1273,11 @@ def _perform_automated_fix(
             else {}
         )
 
+        resolved_path = _resolve_scan_file_path(scan_id, scan_row)
+        if resolved_path and resolved_path.exists():
+            scan_row["resolved_file_path"] = str(resolved_path)
+        else:
+            logger.warning("[Backend] Could not resolve file path for fix %s", scan_id)
         engine = AutoFixEngine()
         result = engine.apply_automated_fixes(scan_id, scan_row, tracker=tracker)
         if not result.get("success"):
@@ -4284,20 +4290,16 @@ async def get_history():
 # === Apply Fixes Endpoint (wrapper around auto_fix_engine) ===
 @app.post("/api/apply-fixes/{scan_id}")
 async def apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
-    # call auto_fix_engine.apply_all or apply_fixes as in your original modules
-    engine = AutoFixEngine()
-    fn = (
-        getattr(engine, "apply_fixes", None)
-        or getattr(engine, "apply_all", None)
-        or getattr(engine, "apply", None)
-    )
-    if not fn:
-        return JSONResponse({"error": "Auto fix function not found"}, status_code=500)
-    # schedule background job if sync
-    if asyncio.iscoroutinefunction(fn):
-        background_tasks.add_task(fn, scan_id)
+    """Trigger the automated fix workflow for a scan."""
+
+    # Ensure progress tracker exists immediately so the frontend can poll without a 404
+    create_progress_tracker(scan_id)
+
+    if asyncio.iscoroutinefunction(_perform_automated_fix):
+        background_tasks.add_task(_perform_automated_fix, scan_id, {}, None)
     else:
-        background_tasks.add_task(asyncio.to_thread, fn, scan_id)
+        background_tasks.add_task(asyncio.to_thread, _perform_automated_fix, scan_id, {}, None)
+
     return JSONResponse({"scan_id": scan_id, "status": "started"})
 
 
