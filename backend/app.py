@@ -385,6 +385,101 @@ def _parse_scan_results_json(value: Any) -> Dict[str, Any]:
     return {}
 
 
+def _deserialize_json_field(value: Any, fallback: Any):
+    """Best-effort JSON deserializer that tolerates strings and native objects."""
+    if value is None:
+        return fallback
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return json.loads(value)
+        except Exception:
+            logger.debug("[Backend] Unable to deserialize JSON field: %s", value)
+            return fallback
+    return fallback
+
+
+def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize scan export payloads for single-scan and batch exports."""
+    scan_results = _parse_scan_results_json(scan_row.get("scan_results"))
+    results = scan_results.get("results", scan_results) or {}
+    if not isinstance(results, dict):
+        results = {}
+
+    summary = scan_results.get("summary") or {}
+    verapdf_status = scan_results.get("verapdfStatus")
+
+    if verapdf_status is None:
+        verapdf_status = build_verapdf_status(results)
+
+    if not summary or "totalIssues" not in summary:
+        try:
+            summary = PDFAccessibilityAnalyzer.calculate_summary(results, verapdf_status)
+        except Exception as calc_error:
+            logger.warning(
+                "[Backend] Warning: unable to regenerate summary for export (%s): %s",
+                scan_row.get("id"),
+                calc_error,
+            )
+            total_issues = sum(
+                len(v) if isinstance(v, list) else 0 for v in results.values()
+            )
+            summary = {
+                "totalIssues": total_issues,
+                "highSeverity": 0,
+                "complianceScore": max(0, 100 - total_issues * 2),
+            }
+
+    if isinstance(summary, dict) and verapdf_status:
+        summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+        summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+        summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+        combined_score = _combine_compliance_scores(
+            summary.get("wcagCompliance"),
+            summary.get("pdfuaCompliance"),
+            summary.get("pdfaCompliance"),
+        )
+        if combined_score is not None:
+            summary["complianceScore"] = combined_score
+
+    latest_fix = None
+    if scan_row.get("applied_at"):
+        fix_list = _deserialize_json_field(scan_row.get("fixes_applied"), [])
+        latest_fix = {
+            "fixedFilename": scan_row.get("fixed_filename"),
+            "fixType": scan_row.get("fix_type"),
+            "appliedAt": scan_row.get("applied_at").isoformat()
+            if scan_row.get("applied_at")
+            else None,
+            "fixesApplied": fix_list,
+            "issuesAfter": scan_row.get("issues_after"),
+            "complianceAfter": scan_row.get("compliance_after"),
+        }
+
+    upload_date = scan_row.get("upload_date") or scan_row.get("uploadDate")
+    if isinstance(upload_date, datetime):
+        upload_date = upload_date.isoformat()
+
+    return {
+        "scanId": scan_row.get("id"),
+        "filename": scan_row.get("filename"),
+        "status": scan_row.get("status"),
+        "uploadDate": upload_date,
+        "batchId": scan_row.get("batch_id") or scan_row.get("batchId"),
+        "groupId": scan_row.get("group_id") or scan_row.get("groupId"),
+        "summary": summary or {},
+        "results": results,
+        "verapdfStatus": verapdf_status,
+        "issues": {
+            "total": scan_row.get("total_issues"),
+            "fixed": scan_row.get("issues_fixed"),
+            "remaining": scan_row.get("issues_remaining"),
+        },
+        "latestFix": latest_fix,
+    }
+
+
 def update_group_file_count(group_id: str):
     """Update the file_count for a group based on actual scans."""
     try:
@@ -3285,104 +3380,6 @@ async def export_batch(batch_id: str):
             text = value or fallback
             return re.sub(r"[^A-Za-z0-9._-]", "_", text)
 
-        def _deserialize_payload(value, fallback):
-            if not value:
-                return fallback
-            if isinstance(value, (list, dict)):
-                return value
-            if isinstance(value, str):
-                try:
-                    return json.loads(value)
-                except Exception:
-                    return fallback
-            return fallback
-
-        def _to_export_payload(scan_row):
-            scan_results = scan_row.get("scan_results", {})
-            if isinstance(scan_results, str):
-                try:
-                    scan_results = json.loads(scan_results)
-                except Exception:
-                    scan_results = {}
-
-            results = scan_results.get("results", scan_results) or {}
-            summary = scan_results.get("summary", {}) or {}
-            verapdf_status = scan_results.get("verapdfStatus")
-
-            if verapdf_status is None:
-                verapdf_status = build_verapdf_status(results)
-
-            if not summary or "totalIssues" not in summary:
-                try:
-                    summary = PDFAccessibilityAnalyzer.calculate_summary(
-                        results, verapdf_status
-                    )
-                except Exception as calc_error:
-                    logger.warning(
-                        "[Backend] Warning: unable to regenerate summary for export (%s): %s",
-                        scan_row.get("id"),
-                        calc_error,
-                    )
-                    total_issues = sum(
-                        len(v) if isinstance(v, list) else 0 for v in results.values()
-                    )
-                    summary = {
-                        "totalIssues": total_issues,
-                        "highSeverity": 0,
-                        "complianceScore": max(0, 100 - total_issues * 2),
-                    }
-
-            if isinstance(summary, dict) and verapdf_status:
-                summary.setdefault(
-                    "wcagCompliance", verapdf_status.get("wcagCompliance")
-                )
-                summary.setdefault(
-                    "pdfuaCompliance", verapdf_status.get("pdfuaCompliance")
-                )
-                summary.setdefault(
-                    "pdfaCompliance", verapdf_status.get("pdfaCompliance")
-                )
-                combined_score = _combine_compliance_scores(
-                    summary.get("wcagCompliance"),
-                    summary.get("pdfuaCompliance"),
-                    summary.get("pdfaCompliance"),
-                )
-                if combined_score is not None:
-                    summary["complianceScore"] = combined_score
-
-            latest_fix = None
-            if scan_row.get("applied_at"):
-                fix_list = _deserialize_payload(scan_row.get("fixes_applied"), [])
-                latest_fix = {
-                    "fixedFilename": scan_row.get("fixed_filename"),
-                    "fixType": scan_row.get("fix_type"),
-                    "appliedAt": scan_row.get("applied_at").isoformat()
-                    if scan_row.get("applied_at")
-                    else None,
-                    "fixesApplied": fix_list,
-                    "issuesAfter": scan_row.get("issues_after"),
-                    "complianceAfter": scan_row.get("compliance_after"),
-                }
-
-            export_payload = {
-                "scanId": scan_row.get("id"),
-                "filename": scan_row.get("filename"),
-                "status": scan_row.get("status"),
-                "uploadDate": scan_row.get("upload_date").isoformat()
-                if scan_row.get("upload_date")
-                else None,
-                "summary": summary,
-                "results": results,
-                "verapdfStatus": verapdf_status,
-                "issues": {
-                    "total": scan_row.get("total_issues"),
-                    "fixed": scan_row.get("issues_fixed"),
-                    "remaining": scan_row.get("issues_remaining"),
-                },
-                "latestFix": latest_fix,
-            }
-            return export_payload
-
         batch_name = batch.get("name") or batch_id
         safe_batch_name = _sanitize(batch_name, batch_id)
 
@@ -3418,7 +3415,7 @@ async def export_batch(batch_id: str):
             fixed_dir = _fixed_root()
 
             for scan_row in scans:
-                scan_export = _to_export_payload(scan_row)
+                scan_export = _build_scan_export_payload(scan_row)
                 sanitized_filename = _sanitize(
                     scan_row.get("filename"), scan_row.get("id")
                 )
@@ -4273,11 +4270,53 @@ async def fix_history(scan_id: str):
         return JSONResponse({"history": []})
 
 
-# === Export endpoint stub ===
+# === Export endpoint ===
 @app.get("/api/export/{scan_id}")
 async def export_scan(scan_id: str):
-    # Keep as simple stub; integrate your export logic as before
-    return JSONResponse({"scan_id": scan_id, "export_url": f"/exports/{scan_id}.zip"})
+    conn = None
+    cur = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        base_query = """
+            SELECT s.id, s.filename, s.status, s.batch_id, s.group_id,
+                   COALESCE(s.upload_date, s.created_at) AS upload_date,
+                   s.scan_results, s.total_issues, s.issues_fixed, s.issues_remaining,
+                   fh.fixed_filename, fh.fixes_applied, fh.applied_at AS applied_at, fh.fix_type,
+                   fh.issues_after, fh.compliance_after
+            FROM scans s
+            LEFT JOIN LATERAL (
+                SELECT fh_inner.*
+                FROM fix_history fh_inner
+                WHERE fh_inner.scan_id = s.id
+                ORDER BY fh_inner.applied_at DESC
+                LIMIT 1
+            ) fh ON true
+            WHERE {condition}
+            LIMIT 1
+        """
+
+        cur.execute(base_query.format(condition="s.id = %s"), (scan_id,))
+        scan_row = cur.fetchone()
+
+        if not scan_row:
+            cur.execute(base_query.format(condition="s.filename = %s"), (scan_id,))
+            scan_row = cur.fetchone()
+
+        if not scan_row:
+            return JSONResponse({"error": f"Scan {scan_id} not found"}, status_code=404)
+
+        export_payload = _build_scan_export_payload(scan_row)
+        return SafeJSONResponse(export_payload)
+    except Exception:
+        logger.exception("[Backend] Error exporting scan %s", scan_id)
+        return JSONResponse({"error": "Failed to prepare export"}, status_code=500)
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 
 # === AI endpoints wrappers preserving names ===
