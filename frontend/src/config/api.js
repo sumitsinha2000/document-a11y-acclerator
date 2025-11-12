@@ -39,6 +39,9 @@ export const API_ENDPOINTS = {
   aiGenerateAltText: `${API_BASE_URL}/api/ai-generate-alt-text`,
   aiSuggestStructure: (scanId) => `${API_BASE_URL}/api/ai-suggest-structure/${scanId}`,
   aiApplyFixes: (scanId) => `${API_BASE_URL}/api/ai-apply-fixes/${scanId}`,
+  applySemiAutomatedFixes: (scanId) =>
+    `${API_BASE_URL}/api/apply-semi-automated-fixes/${scanId}`,
+  fixProgress: (scanId) => `${API_BASE_URL}/api/fix-progress/${scanId}`,
 }
 
 export default API_BASE_URL
