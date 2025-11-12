@@ -119,9 +119,20 @@ function AppContent() {
   }
 
   const handleSelectScan = async (scan) => {
+    const scanIdentifier =
+      typeof scan === "string"
+        ? scan
+        : scan?.id || scan?.scanId || scan?.scan_id || scan?.filename || scan?.fileName
+
+    if (!scanIdentifier) {
+      console.error("handleSelectScan called without a valid scan identifier", scan)
+      showError("Unable to load scan details. Missing scan identifier.")
+      return
+    }
+
     try {
       setLoading(true)
-      const response = await axios.get(`${API_BASE_URL}/api/scan/${scan.id}`)
+      const response = await axios.get(`${API_BASE_URL}/api/scan/${encodeURIComponent(scanIdentifier)}`)
       setScanResults([response.data])
       setCurrentView("report")
     } catch (error) {
