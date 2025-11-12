@@ -1,5 +1,12 @@
 // API configuration
-const API_BASE_URL = "https://document-a11y-acclerator.onrender.com" || "http://localhost:5000"
+const DEFAULT_API_BASE_URL = "https://document-a11y-acclerator.onrender.com" || "http://localhost:5000"
+const sanitize = (value) => {
+  if (!value) return null
+  return value.replace(/\/+$/, "")
+}
+const rawBaseUrl =
+  typeof process !== "undefined" ? process.env.NEXT_PUBLIC_API_BASE_URL : null
+const API_BASE_URL = sanitize(rawBaseUrl) || sanitize(DEFAULT_API_BASE_URL)
 
 export const API_ENDPOINTS = {
   upload: `${API_BASE_URL}/api/upload`,

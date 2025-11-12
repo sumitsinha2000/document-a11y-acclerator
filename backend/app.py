@@ -2067,6 +2067,40 @@ async def scan_pdf(
             f.write(content)
 
     logger.info(f"[Backend] ✓ File saved: {file_path}")
+    storage_reference = str(file_path)
+    try:
+        storage_details = await asyncio.to_thread(
+            upload_file_with_fallback, str(file_path), file.filename, folder="uploads"
+        )
+        storage_type = storage_details.get("storage")
+        storage_reference = (
+            storage_details.get("url")
+            or storage_details.get("path")
+            or storage_reference
+        )
+        if storage_type == "local":
+            logger.warning(
+                "[Backend] Scan %s stored %s locally as fallback (%s)",
+                scan_uid,
+                file.filename,
+                storage_reference,
+            )
+        else:
+            logger.info(
+                "[Backend] Scan %s uploaded %s to %s (%s)",
+                scan_uid,
+                file.filename,
+                storage_type,
+                storage_reference,
+            )
+    except Exception as storage_err:
+        logger.warning(
+            "[Backend] Scan %s failed to replicate %s remotely, keeping local copy at %s: %s",
+            scan_uid,
+            file.filename,
+            storage_reference,
+            storage_err,
+        )
 
     formatted_results = await _analyze_pdf_document(file_path)
     scan_results = formatted_results.get("results", {})
@@ -2082,7 +2116,7 @@ async def scan_pdf(
             file.filename,
             formatted_results,
             group_id=group_id,
-            file_path=file_path,
+            file_path=storage_reference,
             total_issues=total_issues,
             issues_remaining=total_issues,
             issues_fixed=0,
