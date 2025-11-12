@@ -145,7 +145,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setCurrentFixType("Traditional Semi-Automated Fixes")
 
     try {
-      const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
+      const response = await axios.post(API_ENDPOINTS.applySemiAutomatedFixes(scanId), {
         useAI: false,
       })
 
@@ -166,7 +166,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     setCurrentFixType("AI-Powered Semi-Automated Fixes")
 
     try {
-      const response = await axios.post(`/api/apply-semi-automated-fixes/${scanId}`, {
+      const response = await axios.post(API_ENDPOINTS.applySemiAutomatedFixes(scanId), {
         useAI: true,
       })
 

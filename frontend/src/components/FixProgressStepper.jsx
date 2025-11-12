@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import axios from "axios"
+import { API_ENDPOINTS } from "../config/api"
 
 export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete }) {
   const [progress, setProgress] = useState(null)
@@ -18,24 +19,27 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
     }
   }, [isOpen, scanId])
 
+  const pollIntervalRef = useRef(null)
+
   useEffect(() => {
     if (!isOpen || !scanId || !polling) return
 
-    let pollInterval
     let latestResultData = null
-
     const pollProgress = async () => {
+      if (!scanId) return
       try {
-        const response = await axios.get(`/api/fix-progress/${scanId}`)
+        const response = await axios.get(API_ENDPOINTS.fixProgress(scanId))
         const progressData = response.data
 
         console.log("[v0] Progress update:", progressData)
         setProgress(progressData)
 
-        // Stop polling if completed or failed
         if (progressData.status === "completed" || progressData.status === "failed") {
           setPolling(false)
-          clearInterval(pollInterval)
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current)
+            pollIntervalRef.current = null
+          }
 
           if (progressData.status === "completed") {
             console.log(
@@ -43,64 +47,47 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
               progressData.steps.map((s) => ({ name: s.name, status: s.status, hasResultData: !!s.resultData })),
             )
 
-            // Look for the re-scan step to get new results
             const rescanStep = progressData.steps.find(
               (step) => step.name === "Re-scan Fixed PDF" && step.status === "completed",
             )
 
-            console.log("[v0] FixProgressStepper: Re-scan step found:", rescanStep ? "YES" : "NO")
-            if (rescanStep) {
-              console.log("[v0] FixProgressStepper: Re-scan step full object:", rescanStep)
-              console.log("[v0] FixProgressStepper: Re-scan step keys:", Object.keys(rescanStep))
-              console.log("[v0] FixProgressStepper: Re-scan step.resultData type:", typeof rescanStep.resultData)
-              console.log("[v0] FixProgressStepper: Re-scan step.resultData value:", rescanStep.resultData)
-
-              if (rescanStep.resultData) {
-                console.log("[v0] FixProgressStepper: resultData keys:", Object.keys(rescanStep.resultData))
-              }
-            }
-
             if (rescanStep && rescanStep.resultData) {
-              console.log("[v0] FixProgressStepper: Found new scan results from re-scan:", rescanStep.resultData)
               latestResultData = rescanStep.resultData
               setFinalResultData(rescanStep.resultData)
-            } else {
-              console.log("[v0] FixProgressStepper: No resultData found in re-scan step")
+            }
+          }
+
+          if (progressData.status === "completed" || progressData.status === "failed") {
+            if (!hasCompletedRef.current) {
+              hasCompletedRef.current = true
+              setTimeout(() => {
+                console.log("[v0] FixProgressStepper: Calling onComplete with:", {
+                  success: progressData.status === "completed",
+                  resultData: latestResultData,
+                })
+                if (onComplete) {
+                  onComplete(progressData.status === "completed", latestResultData)
+                }
+              }, 2000)
             }
           }
         }
-
-        if ((progressData.status === "completed" || progressData.status === "failed") && !hasCompletedRef.current) {
-          hasCompletedRef.current = true
-
-          // Wait a bit before calling onComplete to show final state
-          setTimeout(() => {
-            console.log("[v0] FixProgressStepper: Calling onComplete with:", {
-              success: progressData.status === "completed",
-              resultData: latestResultData,
-            })
-            if (onComplete) {
-              onComplete(progressData.status === "completed", latestResultData)
-            }
-          }, 2000)
-        }
       } catch (error) {
         console.error("[v0] Error polling progress:", error)
-        // Continue polling even on error - the fix might still be running
       }
     }
 
     // Initial poll
     pollProgress()
 
-    // Poll every 500ms for smooth updates
-    if (polling) {
-      pollInterval = setInterval(pollProgress, 500)
+    if (!pollIntervalRef.current) {
+      pollIntervalRef.current = setInterval(pollProgress, 500)
     }
 
     return () => {
-      if (pollInterval) {
-        clearInterval(pollInterval)
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
       }
     }
   }, [scanId, isOpen, polling, onComplete])

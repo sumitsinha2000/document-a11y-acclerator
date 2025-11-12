@@ -2255,7 +2255,9 @@ async def scan_batch(
                 )
                 storage_type = storage_details.get("storage")
                 storage_reference = (
-                    storage_details.get("url") or storage_details.get("path")
+                    storage_details.get("url")
+                    or storage_details.get("path")
+                    or str(file_path)
                 )
                 if storage_type == "local":
                     logger.warning(
@@ -2302,6 +2304,7 @@ async def scan_batch(
                         total_issues=total_issues_file,
                         issues_fixed=0,
                         issues_remaining=remaining_issues,
+                        file_path=storage_reference,
                     )
                     successful_scans += 1
                     total_batch_issues += total_issues_file
@@ -2318,6 +2321,7 @@ async def scan_batch(
                         total_issues=0,
                         issues_fixed=0,
                         issues_remaining=0,
+                        file_path=storage_reference,
                     )
                     status_value = "uploaded"
 
@@ -3549,6 +3553,12 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
         if not scan_data:
             return JSONResponse({"error": "Scan not found"}, status_code=404)
 
+        resolved_pdf_path = _resolve_scan_file_path(scan_id, scan_data)
+        if not resolved_pdf_path or not resolved_pdf_path.exists():
+            return JSONResponse({"error": "PDF file not found"}, status_code=404)
+
+        scan_data["resolved_file_path"] = str(resolved_pdf_path)
+
         original_filename = scan_data.get("filename")
         if not original_filename:
             return JSONResponse({"error": "Scan filename not found"}, status_code=400)
@@ -3569,9 +3579,11 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
             raise RuntimeError("Semi-automated fix function unavailable")
 
         if asyncio.iscoroutinefunction(apply_fn):
-            result = await apply_fn(scan_id, scan_data, tracker)
+            result = await apply_fn(scan_id, scan_data, tracker, resolved_path=resolved_pdf_path)
         else:
-            result = await asyncio.to_thread(apply_fn, scan_id, scan_data, tracker)
+            result = await asyncio.to_thread(
+                apply_fn, scan_id, scan_data, tracker, resolved_path=resolved_pdf_path
+            )
 
         if not result.get("success"):
             if tracker:
