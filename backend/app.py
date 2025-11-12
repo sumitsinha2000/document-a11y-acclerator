@@ -2115,6 +2115,45 @@ async def scan_batch(
                 )
                 continue
 
+            storage_reference = None
+            storage_details: Optional[Dict[str, Any]] = None
+            try:
+                storage_details = await asyncio.to_thread(
+                    upload_file_with_fallback,
+                    str(file_path),
+                    upload.filename,
+                    folder="uploads",
+                )
+                storage_type = storage_details.get("storage")
+                storage_reference = (
+                    storage_details.get("url") or storage_details.get("path")
+                )
+                if storage_type == "local":
+                    logger.warning(
+                        "[Backend] Batch %s stored %s locally as fallback (%s)",
+                        batch_id,
+                        upload.filename,
+                        storage_reference,
+                    )
+                else:
+                    logger.info(
+                        "[Backend] Batch %s uploaded %s to %s (%s)",
+                        batch_id,
+                        upload.filename,
+                        storage_type,
+                        storage_reference,
+                    )
+            except Exception as storage_err:
+                storage_reference = str(file_path)
+                logger.warning(
+                    "[Backend] Batch %s failed to replicate %s to remote storage, "
+                    "keeping local copy at %s: %s",
+                    batch_id,
+                    upload.filename,
+                    storage_reference,
+                    storage_err,
+                )
+
             try:
                 if scan_now:
                     record_payload = await _analyze_pdf_document(file_path)
