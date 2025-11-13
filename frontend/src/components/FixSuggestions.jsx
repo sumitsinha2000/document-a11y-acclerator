@@ -478,12 +478,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                         </div>
                         <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
                           <span className="font-medium capitalize">{fix.severity}</span>
-                          {fix.estimatedTime && (
+                          {/* {fix.estimatedTime && (
                             <>
                               <span aria-hidden="true">•</span>
-                              <span>{fix.estimatedTime} min</span>
+                              <span>{fix.estimatedTime}</span>
                             </>
-                          )}
+                          )} */}
                         </div>
                       </div>
                     </button>
@@ -570,12 +570,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                         </div>
                         <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
                           <span className="font-medium capitalize">{fix.severity}</span>
-                          {fix.estimatedTime && (
+                          {/* {fix.estimatedTime && (
                             <>
                               <span aria-hidden="true">•</span>
-                              <span>{fix.estimatedTime} min</span>
+                              <span>{fix.estimatedTime}</span>
                             </>
-                          )}
+                          )} */}
                         </div>
                       </div>
                     </button>
@@ -670,12 +670,12 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                         </div>
                         <div className="flex gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
                           <span className="font-medium capitalize">{fix.severity}</span>
-                          {fix.estimatedTime && (
+                          {/* {fix.estimatedTime && (
                             <>
                               <span aria-hidden="true">•</span>
-                              <span>{fix.estimatedTime} min</span>
+                              <span>{fix.estimatedTime}</span>
                             </>
-                          )}
+                          )} */}
                         </div>
                       </div>
                     </button>

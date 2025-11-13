@@ -1,12 +1,23 @@
-export function formatTimeEstimate(minutes) {
-  if (!minutes || isNaN(minutes)) return 'N/A';
+export function formatTimeEstimate(value) {
+  const minutes = Number(value);
 
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-
-  if (hours === 0) {
-    return `${minutes} min`;
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return 'N/A';
   }
 
-  return `${hours}:${remainingMinutes.toString().padStart(2, '0')} hours`;
+  const roundedMinutes = Math.round(minutes);
+  const hours = Math.floor(roundedMinutes / 60);
+  const remainingMinutes = roundedMinutes % 60;
+
+  if (hours === 0) {
+    return `${roundedMinutes} min`;
+  }
+
+  const hourLabel = hours === 1 ? 'hr' : 'hrs';
+
+  if (remainingMinutes === 0) {
+    return `${hours} ${hourLabel}`;
+  }
+
+  return `${hours} ${hourLabel} ${remainingMinutes} min`;
 }
