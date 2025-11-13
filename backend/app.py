@@ -55,6 +55,7 @@ from backend.fix_progress_tracker import (
     get_progress_tracker,
 )
 from backend.utils.wcag_mapping import annotate_wcag_mappings
+from backend.routes import health_router
 import backend.utils.app_helpers as app_helpers
 from backend.utils.app_helpers import (
     SafeJSONResponse,
@@ -76,6 +77,7 @@ from backend.utils.app_helpers import (
     update_scan_status,
     _truthy,
     get_versioned_files,
+    _extract_version_from_path,
     _uploads_root,
     _fixed_root,
     _ensure_local_storage,
@@ -169,6 +171,8 @@ mount_static_if_available(app, "/fixed", FIXED_FOLDER, "fixed")
 mount_static_if_available(
     app, "/generated_pdfs", app_helpers.GENERATED_PDFS_FOLDER, "generated_pdfs"
 )
+
+app.include_router(health_router)
 
 
 # ----------------------
@@ -288,8 +292,9 @@ def upload_file(
 @app.get("/api/scans")
 async def get_scans():
     try:
-        rows = execute_query(
-            """
+        rows = (
+            execute_query(
+                """
             SELECT
                 id,
                 filename,
@@ -307,15 +312,15 @@ async def get_scans():
             ORDER BY COALESCE(upload_date, created_at) DESC
             LIMIT 250
             """,
-            fetch=True,
-        ) or []
+                fetch=True,
+            )
+            or []
+        )
 
         scans: List[Dict[str, Any]] = []
         for row in rows:
             row_dict = dict(row)
-            raw_payload = (
-                row_dict.get("scan_results") or row_dict.get("results") or {}
-            )
+            raw_payload = row_dict.get("scan_results") or row_dict.get("results") or {}
             parsed_payload = _parse_scan_results_json(raw_payload)
             summary = parsed_payload.get("summary", {}) or {}
             results = parsed_payload.get("results", parsed_payload) or {}
@@ -342,7 +347,9 @@ async def get_scans():
                     "issuesFixed": row_dict.get("issues_fixed")
                     or summary.get("issuesFixed", 0),
                     "issuesRemaining": row_dict.get("issues_remaining")
-                    or summary.get("issuesRemaining", summary.get("remainingIssues", 0)),
+                    or summary.get(
+                        "issuesRemaining", summary.get("remainingIssues", 0)
+                    ),
                     "complianceScore": summary.get("complianceScore"),
                 }
             )
@@ -788,11 +795,6 @@ async def delete_group(group_id: str):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@app.get("/api/health")
-async def health():
-    return {"status": "ok", "uploads": UPLOAD_FOLDER, "fixed": FIXED_FOLDER}
-
-
 @app.get("/api/download-generated/{filename}")
 async def download_generated_pdf(filename: str):
     safe_name = secure_filename(filename)
@@ -816,7 +818,9 @@ async def generate_pdf_endpoint(request: Request):
 
     pdf_type = (payload.get("pdfType") or "inaccessible").lower()
     company_name = payload.get("companyName") or "BrightPath Consulting"
-    services = payload.get("services") if isinstance(payload.get("services"), list) else None
+    services = (
+        payload.get("services") if isinstance(payload.get("services"), list) else None
+    )
     accessibility_options = (
         payload.get("accessibilityOptions")
         if isinstance(payload.get("accessibilityOptions"), dict)
@@ -849,7 +853,9 @@ async def generate_pdf_endpoint(request: Request):
         return SafeJSONResponse({"filename": filename}, status_code=201)
     except Exception as exc:
         logger.exception("[Backend] PDF generation failed")
-        return JSONResponse({"error": str(exc) or "Failed to generate PDF"}, status_code=500)
+        return JSONResponse(
+            {"error": str(exc) or "Failed to generate PDF"}, status_code=500
+        )
 
 
 @app.get("/api/generated-pdfs")
@@ -1057,10 +1063,14 @@ async def scan_batch(
             file_path = upload_dir / f"{scan_id}.pdf"
 
             try:
-                await asyncio.to_thread(_write_uploadfile_to_disk, upload, str(file_path))
+                await asyncio.to_thread(
+                    _write_uploadfile_to_disk, upload, str(file_path)
+                )
             except Exception as write_err:
                 logger.exception(
-                    "[Backend] Failed to save %s for batch %s", upload.filename, batch_id
+                    "[Backend] Failed to save %s for batch %s",
+                    upload.filename,
+                    batch_id,
                 )
                 errors.append(f"{upload.filename}: {write_err}")
                 scan_results_response.append(
@@ -2439,7 +2449,9 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
             raise RuntimeError("Semi-automated fix function unavailable")
 
         if asyncio.iscoroutinefunction(apply_fn):
-            result = await apply_fn(scan_id, scan_data, tracker, resolved_path=resolved_pdf_path)
+            result = await apply_fn(
+                scan_id, scan_data, tracker, resolved_path=resolved_pdf_path
+            )
         else:
             result = await asyncio.to_thread(
                 apply_fn, scan_id, scan_data, tracker, resolved_path=resolved_pdf_path
@@ -2462,9 +2474,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
                 {
                     "type": "semi-automated",
                     "issueType": fix.get("type", "unknown"),
-                    "description": fix.get(
-                        "description", "Semi-automated fix applied"
-                    ),
+                    "description": fix.get("description", "Semi-automated fix applied"),
                     "timestamp": datetime.utcnow().isoformat(),
                 }
                 for fix in fixes
@@ -2569,9 +2579,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
                 scan_id,
             )
 
-        update_scan_status(
-            scan_id, "fixed" if total_issues_after == 0 else "processed"
-        )
+        update_scan_status(scan_id, "fixed" if total_issues_after == 0 else "processed")
 
         response_payload: Dict[str, Any] = {
             "status": "success",
@@ -2595,7 +2603,9 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
 
         return SafeJSONResponse(response_payload)
     except Exception as exc:
-        logger.exception("[Backend] ERROR in apply_semi_automated_fixes for %s", scan_id)
+        logger.exception(
+            "[Backend] ERROR in apply_semi_automated_fixes for %s", scan_id
+        )
         if tracker:
             tracker.fail_all(str(exc))
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -2709,10 +2719,7 @@ async def download_fixed_file(filename: str, request: Request):
                             {"error": f"Version {requested_number} not found"},
                             status_code=404,
                         )
-                    if (
-                        match.get("version") != latest.get("version")
-                        and not allow_old
-                    ):
+                    if match.get("version") != latest.get("version") and not allow_old:
                         return JSONResponse(
                             {
                                 "error": "Only the latest version is downloadable by default",
@@ -2755,7 +2762,9 @@ async def download_fixed_file(filename: str, request: Request):
         if not download_name.lower().endswith(".pdf"):
             download_name = f"{Path(download_name).stem}.pdf"
 
-        return FileResponse(file_path, media_type="application/pdf", filename=download_name)
+        return FileResponse(
+            file_path, media_type="application/pdf", filename=download_name
+        )
     except Exception as exc:
         logger.exception("[Backend] Error downloading fixed file %s", filename)
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -2846,7 +2855,9 @@ async def apply_manual_fix(request: Request):
         except Exception:
             logger.exception("DB lookup for scan data failed; proceeding")
 
-        pdf_path = _resolve_scan_file_path(scan_id, scan_data if isinstance(scan_data, dict) else None)
+        pdf_path = _resolve_scan_file_path(
+            scan_id, scan_data if isinstance(scan_data, dict) else None
+        )
         if not pdf_path and original_filename:
             candidate = Path(UPLOAD_FOLDER) / original_filename
             if candidate.exists():
@@ -3037,14 +3048,10 @@ async def download_file(filename: str):
             except FileNotFoundError:
                 continue
             except Exception:
-                logger.exception(
-                    "[Storage] Remote download failed for %s", remote_key
-                )
+                logger.exception("[Storage] Remote download failed for %s", remote_key)
                 continue
 
-            headers = {
-                "Content-Disposition": f'attachment; filename="{safe_name}"'
-            }
+            headers = {"Content-Disposition": f'attachment; filename="{safe_name}"'}
             return StreamingResponse(
                 remote_stream,
                 media_type="application/pdf",
@@ -3152,7 +3159,9 @@ async def apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
     if asyncio.iscoroutinefunction(_perform_automated_fix):
         background_tasks.add_task(_perform_automated_fix, scan_id, {}, None)
     else:
-        background_tasks.add_task(asyncio.to_thread, _perform_automated_fix, scan_id, {}, None)
+        background_tasks.add_task(
+            asyncio.to_thread, _perform_automated_fix, scan_id, {}, None
+        )
 
     return JSONResponse({"scan_id": scan_id, "status": "started"})
 
@@ -3312,10 +3321,13 @@ async def ai_apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
 # ----------------------
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
-    logger.exception("doca11y-backend:" + str(exc))
-    return JSONResponse(
-        status_code=404, content={"error": "Route not found:" + str(exc)}
-    )
+    path = request.url.path
+    hint = "Use /api/health for the health endpoint." if path == "/health" else None
+    logger.warning("doca11y-backend: route not found: %s", path)
+    payload = {"error": "Route not found", "path": path}
+    if hint:
+        payload["hint"] = hint
+    return JSONResponse(status_code=404, content=payload)
 
 
 @app.exception_handler(Exception)
