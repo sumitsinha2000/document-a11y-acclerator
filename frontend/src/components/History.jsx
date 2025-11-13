@@ -53,7 +53,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
 
     const confirmed = await confirm({
       title: "Delete Batch",
-      message: `Are you sure you want to delete "${batchName}"? This will permanently delete all files and records in this batch.`,
+      message: `Delete batch "${batchName}" and permanently remove every file that was uploaded to this group as part of it? This cannot be undone.`,
       confirmText: "Delete",
       cancelText: "Cancel",
       type: "danger",
@@ -81,7 +81,11 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
 
       await fetchHistory()
 
-      showSuccess(`Successfully deleted batch with ${result.deletedFiles} files`)
+      showSuccess(
+        `Deleted batch${
+          result.batchName ? ` "${result.batchName}"` : ""
+        } with ${result.deletedScans ?? 0} scans (${result.deletedFiles ?? 0} files removed)`,
+      )
     } catch (error) {
       console.error("[v0] Error deleting batch:", error)
       showError(`Failed to delete batch: ${error.message}`)
@@ -95,7 +99,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
 
     const confirmed = await confirm({
       title: "Delete File",
-      message: `Are you sure you want to delete "${filename}"? This action cannot be undone.`,
+      message: `Delete "${filename}" and remove it from its group history? This permanently deletes the file and cannot be undone.`,
       confirmText: "Delete",
       cancelText: "Cancel",
       type: "danger",

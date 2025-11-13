@@ -14,7 +14,7 @@ import traceback
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from io import BytesIO
 from dotenv import load_dotenv
 
@@ -703,19 +703,86 @@ async def update_group(group_id: str, payload: GroupPayload):
 
 @app.delete("/api/groups/{group_id}")
 async def delete_group(group_id: str):
-    """Delete a group (scans will have group_id set to NULL)"""
+    """Delete a group along with all related batches, scans, and files."""
     try:
         rows = execute_query(
-            "SELECT id FROM groups WHERE id = %s", (group_id,), fetch=True
+            "SELECT id, name FROM groups WHERE id = %s", (group_id,), fetch=True
         )
         if not rows:
             return JSONResponse({"error": "Group not found"}, status_code=404)
 
+        group_name = rows[0].get("name")
+
+        scan_rows = execute_query(
+            "SELECT id, batch_id FROM scans WHERE group_id = %s",
+            (group_id,),
+            fetch=True,
+        ) or []
+        batch_rows = execute_query(
+            "SELECT id FROM batches WHERE group_id = %s", (group_id,), fetch=True
+        ) or []
+        batches_to_delete = {batch["id"] for batch in batch_rows}
+
+        deleted_scans = 0
+        deleted_files = 0
+        deleted_batches = 0
+
+        for scan in scan_rows:
+            batch_id = scan.get("batch_id")
+            if batch_id and batch_id in batches_to_delete:
+                continue
+
+            try:
+                result = _delete_scan_with_files(scan["id"])
+            except LookupError:
+                logger.warning(
+                    "[Backend] Scan %s already missing while deleting group %s",
+                    scan["id"],
+                    group_id,
+                )
+                continue
+
+            deleted_scans += 1
+            deleted_files += result.get("deletedFiles", 0) or 0
+
+        for batch in batch_rows:
+            batch_id = batch["id"]
+            try:
+                batch_result = _delete_batch_with_files(batch_id)
+                deleted_batches += 1
+                deleted_scans += batch_result.get("deletedScans", 0) or 0
+                deleted_files += batch_result.get("deletedFiles", 0) or 0
+            except LookupError:
+                logger.warning(
+                    "[Backend] Batch %s missing scans while deleting group %s",
+                    batch_id,
+                    group_id,
+                )
+                execute_query(
+                    "DELETE FROM batches WHERE id = %s", (batch_id,), fetch=False
+                )
+                deleted_batches += 1
+
         execute_query("DELETE FROM groups WHERE id = %s", (group_id,), fetch=False)
-        logger.info("[Backend] ✓ Deleted group: %s", group_id)
-        return SafeJSONResponse(
-            {"success": True, "message": "Group deleted successfully"}
+        logger.info(
+            "[Backend] ✓ Deleted group %s with %d scans, %d batches, %d files",
+            group_id,
+            deleted_scans,
+            deleted_batches,
+            deleted_files,
         )
+        return SafeJSONResponse(
+            {
+                "success": True,
+                "message": "Group and associated content deleted successfully",
+                "groupName": group_name,
+                "deletedScans": deleted_scans,
+                "deletedBatches": deleted_batches,
+                "deletedFiles": deleted_files,
+            }
+        )
+    except LookupError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
     except Exception as e:
         logger.exception("doca11y-backend:delete_group error: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -1310,90 +1377,150 @@ async def prune_fixed_files(scan_id: str, request: Request):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+def _delete_scan_with_files(scan_id: str) -> Dict[str, Any]:
+    """Remove a scan record, its history, and associated files."""
+    logger.info("[Backend] Deleting scan %s", scan_id)
+
+    scan_record = _fetch_scan_record(scan_id)
+    if not scan_record:
+        raise LookupError("Scan not found")
+
+    resolved_id = scan_record.get("id") or scan_id
+    group_id = scan_record.get("group_id")
+    original_filename = scan_record.get("filename")
+
+    uploads_dir = _uploads_root()
+    fixed_dir = _fixed_root()
+    deleted_files = 0
+
+    def _delete_path(path: Path) -> bool:
+        try:
+            if path.exists():
+                if path.is_file():
+                    path.unlink()
+                elif path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                return True
+        except Exception:
+            logger.exception("[Backend] Failed to delete %s", path)
+        return False
+
+    candidate_names = {scan_id, resolved_id}
+    if original_filename:
+        candidate_names.add(original_filename)
+
+    for folder in (uploads_dir, fixed_dir):
+        for name in candidate_names:
+            if not name:
+                continue
+            candidate = folder / name
+            if _delete_path(candidate):
+                deleted_files += 1
+            if not name.lower().endswith(".pdf"):
+                pdf_candidate = folder / f"{name}.pdf"
+                if _delete_path(pdf_candidate):
+                    deleted_files += 1
+
+    # Remove versioned history directory
+    version_dirs = {fixed_dir / str(resolved_id), fixed_dir / str(scan_id)}
+    for version_dir in version_dirs:
+        if version_dir.exists() and version_dir.is_dir():
+            removed_count = sum(
+                1 for child in version_dir.glob("**/*") if child.is_file()
+            )
+            if _delete_path(version_dir):
+                deleted_files += removed_count
+
+    # Delete related DB records
+    primary_id = scan_record.get("id")
+
+    if primary_id:
+        execute_query(
+            "DELETE FROM fix_history WHERE scan_id = %s",
+            (primary_id,),
+            fetch=False,
+        )
+    execute_query(
+        "DELETE FROM scans WHERE id = %s",
+        (primary_id or resolved_id,),
+        fetch=False,
+    )
+
+    if group_id:
+        update_group_file_count(group_id)
+
+    logger.info(
+        "[Backend] ✓ Deleted scan %s (removed %d files)", scan_id, deleted_files
+    )
+    return {
+        "scanId": primary_id or resolved_id,
+        "groupId": group_id,
+        "deletedFiles": deleted_files,
+    }
+
+
+def _delete_batch_with_files(batch_id: str) -> Dict[str, Any]:
+    """Delete a batch, its scans, and associated files."""
+    batch_rows = execute_query(
+        "SELECT id, name FROM batches WHERE id = %s", (batch_id,), fetch=True
+    )
+    if not batch_rows:
+        raise LookupError("Batch not found")
+
+    scans = execute_query(
+        "SELECT id FROM scans WHERE batch_id = %s", (batch_id,), fetch=True
+    ) or []
+
+    if not scans:
+        raise LookupError("No scans found for this batch")
+
+    deleted_scans = 0
+    deleted_files = 0
+    affected_groups: Set[str] = set()
+
+    for scan in scans:
+        scan_id = scan["id"]
+        try:
+            result = _delete_scan_with_files(scan_id)
+        except LookupError:
+            logger.warning(
+                "[Backend] Scan %s referenced by batch %s not found during deletion",
+                scan_id,
+                batch_id,
+            )
+            continue
+
+        deleted_scans += 1
+        deleted_files += result.get("deletedFiles", 0) or 0
+        if result.get("groupId"):
+            affected_groups.add(result["groupId"])
+
+    execute_query("DELETE FROM batches WHERE id = %s", (batch_id,), fetch=False)
+
+    return {
+        "batchId": batch_id,
+        "batchName": batch_rows[0].get("name"),
+        "deletedScans": deleted_scans,
+        "deletedFiles": deleted_files,
+        "affectedGroups": list(affected_groups),
+    }
+
+
 @app.delete("/api/scan/{scan_id}")
 async def delete_scan(scan_id: str):
     """Delete an individual scan and its associated files."""
-    logger.info("[Backend] Deleting scan %s", scan_id)
     try:
-        scan_record = _fetch_scan_record(scan_id)
-        if not scan_record:
-            return JSONResponse({"error": "Scan not found"}, status_code=404)
-
-        resolved_id = scan_record.get("id") or scan_id
-        group_id = scan_record.get("group_id")
-        original_filename = scan_record.get("filename")
-
-        uploads_dir = _uploads_root()
-        fixed_dir = _fixed_root()
-        deleted_files = 0
-
-        def _delete_path(path: Path) -> bool:
-            try:
-                if path.exists():
-                    if path.is_file():
-                        path.unlink()
-                    elif path.is_dir():
-                        shutil.rmtree(path, ignore_errors=True)
-                    return True
-            except Exception:
-                logger.exception("[Backend] Failed to delete %s", path)
-            return False
-
-        candidate_names = {scan_id, resolved_id}
-        if original_filename:
-            candidate_names.add(original_filename)
-
-        for folder in (uploads_dir, fixed_dir):
-            for name in candidate_names:
-                if not name:
-                    continue
-                candidate = folder / name
-                if _delete_path(candidate):
-                    deleted_files += 1
-                if not name.lower().endswith(".pdf"):
-                    pdf_candidate = folder / f"{name}.pdf"
-                    if _delete_path(pdf_candidate):
-                        deleted_files += 1
-
-        # Remove versioned history directory
-        version_dirs = {fixed_dir / str(resolved_id), fixed_dir / str(scan_id)}
-        for version_dir in version_dirs:
-            if version_dir.exists() and version_dir.is_dir():
-                removed_count = sum(
-                    1 for child in version_dir.glob("**/*") if child.is_file()
-                )
-                if _delete_path(version_dir):
-                    deleted_files += removed_count
-
-        # Delete related DB records
-        primary_id = scan_record.get("id")
-
-        if primary_id:
-            execute_query(
-                "DELETE FROM fix_history WHERE scan_id = %s",
-                (primary_id,),
-                fetch=False,
-            )
-        execute_query(
-            "DELETE FROM scans WHERE id = %s",
-            (primary_id or resolved_id,),
-            fetch=False,
-        )
-
-        if group_id:
-            update_group_file_count(group_id)
-
-        logger.info(
-            "[Backend] ✓ Deleted scan %s (removed %d files)", scan_id, deleted_files
-        )
+        result = _delete_scan_with_files(scan_id)
         return JSONResponse(
             {
                 "success": True,
-                "message": f"Deleted scan and {deleted_files} file(s)",
-                "deletedFiles": deleted_files,
-                "groupId": group_id,
+                "message": f"Deleted scan and {result['deletedFiles']} file(s)",
+                "deletedFiles": result["deletedFiles"],
+                "groupId": result["groupId"],
             }
         )
+    except LookupError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
     except Exception as exc:
         logger.exception("[Backend] Error deleting scan %s", scan_id)
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -2011,55 +2138,29 @@ async def get_batch_details(batch_id: str):
 async def delete_batch(batch_id: str):
     try:
         logger.info("[Backend] Deleting batch: %s", batch_id)
-        scans_query = "SELECT id, group_id FROM scans WHERE batch_id = %s"
-        scans = execute_query(scans_query, (batch_id,), fetch=True) or []
-        if not scans:
-            return JSONResponse(
-                {"success": False, "error": f"Batch {batch_id} not found"},
-                status_code=404,
-            )
-
-        affected_groups = {scan["group_id"] for scan in scans if scan.get("group_id")}
-
-        uploads_dir = _uploads_root()
-        fixed_dir = _fixed_root()
-        deleted_files = 0
-
-        for scan in scans:
-            scan_id = scan["id"]
-            for folder in [uploads_dir, fixed_dir]:
-                for ext in ("", ".pdf"):
-                    file_path = folder / f"{scan_id}{ext}"
-                    if file_path.exists():
-                        file_path.unlink()
-                        deleted_files += 1
-
-        execute_query(
-            "DELETE FROM fix_history WHERE scan_id IN (SELECT id FROM scans WHERE batch_id = %s)",
-            (batch_id,),
-            fetch=False,
-        )
-        execute_query("DELETE FROM scans WHERE batch_id = %s", (batch_id,), fetch=False)
-        execute_query("DELETE FROM batches WHERE id = %s", (batch_id,), fetch=False)
-
-        for group_id in affected_groups:
-            update_group_file_count(group_id)
-            logger.info("[Backend] Updated file count for group: %s", group_id)
+        result = _delete_batch_with_files(batch_id)
 
         logger.info(
             "[Backend] ✓ Deleted batch %s with %d scans and %d files",
             batch_id,
-            len(scans),
-            deleted_files,
+            result.get("deletedScans", 0),
+            result.get("deletedFiles", 0),
         )
 
         return SafeJSONResponse(
             {
                 "success": True,
-                "message": f"Deleted batch with {len(scans)} scans",
-                "deletedFiles": deleted_files,
-                "affectedGroups": list(affected_groups),
+                "message": f"Deleted batch with {result.get('deletedScans', 0)} scans",
+                "deletedFiles": result.get("deletedFiles", 0),
+                "deletedScans": result.get("deletedScans", 0),
+                "batchId": result.get("batchId"),
+                "batchName": result.get("batchName"),
+                "affectedGroups": result.get("affectedGroups", []),
             }
+        )
+    except LookupError as exc:
+        return JSONResponse(
+            {"success": False, "error": str(exc)}, status_code=404
         )
     except Exception as e:
         logger.exception("[Backend] Error deleting batch")
