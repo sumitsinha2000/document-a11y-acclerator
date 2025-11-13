@@ -15,6 +15,7 @@ import {
   getIssueWcagCriteria,
   UTF8_BOM,
 } from "../utils/exportUtils"
+import { parseBackendDate } from "../utils/dates"
 
 export default function ExportDropdown({ scanId, filename }) {
   const { showError } = useNotification()
@@ -112,12 +113,16 @@ export default function ExportDropdown({ scanId, filename }) {
     const doc = new jsPDF()
     const documentLanguage =
       (typeof navigator !== "undefined" && navigator.language) || "en-US"
-    const generatedDate = data.uploadDate ? new Date(data.uploadDate) : new Date()
+    const generatedDate = parseBackendDate(data.uploadDate) || new Date()
     const generatedDisplay = generatedDate.toLocaleString()
     const summary = data.summary || {}
     const results = data.results || {}
 
-    // Set document properties
+    const PAGE_MARGIN = 20
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const usableWidth = pageWidth - PAGE_MARGIN * 2
+
     doc.setProperties({
       title: `Accessibility Report - ${filename}`,
       subject: "Document Accessibility Compliance Report",
@@ -132,36 +137,68 @@ export default function ExportDropdown({ scanId, filename }) {
       doc.setCreationDate(generatedDate)
     }
 
-    // Header with gradient effect (simulated with colored rectangle)
+    const headerHeight = 36
+    const headerTop = PAGE_MARGIN
     doc.setFillColor(102, 126, 234)
-    doc.rect(0, 0, 210, 45, "F")
+    doc.rect(PAGE_MARGIN, headerTop, usableWidth, headerHeight, "F")
 
-    // Title
     doc.setTextColor(255, 255, 255)
-    doc.setFontSize(24)
+    doc.setFontSize(20)
     doc.setFont("helvetica", "bold")
-    doc.text("Accessibility Compliance Report", 105, 20, { align: "center" })
+    doc.text("Accessibility Compliance Report", pageWidth / 2, headerTop + 14, {
+      align: "center",
+    })
 
-    // Document name
-    doc.setFontSize(12)
-    doc.setFont("helvetica", "normal")
-    doc.text(`Document: ${filename}`, 105, 30, { align: "center" })
-    doc.text(`Generated: ${generatedDisplay}`, 105, 37, { align: "center" })
-
-    // Reset text color for body
-    doc.setTextColor(0, 0, 0)
-
-    // Summary section
-    let yPos = 55
-    doc.setFontSize(16)
-    doc.setFont("helvetica", "bold")
-    doc.text("Summary", 14, yPos)
-
-    yPos += 10
     doc.setFontSize(11)
     doc.setFont("helvetica", "normal")
+    doc.text(`Document: ${filename}`, pageWidth / 2, headerTop + 24, { align: "center" })
+    doc.text(`Generated: ${generatedDisplay}`, pageWidth / 2, headerTop + 31, { align: "center" })
 
-    // Summary boxes
+    doc.setTextColor(0, 0, 0)
+
+    let yPos = headerTop + headerHeight + 12
+    const ensureSpace = (needed = 0) => {
+      if (yPos + needed > pageHeight - PAGE_MARGIN) {
+        doc.addPage()
+        yPos = PAGE_MARGIN
+      }
+    }
+
+    const writeParagraph = (text, { fontSize = 11, spacing = 4 } = {}) => {
+      if (!text) return
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(fontSize)
+      const lines = doc.splitTextToSize(text, usableWidth)
+      const lineHeight = fontSize * 0.35 + 4
+      lines.forEach((line) => {
+        ensureSpace(lineHeight)
+        doc.text(line, PAGE_MARGIN, yPos)
+        yPos += lineHeight
+      })
+      yPos += spacing
+    }
+
+    const writeHeading = (text, size = 16, color = [0, 0, 0]) => {
+      ensureSpace(size + 6)
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(size)
+      doc.setTextColor(...color)
+      doc.text(text, PAGE_MARGIN, yPos)
+      doc.setTextColor(0, 0, 0)
+      yPos += size * 0.35 + 6
+    }
+
+    const updatePositionFromTable = (offset = 12) => {
+      const finalY = doc.lastAutoTable?.finalY
+      if (typeof finalY === "number") {
+        yPos = finalY + offset
+      } else {
+        yPos += offset
+      }
+      ensureSpace(0)
+    }
+
+    writeHeading("Summary", 16)
     const summaryData = [
       ["Compliance Score", `${summary.complianceScore || 0}%`],
       ["Total Issues", `${summary.totalIssues || 0}`],
@@ -171,110 +208,124 @@ export default function ExportDropdown({ scanId, filename }) {
         typeof summary.wcagCompliance === "number" ? `${summary.wcagCompliance}%` : "N/A",
       ],
     ]
+    const summaryColumnStyles = {
+      0: { fontStyle: "bold", cellWidth: usableWidth * 0.55 },
+      1: { halign: "left", cellWidth: usableWidth * 0.45 },
+    }
 
     autoTable(doc, {
       startY: yPos,
+      tableWidth: usableWidth,
+      margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
       head: [["Metric", "Value"]],
       body: summaryData,
       theme: "grid",
       headStyles: { fillColor: [102, 126, 234], textColor: 255, fontStyle: "bold" },
-      styles: { fontSize: 10, cellPadding: 5 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 100 },
-        1: { halign: "center", cellWidth: 80 },
-      },
+      styles: { fontSize: 10, cellPadding: 5, overflow: "linebreak", cellWidth: "wrap" },
+      columnStyles: summaryColumnStyles,
     })
+    updatePositionFromTable()
 
-    yPos = (doc.lastAutoTable?.finalY || yPos) + 15
+    const overviewLine = `Detected ${summary.totalIssues || 0} issue(s) across ${
+      Object.keys(results).length || 0
+    } categories.`
+    writeParagraph(overviewLine)
 
-    // Issues by category
+    const columnRatios = [0.12, 0.38, 0.14, 0.12, 0.24]
+    const columnStyles = columnRatios.reduce((acc, ratio, index) => {
+      acc[index] = { cellWidth: Math.max(ratio * usableWidth, 20) }
+      return acc
+    }, {})
+
     Object.entries(results).forEach(([category, issues]) => {
-      if (Array.isArray(issues) && issues.length > 0) {
-        // Check if we need a new page
-        if (yPos > 250) {
-          doc.addPage()
-          yPos = 20
-        }
+      if (!Array.isArray(issues) || issues.length === 0) {
+        return
+      }
 
-        // Category header
-        doc.setFontSize(14)
-        doc.setFont("helvetica", "bold")
-        doc.setTextColor(102, 126, 234)
-        doc.text(category.replace(/([A-Z])/g, " $1").trim(), 14, yPos)
-        doc.setTextColor(0, 0, 0)
+      writeHeading(category.replace(/([A-Z])/g, " $1").trim(), 14, [102, 126, 234])
+      writeParagraph(`${issues.length} issue(s) detected in this category.`)
 
-        yPos += 8
+      const issuesData = issues.map((issue) => {
+        const severityValue = (issue.severity || "medium").toString().toLowerCase()
+        const severityDisplay = severityValue.charAt(0).toUpperCase() + severityValue.slice(1)
+        const description = getIssuePrimaryText(issue)
+        const clause = getIssueClause(issue)
+        const descriptionWithClause = clause ? `${description} (Clause: ${clause})` : description
+        const pages = getIssuePagesText(issue)
+        const recommendation = getIssueRecommendation(issue)
+        const recommendationLabel = getRecommendationLabel(issue)
+        const wcagCriteria = getIssueWcagCriteria(issue) || "N/A"
+        const recommendationCell = recommendation
+          ? `${recommendationLabel || "Recommendation"}: ${recommendation}`
+          : "N/A"
 
-        // Issues table
-        const issuesData = issues.map((issue) => {
-          const severityValue = (issue.severity || "medium").toString().toLowerCase()
-          const severityDisplay = severityValue.charAt(0).toUpperCase() + severityValue.slice(1)
-          const description = getIssuePrimaryText(issue)
-          const clause = getIssueClause(issue)
-          const descriptionWithClause = clause ? `${description} (Clause: ${clause})` : description
-          const pages = getIssuePagesText(issue)
-          const recommendation = getIssueRecommendation(issue)
-          const recommendationLabel = getRecommendationLabel(issue)
-          const wcagCriteria = getIssueWcagCriteria(issue) || "N/A"
-          const recommendationCell = recommendation
-            ? `${recommendationLabel || "Recommendation"}: ${recommendation}`
-            : "N/A"
+        return [severityDisplay, descriptionWithClause, wcagCriteria, pages, recommendationCell]
+      })
 
-          return [severityDisplay, descriptionWithClause, wcagCriteria, pages, recommendationCell]
-        })
+      ensureSpace(10)
+      autoTable(doc, {
+        startY: yPos,
+        tableWidth: usableWidth,
+        margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+        head: [["Severity", "Description", "WCAG Criteria", "Pages", "Recommendation"]],
+        body: issuesData,
+        theme: "striped",
+        headStyles: { fillColor: [102, 126, 234], textColor: 255, fontStyle: "bold" },
+        styles: {
+          fontSize: 9,
+          cellPadding: 4,
+          overflow: "linebreak",
+          cellWidth: "wrap",
+          minCellHeight: 10,
+        },
+        bodyStyles: { valign: "top" },
+        columnStyles,
+        didDrawCell: (cellData) => {
+          if (cellData.column.index === 0 && cellData.section === "body") {
+            const severity = (cellData.cell.raw || "").toLowerCase()
+            let color = [255, 193, 7]
+            if (severity === "critical") color = [220, 53, 69]
+            else if (severity === "high") color = [253, 126, 20]
+            else if (severity === "low") color = [40, 167, 69]
 
-        autoTable(doc, {
-          startY: yPos,
-          head: [["Severity", "Description", "WCAG Criteria", "Pages", "Recommendation"]],
-          body: issuesData,
-          theme: "striped",
-          headStyles: { fillColor: [102, 126, 234], textColor: 255, fontStyle: "bold" },
-          styles: { fontSize: 9, cellPadding: 4 },
-          columnStyles: {
-            0: { cellWidth: 22, fontStyle: "bold" },
-            1: { cellWidth: 60 },
-            2: { cellWidth: 40 },
-            3: { cellWidth: 25 },
-            4: { cellWidth: 53 },
-          },
-          didDrawCell: (data) => {
-            // Color code severity
-            if (data.column.index === 0 && data.section === "body") {
-              const severity = data.cell.raw.toLowerCase()
-              let color = [255, 193, 7] // medium - yellow
-              if (severity === "critical") color = [220, 53, 69]
-              else if (severity === "high") color = [253, 126, 20]
-              else if (severity === "low") color = [40, 167, 69]
-
-              doc.setFillColor(...color)
-              doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F")
-              doc.setTextColor(severity === "medium" ? 0 : 255)
-              doc.setFontSize(9)
-              doc.setFont("helvetica", "bold")
-              doc.text(data.cell.raw, data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2, {
+            doc.setFillColor(...color)
+            doc.rect(cellData.cell.x, cellData.cell.y, cellData.cell.width, cellData.cell.height, "F")
+            doc.setTextColor(severity === "medium" ? 0 : 255)
+            doc.setFontSize(9)
+            doc.setFont("helvetica", "bold")
+            doc.text(
+              cellData.cell.raw,
+              cellData.cell.x + cellData.cell.width / 2,
+              cellData.cell.y + cellData.cell.height / 2,
+              {
                 align: "center",
                 baseline: "middle",
-              })
-              doc.setTextColor(0, 0, 0)
-            }
-          },
-        })
+              }
+            )
+            doc.setTextColor(0, 0, 0)
+          }
+        },
+      })
 
-        yPos = (doc.lastAutoTable?.finalY || yPos) + 12
-      }
+      updatePositionFromTable()
     })
 
-    // Footer on last page
     const pageCount = doc.internal.getNumberOfPages()
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i)
       doc.setFontSize(8)
       doc.setTextColor(128, 128, 128)
-      doc.text(`Page ${i} of ${pageCount}`, 105, 285, { align: "center" })
-      doc.text("Generated by Document Accessibility Accelerator", 105, 290, { align: "center" })
+      doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - PAGE_MARGIN / 2, {
+        align: "center",
+      })
+      doc.text(
+        "Generated by Document Accessibility Accelerator",
+        pageWidth / 2,
+        pageHeight - PAGE_MARGIN / 2 + 5,
+        { align: "center" }
+      )
     }
 
-    // Save the PDF
     doc.save(`accessibility-report-${scanId}.pdf`)
   }
 

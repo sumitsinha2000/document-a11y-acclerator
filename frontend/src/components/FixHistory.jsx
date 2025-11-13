@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import axios from "axios"
 import { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
+import { parseBackendDate } from "../utils/dates"
 
 const safeRenderFix = (fix) => {
   // If it's already a string, return it
@@ -48,11 +49,7 @@ const parseFixesApplied = (item) => {
 
 const formatTimestamp = (item) => {
   const timestampValue = item.timestamp || item.appliedAt || item.applied_at || item.applied_at_iso
-  if (!timestampValue) {
-    return null
-  }
-  const parsed = new Date(timestampValue)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
+  return parseBackendDate(timestampValue)
 }
 
 export default function FixHistory({ scanId, onRefresh }) {

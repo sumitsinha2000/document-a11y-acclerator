@@ -4,6 +4,7 @@ import { useNotification } from "../contexts/NotificationContext"
 import GroupTreeSidebar from "./GroupTreeSidebar"
 import { BatchInsightPanel, FileInsightPanel, GroupInsightPanel } from "./DashboardInsights"
 import API_BASE_URL from "../config/api"
+import { parseBackendDate } from "../utils/dates"
 
 export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, initialGroupId }) {
   const { showError, showSuccess } = useNotification()
@@ -187,6 +188,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
   const fileIsUploaded = nodeData?.type === "file" && nodeData?.status === "uploaded"
   const fileScanDateLabel = fileIsUploaded ? "Uploaded on" : "Scanned on"
   const fileDateValue = nodeData?.type === "file" ? nodeData?.uploadDate || nodeData?.created_at || nodeData?.timestamp : null
+  const parsedFileDate = parseBackendDate(fileDateValue)
   const targetFileName =
     nodeData?.type === "file" ? nodeData.fileName || nodeData.filename || "selected file" : "selected file"
   const batchHasUploadedFiles =
@@ -195,6 +197,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
     nodeData?.type === "batch" &&
     ((nodeData?.scans?.length || 0) === 0 ||
       nodeData?.scans?.every((scan) => (scan.status || "").toLowerCase() === "uploaded"))
+  const nodeUploadDate = parseBackendDate(nodeData?.uploadDate)
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
@@ -290,7 +293,8 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                         </h2>
                         <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
                           <span>
-                            {fileScanDateLabel} {fileDateValue ? new Date(fileDateValue).toLocaleDateString() : "N/A"}
+                            {fileScanDateLabel}{" "}
+                            {parsedFileDate ? parsedFileDate.toLocaleDateString() : "N/A"}
                           </span>
                           {nodeData.status && (
                             <span
@@ -383,7 +387,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                         <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
                           <span>
                             Created on{" "}
-                            {nodeData.uploadDate ? new Date(nodeData.uploadDate).toLocaleDateString() : "Unknown"}
+                            {nodeUploadDate ? nodeUploadDate.toLocaleDateString() : "Unknown"}
                           </span>
                           <span>{nodeData.fileCount || 0} files</span>
                         </div>

@@ -34,6 +34,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
       structureIssues: "Structure Issues",
       readingOrderIssues: "Reading Order Issues",
       pdfuaIssues: "PDF/UA Issues",
+      pdfaIssues: "PDF/A Issues",
     }
     return labels[key] || key
   }

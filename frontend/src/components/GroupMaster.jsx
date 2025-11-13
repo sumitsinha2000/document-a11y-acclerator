@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 import API_BASE_URL from "../config/api";
+import { parseBackendDate } from "../utils/dates"
 
 export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
   const { showSuccess, showError, confirm } = useNotification()
@@ -367,8 +368,10 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
             </div>
           ) : (
             <div className="divide-y divide-gray-200 dark:divide-gray-700">
-              {groups.map((group) => (
-                <div key={group.id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+              {groups.map((group) => {
+                const createdDate = parseBackendDate(group.created_at || group.createdAt)
+                return (
+                  <div key={group.id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                   <div className="flex items-start justify-between gap-4">
                     <button
                       type="button"
@@ -400,7 +403,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
                           </svg>
                           {group.file_count || 0} files
                         </span>
-                        <span>Created {new Date(group.created_at).toLocaleDateString()}</span>
+                        <span>Created {createdDate ? createdDate.toLocaleDateString() : "Unknown date"}</span>
                       </div>
                     </button>
 
@@ -448,7 +451,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
                     </div>
                   </div>
                 </div>
-              ))}
+              })}
             </div>
           )}
         </div>
