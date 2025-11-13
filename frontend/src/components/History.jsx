@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
+import { parseBackendDate } from "../utils/dates"
 
 export default function History({ onSelectScan, onSelectBatch, onBack }) {
   const [batches, setBatches] = useState([])
@@ -388,12 +389,14 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
             Batch Uploads {searchQuery && `(${filteredBatches.length} of ${batches.length})`}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredBatches.map((batch) => (
-              <div
-                key={batch.batchId}
-                className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => onSelectBatch && onSelectBatch(batch.batchId)}
-              >
+            {filteredBatches.map((batch) => {
+              const batchDate = parseBackendDate(batch.uploadDate)
+              return (
+                <div
+                  key={batch.batchId}
+                  className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-shadow cursor-pointer"
+                  onClick={() => onSelectBatch && onSelectBatch(batch.batchId)}
+                >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center min-w-0 gap-2">
                     <svg
@@ -444,7 +447,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-mono truncate">ID: {batch.batchId}</p>
 
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  {batch.uploadDate ? new Date(batch.uploadDate).toLocaleString() : "Date unavailable"}
+                  {batchDate ? batchDate.toLocaleString() : "Date unavailable"}
                 </p>
 
                 {/* Status Badge */}
@@ -480,7 +483,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                   <button className="text-blue-600 dark:text-blue-400 hover:underline">View Details →</button>
                 </div>
               </div>
-            ))}
+            })}
           </div>
         </div>
       )}
@@ -496,6 +499,8 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
               const issuesFixed = scan.issuesFixed || 0
               const issuesRemaining = scan.issuesRemaining || totalIssues
               const isUploaded = scan.status === "uploaded"
+              const scanDateValue = scan.uploadDate || scan.timestamp || scan.created_at
+              const scanDate = parseBackendDate(scanDateValue)
 
               return (
                 <div
@@ -557,7 +562,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                   </div>
 
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                    {scan.uploadDate ? new Date(scan.uploadDate).toLocaleString() : "Date unavailable"}
+                    {scanDate ? scanDate.toLocaleString() : "Date unavailable"}
                   </p>
 
                   {/* Status Badge */}

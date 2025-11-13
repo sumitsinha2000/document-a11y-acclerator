@@ -1,3 +1,5 @@
+import { parseBackendDate } from "../utils/dates"
+
 export default function ScanHistory({ scans, onSelectScan, onBack }) {
   if (scans.length === 0) {
     return (
@@ -44,8 +46,10 @@ export default function ScanHistory({ scans, onSelectScan, onBack }) {
         </div>
 
         <div className="space-y-3">
-          {scans.map((scan) => (
-            <div
+          {scans.map((scan) => {
+            const scanDate = parseBackendDate(scan.uploadDate || scan.timestamp || scan.created_at)
+            return (
+              <div
               key={scan.id}
               className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer transition-colors"
               onClick={() => onSelectScan(scan)}
@@ -53,7 +57,9 @@ export default function ScanHistory({ scans, onSelectScan, onBack }) {
               <div className="flex-1">
                 <h3 className="font-semibold text-gray-900 dark:text-white">{scan.filename}</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  {new Date(scan.uploadDate).toLocaleDateString()} at {new Date(scan.uploadDate).toLocaleTimeString()}
+                  {scanDate
+                    ? `${scanDate.toLocaleDateString()} at ${scanDate.toLocaleTimeString()}`
+                    : "Date unavailable"}
                 </p>
               </div>
               <div className="flex items-center gap-3">

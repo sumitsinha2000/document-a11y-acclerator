@@ -9,6 +9,7 @@ import FixHistory from "./FixHistory"
 import AIFixStrategyModal from "./AIFixStrategyModal"
 import API_BASE_URL,{API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
+import { parseBackendDate } from "../utils/dates"
 
 export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
@@ -219,6 +220,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const scanStatus = (reportData.status || "").toLowerCase()
   const isUploaded = scanStatus === "uploaded"
   const scanDateLabel = isUploaded ? "Uploaded on" : "Scanned on"
+  const parsedReportDate = parseBackendDate(reportData.uploadDate || reportData.timestamp || reportData.created_at)
 
   const breadcrumbItems = [{ label: "Home", onClick: onBack }, { label: "Report" }]
 
@@ -406,7 +408,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
               </h1>
               <div className="flex items-center gap-4 text-base text-slate-600 dark:text-slate-400 font-medium">
                 <span>
-                  {scanDateLabel} {new Date(reportData.uploadDate || reportData.timestamp).toLocaleDateString()}
+                  {scanDateLabel}{" "}
+                  {parsedReportDate ? parsedReportDate.toLocaleDateString() : "Date unavailable"}
                 </span>
                 {reportData.appliedFixes && (
                   <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">

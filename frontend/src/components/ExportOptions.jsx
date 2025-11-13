@@ -10,6 +10,7 @@ import {
   escapeCsvValue,
   UTF8_BOM,
 } from "../utils/exportUtils"
+import { parseBackendDate } from "../utils/dates"
 import API_BASE_URL from "../config/api"
 
 export default function ExportOptions({ scanId, filename }) {
@@ -80,7 +81,7 @@ export default function ExportOptions({ scanId, filename }) {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
       const data = response.data || {}
-      const generatedDate = data.uploadDate ? new Date(data.uploadDate) : new Date()
+      const generatedDate = parseBackendDate(data.uploadDate) || new Date()
       const generatedDisplay = generatedDate.toLocaleString()
       const readableFilename = filename || data.filename || `scan-${scanId}`
       const results = data.results || {}

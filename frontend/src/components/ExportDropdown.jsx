@@ -15,6 +15,7 @@ import {
   getIssueWcagCriteria,
   UTF8_BOM,
 } from "../utils/exportUtils"
+import { parseBackendDate } from "../utils/dates"
 
 export default function ExportDropdown({ scanId, filename }) {
   const { showError } = useNotification()
@@ -112,7 +113,7 @@ export default function ExportDropdown({ scanId, filename }) {
     const doc = new jsPDF()
     const documentLanguage =
       (typeof navigator !== "undefined" && navigator.language) || "en-US"
-    const generatedDate = new Date()
+    const generatedDate = parseBackendDate(data.uploadDate) || new Date()
     const generatedDisplay = generatedDate.toLocaleString()
     const summary = data.summary || {}
     const results = data.results || {}
