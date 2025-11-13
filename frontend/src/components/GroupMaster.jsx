@@ -372,23 +372,49 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
                 const createdDate = parseBackendDate(group.created_at || group.createdAt)
                 return (
                   <div key={group.id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                  <div className="flex items-start justify-between gap-4">
-                    <button
-                      type="button"
-                      onClick={() => onOpenGroupDashboard && onOpenGroupDashboard(group.id)}
-                      className="flex-1 min-w-0 text-left"
-                      aria-label={`Open dashboard for ${group.name}`}
-                    >
-                      <h3 className="text-base font-semibold text-gray-900 dark:text-white truncate">{group.name}</h3>
-                      {group.description && (
-                        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
-                          {group.description}
-                        </p>
-                      )}
-                      <div className="mt-2 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-                        <span className="inline-flex items-center gap-1">
+                    <div className="flex items-start justify-between gap-4">
+                      <button
+                        type="button"
+                        onClick={() => onOpenGroupDashboard && onOpenGroupDashboard(group.id)}
+                        className="flex-1 min-w-0 text-left"
+                        aria-label={`Open dashboard for ${group.name}`}
+                      >
+                        <h3 className="text-base font-semibold text-gray-900 dark:text-white truncate">{group.name}</h3>
+                        {group.description && (
+                          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                            {group.description}
+                          </p>
+                        )}
+                        <div className="mt-2 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+                          <span className="inline-flex items-center gap-1">
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                              aria-hidden="true"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                              />
+                            </svg>
+                            {group.file_count || 0} files
+                          </span>
+                          <span>Created {createdDate ? createdDate.toLocaleDateString() : "Unknown date"}</span>
+                        </div>
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleStartEdit(group)}
+                          className="p-2 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                          aria-label={`Edit ${group.name}`}
+                        >
                           <svg
-                            className="w-4 h-4"
+                            className="w-5 h-5"
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -398,59 +424,34 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               strokeWidth={2}
-                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
                             />
                           </svg>
-                          {group.file_count || 0} files
-                        </span>
-                        <span>Created {createdDate ? createdDate.toLocaleDateString() : "Unknown date"}</span>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteGroup(group.id, group.name)}
+                          className="p-2 text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                          aria-label={`Delete ${group.name}`}
+                        >
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                          </svg>
+                        </button>
                       </div>
-                    </button>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleStartEdit(group)}
-                        className="p-2 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-                        aria-label={`Edit ${group.name}`}
-                      >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                          />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => handleDeleteGroup(group.id, group.name)}
-                        className="p-2 text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-                        aria-label={`Delete ${group.name}`}
-                      >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                          />
-                        </svg>
-                      </button>
                     </div>
                   </div>
-                </div>
+                )
               })}
             </div>
           )}
