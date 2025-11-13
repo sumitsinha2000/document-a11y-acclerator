@@ -250,7 +250,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             newScanData?.summary,
             newScanData?.results || newScanData?.scanResults?.results,
             newScanData?.verapdfStatus,
-            newScanData?.suggestions,
+            newScanData?.fixes || newScanData?.scanResults?.fixes,
           )
           console.log("[v0] FixSuggestions - Refresh completed successfully")
 

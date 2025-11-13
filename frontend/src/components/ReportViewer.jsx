@@ -106,10 +106,10 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   }
 
   const handleRefresh = async (
-    updatedSummary = null,
-    updatedResults = null,
-    updatedVerapdfStatus = null,
-    updatedFixes = null,
+    updatedSummary = undefined,
+    updatedResults = undefined,
+    updatedVerapdfStatus = undefined,
+    updatedFixes = undefined,
   ) => {
     setIsRefreshing(true)
     try {
@@ -117,21 +117,27 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       const targetScanId =
         currentScan?.scanId || currentScan?.id || reportData?.scanId || reportData?.id
 
-      if (updatedSummary || updatedResults || updatedVerapdfStatus || updatedFixes) {
+      const hasFreshData =
+        updatedSummary !== undefined ||
+        updatedResults !== undefined ||
+        updatedVerapdfStatus !== undefined ||
+        updatedFixes !== undefined
+
+      if (hasFreshData && reportData) {
         setReportData((prev) => {
           if (!prev) return prev
           return {
             ...prev,
-            summary: updatedSummary || prev.summary,
-            results: updatedResults || prev.results,
+            summary: updatedSummary !== undefined ? updatedSummary : prev.summary,
+            results: updatedResults !== undefined ? updatedResults : prev.results,
             verapdfStatus:
-              updatedVerapdfStatus !== null && updatedVerapdfStatus !== undefined
-                ? updatedVerapdfStatus
-                : prev.verapdfStatus,
-            fixes: updatedFixes || prev.fixes,
+              updatedVerapdfStatus !== undefined ? updatedVerapdfStatus : prev.verapdfStatus,
+            fixes: updatedFixes !== undefined ? updatedFixes : prev.fixes,
           }
         })
         setRefreshKey((prev) => prev + 1)
+        showSuccess("Report updated with the latest scan data")
+        return
       }
 
       if (targetScanId) {
