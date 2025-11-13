@@ -397,92 +397,91 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                   className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-shadow cursor-pointer"
                   onClick={() => onSelectBatch && onSelectBatch(batch.batchId)}
                 >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center min-w-0 gap-2">
-                    <svg
-                      className="w-5 h-5 text-blue-600 flex-shrink-0 dark:text-blue-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                      aria-hidden="true"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                      />
-                    </svg>
-                    <div className="min-w-0">
-                      <h3 className="font-semibold text-gray-900 dark:text-white truncate">
-                        {batch.name || "Batch Upload"}
-                      </h3>
-                      {batch.groupName && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">Group: {batch.groupName}</p>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={(e) => handleDeleteBatch(batch.batchId, batch.name, e)}
-                    disabled={deletingBatch === batch.batchId}
-                    className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                    title="Delete batch"
-                  >
-                    {deletingBatch === batch.batchId ? (
-                      <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-                    ) : (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center min-w-0 gap-2">
+                      <svg
+                        className="w-5 h-5 text-blue-600 flex-shrink-0 dark:text-blue-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           strokeWidth={2}
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                          d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
                         />
                       </svg>
-                    )}
-                  </button>
+                      <div className="min-w-0">
+                        <h3 className="font-semibold text-gray-900 dark:text-white truncate">
+                          {batch.name || "Batch Upload"}
+                        </h3>
+                        {batch.groupName && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">Group: {batch.groupName}</p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => handleDeleteBatch(batch.batchId, batch.name, e)}
+                      disabled={deletingBatch === batch.batchId}
+                      className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                      title="Delete batch"
+                    >
+                      {deletingBatch === batch.batchId ? (
+                        <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Batch ID */}
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-mono truncate">ID: {batch.batchId}</p>
+
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                    {batchDate ? batchDate.toLocaleString() : "Date unavailable"}
+                  </p>
+
+                  {/* Status Badge */}
+                  <div className="mb-3">{getStatusBadge(batch.status)}</div>
+
+                  {/* Aggregate Statistics */}
+                  <div className="space-y-2 mb-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Total Files:</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">{batch.fileCount || 0}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Unprocessed:</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">{batch.unprocessedFiles || 0}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Total Issues:</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">{batch.totalIssues || 0}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-green-600 dark:text-green-400">Fixed:</span>
+                      <span className="font-semibold text-green-600 dark:text-green-400">{batch.fixedIssues || 0}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-orange-600 dark:text-orange-400">Remaining:</span>
+                      <span className="font-semibold text-orange-600 dark:text-orange-400">{batch.remainingIssues || 0}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end text-xs">
+                    <button className="text-blue-600 dark:text-blue-400 hover:underline">View Details →</button>
+                  </div>
                 </div>
-
-                {/* Batch ID */}
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-mono truncate">ID: {batch.batchId}</p>
-
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  {batchDate ? batchDate.toLocaleString() : "Date unavailable"}
-                </p>
-
-                {/* Status Badge */}
-                <div className="mb-3">{getStatusBadge(batch.status)}</div>
-
-                {/* Aggregate Statistics */}
-                <div className="space-y-2 mb-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">Total Files:</span>
-                    <span className="font-semibold text-gray-900 dark:text-white">{batch.fileCount || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">Unprocessed:</span>
-                    <span className="font-semibold text-gray-900 dark:text-white">{batch.unprocessedFiles || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">Total Issues:</span>
-                    <span className="font-semibold text-gray-900 dark:text-white">{batch.totalIssues || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-green-600 dark:text-green-400">Fixed:</span>
-                    <span className="font-semibold text-green-600 dark:text-green-400">{batch.fixedIssues || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-orange-600 dark:text-orange-400">Remaining:</span>
-                    <span className="font-semibold text-orange-600 dark:text-orange-400">
-                      {batch.remainingIssues || 0}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end text-xs">
-                  <button className="text-blue-600 dark:text-blue-400 hover:underline">View Details →</button>
-                </div>
-              </div>
+              )
             })}
           </div>
         </div>
