@@ -7,9 +7,10 @@ import Breadcrumb from "./Breadcrumb"
 import ExportDropdown from "./ExportDropdown"
 import FixHistory from "./FixHistory"
 import AIFixStrategyModal from "./AIFixStrategyModal"
-import API_BASE_URL,{API_ENDPOINTS } from "../config/api"
+import API_BASE_URL, { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
 import { parseBackendDate } from "../utils/dates"
+import { resolveSummary, calculateComplianceSnapshot } from "../utils/compliance"
 
 export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
@@ -204,18 +205,22 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     )
   }
 
-  const summary = reportData.summary || {
-    totalIssues: 0,
-    highSeverity: 0,
-    complianceScore: 0,
-  }
+  const verapdfStatus = calculateComplianceSnapshot(
+    reportData.results,
+    reportData?.verapdfStatus || {
+      isActive: false,
+      wcagCompliance: null,
+      pdfuaCompliance: null,
+      pdfaCompliance: null,
+      totalVeraPDFIssues: 0,
+    },
+  )
 
-  const verapdfStatus = reportData?.verapdfStatus || {
-    isActive: false,
-    wcagCompliance: null,
-    pdfuaCompliance: null,
-    totalVeraPDFIssues: 0,
-  }
+  const summary = resolveSummary({
+    summary: reportData.summary,
+    results: reportData.results,
+    verapdfStatus,
+  })
 
   const scanStatus = (reportData.status || "").toLowerCase()
   const isUploaded = scanStatus === "uploaded"
@@ -520,35 +525,58 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
 
                     {verapdfStatus.isActive && (
                       <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
-                        <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
-                          <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-                            <path
-                              fillRule="evenodd"
-                              d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z"
-                              clipRule="evenodd"
-                            />
-                          </svg>
-                          <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
-                            WCAG {verapdfStatus.wcagCompliance}%
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-full border border-purple-200 dark:border-purple-800">
-                          <svg
-                            className="w-4 h-4 text-purple-600 dark:text-purple-400"
-                            fill="currentColor"
-                            viewBox="0 0 20 20"
-                          >
-                            <path
-                              fillRule="evenodd"
-                              d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
-                              clipRule="evenodd"
-                            />
-                          </svg>
-                          <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
-                            PDF/UA {verapdfStatus.pdfuaCompliance}%
-                          </span>
-                        </div>
+                        {typeof verapdfStatus.wcagCompliance === "number" && (
+                          <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
+                            <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                              <path
+                                fillRule="evenodd"
+                                d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                            <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                              WCAG {verapdfStatus.wcagCompliance}%
+                            </span>
+                          </div>
+                        )}
+                        {typeof verapdfStatus.pdfuaCompliance === "number" && (
+                          <div className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-full border border-purple-200 dark:border-purple-800">
+                            <svg
+                              className="w-4 h-4 text-purple-600 dark:text-purple-400"
+                              fill="currentColor"
+                              viewBox="0 0 20 20"
+                            >
+                              <path
+                                fillRule="evenodd"
+                                d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                            <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
+                              PDF/UA {verapdfStatus.pdfuaCompliance}%
+                            </span>
+                          </div>
+                        )}
+                        {typeof verapdfStatus.pdfaCompliance === "number" && (
+                          <div className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-full border border-emerald-200 dark:border-emerald-800">
+                            <svg
+                              className="w-4 h-4 text-emerald-600 dark:text-emerald-400"
+                              fill="currentColor"
+                              viewBox="0 0 20 20"
+                            >
+                              <path d="M4 3a2 2 0 012-2h6.586A2 2 0 0114 1.586L18.414 6A2 2 0 0120 7.414V17a2 2 0 01-2 2H6a2 2 0 01-2-2V3z" />
+                              <path
+                                fillRule="evenodd"
+                                d="M8 11a1 1 0 011-1h6a1 1 0 110 2H9a1 1 0 01-1-1z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                            <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                              PDF/A {verapdfStatus.pdfaCompliance}%
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

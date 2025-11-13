@@ -6,6 +6,27 @@ import ReportViewer from "./ReportViewer"
 import { ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Info } from "lucide-react"
 import { useNotification } from "../contexts/NotificationContext"
 import API_BASE_URL from "../config/api"
+import { resolveSummary, calculateComplianceSnapshot } from "../utils/compliance"
+
+const normalizeScanSummary = (scan) => {
+  if (!scan || typeof scan !== "object") {
+    return scan
+  }
+
+  const enhancedStatus = calculateComplianceSnapshot(scan.results, scan.verapdfStatus)
+
+  return {
+    ...scan,
+    summary: resolveSummary({
+      summary: scan.summary,
+      results: scan.results,
+      verapdfStatus: enhancedStatus,
+    }),
+    verapdfStatus: enhancedStatus,
+  }
+}
+
+const normalizeScans = (scans) => (Array.isArray(scans) ? scans.map((scan) => normalizeScanSummary(scan)) : [])
 
 export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdate }) {
   const [fixing, setFixing] = useState(false)
@@ -22,7 +43,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   const [expandedCategories, setExpandedCategories] = useState({})
   const [itemsPerPage, setItemsPerPage] = useState(10)
   const [batchData, setBatchData] = useState(null)
-  const [scansState, setScansState] = useState(scans || [])
+  const [scansState, setScansState] = useState(() => normalizeScans(scans))
   const { showSuccess, showError, showWarning, showInfo, confirm } = useNotification()
   const fetchedScanIdsRef = useRef(new Set())
   const searchInputId = useId()
@@ -34,7 +55,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
         console.log("[v0] Fetching batch details:", batchId)
         const response = await axios.get(`${API_BASE_URL}/api/batch/${batchId}`)
         setBatchData(response.data)
-        setScansState(response.data.scans || [])
+        setScansState(normalizeScans(response.data.scans))
         console.log("[v0] Batch data loaded:", response.data)
       } catch (error) {
         console.error("[v0] Error fetching batch data:", error)
@@ -45,13 +66,13 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
     if (batchId && (!scans || scans.length === 0)) {
       fetchBatchData()
     } else if (scans && scans.length > 0) {
-      setScansState(scans)
+      setScansState(normalizeScans(scans))
     }
   }, [batchId, scans])
 
   useEffect(() => {
     if (scans && scans.length > 0) {
-      setScansState(scans)
+      setScansState(normalizeScans(scans))
     }
   }, [scans])
 
@@ -106,10 +127,10 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
           prev.map((scan) => {
             const scanId = scan.scanId || scan.id
             if (scanId && enrichedById[scanId]) {
-              return {
+              return normalizeScanSummary({
                 ...scan,
                 ...enrichedById[scanId],
-              }
+              })
             }
             return scan
           }),
@@ -224,7 +245,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
         prev.map((scan) => {
           const currentId = scan.scanId || scan.id
           if (currentId === scanId) {
-            return {
+            return normalizeScanSummary({
               ...scan,
               ...data,
               scanId: currentId,
@@ -233,7 +254,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
               results: data.results || scan.results || {},
               verapdfStatus: data.verapdfStatus || scan.verapdfStatus,
               fixes: data.fixes || scan.fixes || [],
-            }
+            })
           }
           return scan
         }),
@@ -374,23 +395,34 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   }
 
   const totalIssues = scansState.reduce((sum, scan) => {
-    const summary = scan.summary || {}
-    return sum + (summary.totalIssues || 0)
+    const total = Number(scan.summary?.totalIssues)
+    return sum + (Number.isFinite(total) ? total : 0)
   }, 0)
 
+  const complianceScores = scansState.reduce((scores, scan) => {
+    const status = (scan.status || "").toLowerCase()
+    if (status === "uploaded") {
+      return scores
+    }
+    const score = scan.summary?.complianceScore
+    if (typeof score === "number" && Number.isFinite(score)) {
+      scores.push(score)
+    }
+    return scores
+  }, [])
+
   const avgCompliance =
-    scansState.length > 0
+    complianceScores.length > 0
       ? Math.round(
-          scansState.reduce((sum, scan) => {
-            const summary = scan.summary || {}
-            return sum + (summary.complianceScore || 0)
-          }, 0) / scansState.length,
-        )
-      : 0
+          (complianceScores.reduce((sum, score) => sum + score, 0) / complianceScores.length) * 100,
+        ) / 100
+      : null
+
+  const avgComplianceDisplay = avgCompliance !== null ? `${avgCompliance}%` : "N/A"
 
   const highSeverity = scansState.reduce((sum, scan) => {
-    const summary = scan.summary || {}
-    return sum + (summary.highSeverity || 0)
+    const severity = Number(scan.summary?.highSeverity)
+    return sum + (Number.isFinite(severity) ? severity : 0)
   }, 0)
 
   const issueCategories = aggregateIssuesByCategory()
@@ -571,7 +603,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
               <div className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-3">
                 Avg Compliance
               </div>
-              <div className="text-4xl font-bold text-slate-900 dark:text-white">{avgCompliance}%</div>
+              <div className="text-4xl font-bold text-slate-900 dark:text-white">{avgComplianceDisplay}</div>
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-7 border border-gray-200 dark:border-gray-700">
               <div className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-3">

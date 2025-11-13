@@ -3,12 +3,25 @@
 import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import { API_ENDPOINTS } from "../config/api"
+import { resolveSummary } from "../utils/compliance"
 
 export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete }) {
   const [progress, setProgress] = useState(null)
   const [polling, setPolling] = useState(true)
   const [finalResultData, setFinalResultData] = useState(null)
   const hasCompletedRef = useRef(false)
+
+  const buildResolvedResult = (resultData) => {
+    if (!resultData) return null
+    return {
+      ...resultData,
+      summary: resolveSummary({
+        summary: resultData.summary,
+        results: resultData.results,
+        verapdfStatus: resultData.verapdfStatus,
+      }),
+    }
+  }
 
   useEffect(() => {
     if (isOpen && scanId) {
@@ -52,8 +65,8 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
             )
 
             if (rescanStep && rescanStep.resultData) {
-              latestResultData = rescanStep.resultData
-              setFinalResultData(rescanStep.resultData)
+              latestResultData = buildResolvedResult(rescanStep.resultData)
+              setFinalResultData(latestResultData)
             }
           }
 
@@ -204,8 +217,11 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
         {/* Steps List */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
-            {progress.steps.map((step, index) => (
-              <div key={step.id} className="flex gap-4">
+            {progress.steps.map((step, index) => {
+              const resolvedSummary =
+                step.name === "Re-scan Fixed PDF" ? buildResolvedResult(step.resultData)?.summary : null
+              return (
+                <div key={step.id} className="flex gap-4">
                 {/* Step Icon */}
                 <div className="flex flex-col items-center">
                   <div
@@ -237,22 +253,30 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
                         </p>
                       )}
 
-                      {step.name === "Re-scan Fixed PDF" && step.resultData?.summary && (
+                      {resolvedSummary && (
                         <div className="mt-3 inline-flex flex-wrap gap-2">
-                          {typeof step.resultData.summary.complianceScore === "number" && (
+                          {typeof resolvedSummary.complianceScore === "number" && (
                             <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200">
                               <span role="img" aria-hidden="true">
                                 📊
                               </span>
-                              Compliance: {Math.round(step.resultData.summary.complianceScore)}%
+                              Compliance: {Math.round(resolvedSummary.complianceScore)}%
                             </span>
                           )}
-                          {typeof step.resultData.summary.highSeverity === "number" && (
+                          {typeof resolvedSummary.totalIssues === "number" && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-slate-100 text-slate-800 dark:bg-slate-900/40 dark:text-slate-200">
+                              <span role="img" aria-hidden="true">
+                                🧾
+                              </span>
+                              Remaining issues: {resolvedSummary.totalIssues}
+                            </span>
+                          )}
+                          {typeof resolvedSummary.highSeverity === "number" && (
                             <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200">
                               <span role="img" aria-hidden="true">
                                 ⚠️
                               </span>
-                              High severity issues: {step.resultData.summary.highSeverity}
+                              High severity issues: {resolvedSummary.highSeverity}
                             </span>
                           )}
                         </div>
@@ -293,8 +317,9 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
                     </span>
                   </div>
                 </div>
-              </div>
-            ))}
+                </div>
+              )
+            })}
           </div>
         </div>
 
