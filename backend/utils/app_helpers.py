@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 from uuid import UUID
 
 import psycopg2
@@ -1270,6 +1270,133 @@ def build_verapdf_status(results, analyzer=None):
         status["pdfuaCompliance"] = max(0, 100 - pdfua_issues * 10)
     return status
 
+def _delete_scan_with_files(scan_id: str) -> Dict[str, Any]:
+    """Remove a scan record, its history, and associated files."""
+    logger.info("[Backend] Deleting scan %s", scan_id)
+
+    scan_record = _fetch_scan_record(scan_id)
+    if not scan_record:
+        raise LookupError("Scan not found")
+
+    resolved_id = scan_record.get("id") or scan_id
+    group_id = scan_record.get("group_id")
+    original_filename = scan_record.get("filename")
+
+    uploads_dir = _uploads_root()
+    fixed_dir = _fixed_root()
+    deleted_files = 0
+
+    def _delete_path(path: Path) -> bool:
+        try:
+            if path.exists():
+                if path.is_file():
+                    path.unlink()
+                elif path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                return True
+        except Exception:
+            logger.exception("[Backend] Failed to delete %s", path)
+        return False
+
+    candidate_names = {scan_id, resolved_id}
+    if original_filename:
+        candidate_names.add(original_filename)
+
+    for folder in (uploads_dir, fixed_dir):
+        for name in candidate_names:
+            if not name:
+                continue
+            candidate = folder / name
+            if _delete_path(candidate):
+                deleted_files += 1
+            if not name.lower().endswith(".pdf"):
+                pdf_candidate = folder / f"{name}.pdf"
+                if _delete_path(pdf_candidate):
+                    deleted_files += 1
+
+    version_dirs = {fixed_dir / str(resolved_id), fixed_dir / str(scan_id)}
+    for version_dir in version_dirs:
+        if version_dir.exists() and version_dir.is_dir():
+            removed_count = sum(
+                1 for child in version_dir.glob("**/*") if child.is_file()
+            )
+            if _delete_path(version_dir):
+                deleted_files += removed_count
+
+    primary_id = scan_record.get("id")
+
+    if primary_id:
+        execute_query(
+            "DELETE FROM fix_history WHERE scan_id = %s",
+            (primary_id,),
+            fetch=False,
+        )
+    execute_query(
+        "DELETE FROM scans WHERE id = %s",
+        (primary_id or resolved_id,),
+        fetch=False,
+    )
+
+    if group_id:
+        update_group_file_count(group_id)
+
+    logger.info(
+        "[Backend] ✓ Deleted scan %s (removed %d files)", scan_id, deleted_files
+    )
+    return {
+        "scanId": primary_id or resolved_id,
+        "groupId": group_id,
+        "deletedFiles": deleted_files,
+    }
+
+
+def _delete_batch_with_files(batch_id: str) -> Dict[str, Any]:
+    """Delete a batch, its scans, and associated files."""
+    batch_rows = execute_query(
+        "SELECT id, name FROM batches WHERE id = %s", (batch_id,), fetch=True
+    )
+    if not batch_rows:
+        raise LookupError("Batch not found")
+
+    scans = execute_query(
+        "SELECT id FROM scans WHERE batch_id = %s", (batch_id,), fetch=True
+    ) or []
+
+    if not scans:
+        raise LookupError("No scans found for this batch")
+
+    deleted_scans = 0
+    deleted_files = 0
+    affected_groups: Set[str] = set()
+
+    for scan in scans:
+        scan_id = scan["id"]
+        try:
+            result = _delete_scan_with_files(scan_id)
+        except LookupError:
+            logger.warning(
+                "[Backend] Scan %s referenced by batch %s not found during deletion",
+                scan_id,
+                batch_id,
+            )
+            continue
+
+        deleted_scans += 1
+        deleted_files += result.get("deletedFiles", 0) or 0
+        if result.get("groupId"):
+            affected_groups.add(result["groupId"])
+
+    execute_query("DELETE FROM batches WHERE id = %s", (batch_id,), fetch=False)
+
+    return {
+        "batchId": batch_id,
+        "batchName": batch_rows[0].get("name"),
+        "deletedScans": deleted_scans,
+        "deletedFiles": deleted_files,
+        "affectedGroups": list(affected_groups),
+    }
+
+
 def _write_uploadfile_to_disk(upload_file: UploadFile, dest_path: str):
     # upload_file.file is a SpooledTemporaryFile or similar; rewind and copy.
     upload_file.file.seek(0)
@@ -1321,6 +1448,8 @@ __all__ = [
     "archive_fixed_pdf_version",
     "get_fixed_version",
     "prune_fixed_versions",
+    "_delete_scan_with_files",
+    "_delete_batch_with_files",
     "_perform_automated_fix",
     "_write_uploadfile_to_disk",
 ]
