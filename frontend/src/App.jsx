@@ -302,7 +302,7 @@ function AppContent() {
                   </span>
                 </button>
 
-                <button
+           {/* /     <button
                   onClick={handleViewGenerator}
                   className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
                     currentView === "generator"
@@ -321,7 +321,7 @@ function AppContent() {
                     </svg>
                     Generator
                   </span>
-                </button>
+                </button> */}
               </nav>
             </div>
 
