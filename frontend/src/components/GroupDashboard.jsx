@@ -1,10 +1,13 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 import GroupTreeSidebar from "./GroupTreeSidebar"
 import { BatchInsightPanel, FileInsightPanel, GroupInsightPanel } from "./DashboardInsights"
 import API_BASE_URL from "../config/api"
 import { parseBackendDate } from "../utils/dates"
+
+const normalizeId = (id) => (id === null || id === undefined ? "" : String(id))
+const getCacheKey = (node) => (node ? `${node.type}:${normalizeId(node.id)}` : "")
 
 export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, initialGroupId }) {
   const { showError, showSuccess } = useNotification()
@@ -15,6 +18,10 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
   const [initialLoading, setInitialLoading] = useState(true)
   const [startingScan, setStartingScan] = useState(false)
   const [startingBatchScan, setStartingBatchScan] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const latestRequestRef = useRef(0)
+  const cacheRef = useRef(new Map())
 
   useEffect(() => {
     loadInitialData()
@@ -34,54 +41,131 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
 
 
   const handleNodeSelect = async (node) => {
+    if (!node) {
+      setSelectedNode(null)
+      setNodeData(null)
+      setLoading(false)
+      setIsRefreshing(false)
+      return { cleared: true }
+    }
+
+    const cacheKey = getCacheKey(node)
+    const cachedEntry = cacheRef.current.get(cacheKey)
+    const usedCache = Boolean(cachedEntry)
+    const nextRequestId = latestRequestRef.current + 1
+    latestRequestRef.current = nextRequestId
+
     setSelectedNode(node)
-    setLoading(true)
+
+    if (usedCache) {
+      setNodeData(cachedEntry.nodeData)
+      setSelectedNode(cachedEntry.selectedNode)
+      setLoading(false)
+      setIsRefreshing(true)
+    } else {
+      setLoading(true)
+      setIsRefreshing(false)
+    }
+
+    const cacheAndUpdate = (payload) => {
+      cacheRef.current.set(cacheKey, payload)
+      if (latestRequestRef.current !== nextRequestId) {
+        return
+      }
+      setNodeData(payload.nodeData)
+      setSelectedNode(payload.selectedNode)
+    }
 
     try {
       if (node.type === "group") {
         const response = await axios.get(`${API_BASE_URL}/api/groups/${node.id}/details`)
         const groupDetails = response.data
 
-        setNodeData({
-          type: "group",
-          ...groupDetails,
-        })
-
-        setSelectedNode({
-          ...node,
-          data: {
-            ...(node.data || {}),
-            name: groupDetails.name,
-            description: groupDetails.description,
+        cacheAndUpdate({
+          nodeData: {
+            type: "group",
+            ...groupDetails,
+          },
+          selectedNode: {
+            ...node,
+            data: {
+              ...(node.data || {}),
+              name: groupDetails.name,
+              description: groupDetails.description,
+            },
           },
         })
       } else if (node.type === "file") {
         const response = await axios.get(`${API_BASE_URL}/api/scan/${node.id}`)
-        setNodeData({
-          type: "file",
-          ...response.data,
+
+        cacheAndUpdate({
+          nodeData: {
+            type: "file",
+            ...response.data,
+          },
+          selectedNode: {
+            ...node,
+            data: {
+              ...(node.data || {}),
+              filename: response.data.fileName || response.data.filename || node.data?.filename,
+              fileName: response.data.fileName || response.data.filename || node.data?.fileName,
+              status: response.data.status || node.data?.status,
+            },
+          },
         })
       } else if (node.type === "batch") {
-        try {
-          const response = await axios.get(`${API_BASE_URL}/api/batch/${node.id}`)
-          setNodeData({
+        const response = await axios.get(`${API_BASE_URL}/api/batch/${node.id}`)
+
+        cacheAndUpdate({
+          nodeData: {
             type: "batch",
             ...response.data,
-          })
-        } catch (batchError) {
-          console.error("[v0] Error fetching batch data:", batchError)
-          const errorMsg = batchError.response?.data?.error || batchError.message
-          showError(`Failed to load batch data: ${errorMsg}`)
+          },
+          selectedNode: {
+            ...node,
+            data: {
+              ...(node.data || {}),
+              name: response.data.batchName || node.data?.name,
+              batchId: response.data.batchId || node.data?.batchId,
+            },
+          },
+        })
+      } else {
+        console.warn("[v0] Unhandled node type selected:", node.type)
+      }
+    } catch (error) {
+      if (latestRequestRef.current === nextRequestId) {
+        console.error("[v0] Error fetching node data:", error)
+        const errorMsg = error.response?.data?.error || error.message
+        const statusCode = error.response?.status
+
+        if (node.type === "group" && statusCode === 404) {
+          cacheRef.current.delete(cacheKey)
+          setSelectedNode(null)
+          setNodeData(null)
+          showError("Selected group is no longer available.")
+          return {
+            removedGroupId: node.id,
+            removedGroupName: node.data?.name,
+          }
+        }
+
+        const errorPrefix =
+          node.type === "batch"
+            ? "Failed to load batch data"
+            : node.type === "file"
+              ? "Failed to load file data"
+              : "Failed to load data"
+        showError(`${errorPrefix}: ${errorMsg}`)
+        if (!usedCache) {
           setNodeData(null)
         }
       }
-    } catch (error) {
-      console.error("[v0] Error fetching node data:", error)
-      const errorMsg = error.response?.data?.error || error.message
-      showError(`Failed to load data: ${errorMsg}`)
-      setNodeData(null)
     } finally {
-      setLoading(false)
+      if (latestRequestRef.current === nextRequestId) {
+        setLoading(false)
+        setIsRefreshing(false)
+      }
     }
   }
 
@@ -216,7 +300,34 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
         <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Group Dashboard</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Group Dashboard</h1>
+                {isRefreshing && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800/80 dark:text-slate-300">
+                    <svg
+                      className="h-3.5 w-3.5 animate-spin text-violet-600 dark:text-violet-400"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        d="M4 12a8 8 0 018-8"
+                        strokeWidth="4"
+                        strokeLinecap="round"
+                      ></path>
+                    </svg>
+                    Refreshing…
+                  </span>
+                )}
+              </div>
               <p className="text-base text-slate-600 dark:text-slate-400 mt-1">
                 {selectedNode
                   ? `Viewing ${selectedNode.type}: ${selectedNode.data?.name || selectedNode.data?.filename || ""}`
