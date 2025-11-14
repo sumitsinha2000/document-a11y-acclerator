@@ -269,7 +269,7 @@ class PDFAFixEngine:
             
             pdf.save(
                 temp_path,
-                linearize=False,
+                linearize=True,
                 compress_streams=True
             )
             

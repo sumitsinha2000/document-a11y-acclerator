@@ -1,5 +1,6 @@
 """Routes for applying fixes, managing batches, and download/export utilities."""
 
+import os
 import re
 import asyncio
 import json
@@ -14,10 +15,12 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from psycopg2.extras import RealDictCursor
 from werkzeug.utils import secure_filename
 
 from backend.auto_fix_engine import AutoFixEngine
+from backend.pdf_generator import PDFGenerator
 from backend.multi_tier_storage import has_backblaze_storage, stream_remote_file
 from backend.utils.app_helpers import (
     FIXED_FOLDER,
@@ -55,6 +58,7 @@ from backend.utils.app_helpers import (
 logger = logging.getLogger("doca11y-fixes")
 
 router = APIRouter(prefix="/api", tags=["fixes"])
+report_pdf_generator = PDFGenerator()
 
 
 @router.post("/batch/{batch_id}/fix-file/{scan_id}")
@@ -1392,10 +1396,11 @@ async def fix_history(scan_id: str):
 
 # === Export endpoint ===
 @router.get("/export/{scan_id}")
-async def export_scan(scan_id: str):
+async def export_scan(scan_id: str, request: Request):
     conn = None
     cur = None
     try:
+        requested_format = (request.query_params.get("format") or "json").lower()
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -1428,6 +1433,27 @@ async def export_scan(scan_id: str):
             return JSONResponse({"error": f"Scan {scan_id} not found"}, status_code=404)
 
         export_payload = _build_scan_export_payload(scan_row)
+
+        if requested_format == "pdf":
+            try:
+                pdf_path = await asyncio.to_thread(
+                    report_pdf_generator.create_accessibility_report_pdf, export_payload
+                )
+            except Exception:
+                logger.exception("[Backend] Error generating PDF export for %s", scan_id)
+                return JSONResponse(
+                    {"error": "Failed to generate PDF report"}, status_code=500
+                )
+
+            download_name = os.path.basename(pdf_path)
+            background = BackgroundTask(os.remove, pdf_path)
+            return FileResponse(
+                pdf_path,
+                media_type="application/pdf",
+                filename=download_name,
+                background=background,
+            )
+
         return SafeJSONResponse(export_payload)
     except Exception:
         logger.exception("[Backend] Error exporting scan %s", scan_id)

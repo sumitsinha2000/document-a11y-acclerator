@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import os
 from datetime import datetime
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Any
 
 import pikepdf
 from fpdf import FPDF
@@ -126,9 +126,19 @@ class PDFGenerator:
         output_path = os.path.join(self.output_dir, filename)
         pdf.output(output_path)
 
+        doc_title = f"{company_name} - Services Overview"
+        subject = "Company Services and Information"
+        description = (
+            "Digitally generated accessible brochure outlining company services "
+            "with semantic structure, metadata, and embedded fonts."
+        )
+
         self._post_process_accessibility(
             output_path,
-            company_name=company_name,
+            title=doc_title,
+            author=company_name,
+            subject=subject,
+            description=description,
             fonts_embedded=fonts_embedded,
         )
 
@@ -297,11 +307,141 @@ class PDFGenerator:
 
     # Accessibility post-processing -----------------------------------
 
+    def create_accessibility_report_pdf(
+        self,
+        scan_export: Dict[str, Any],
+    ) -> str:
+        """
+        Build an accessible PDF accessibility report from scan export payload.
+        """
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        fonts_embedded = self._register_accessible_fonts(pdf)
+        font_family = self.ACCESSIBLE_FONT_FAMILY if fonts_embedded else "Helvetica"
+
+        scan_id = scan_export.get("scanId") or "scan"
+        filename = scan_export.get("filename") or scan_id
+        group_name = scan_export.get("groupName") or scan_export.get("groupId")
+        summary = scan_export.get("summary") or {}
+        results = scan_export.get("results") or {}
+        upload_date = scan_export.get("uploadDate")
+
+        pdf.add_page()
+        pdf.set_text_color(24, 24, 24)
+        pdf.set_font(font_family, "B", 20)
+        pdf.cell(0, 12, "Accessibility Compliance Report", ln=True)
+        pdf.set_font(font_family, "", 11)
+        pdf.set_text_color(70, 70, 70)
+        pdf.multi_cell(
+            0,
+            6,
+            f"Filename: {filename}\nScan ID: {scan_id}\nGroup: {group_name or 'N/A'}\nUploaded: {upload_date or 'N/A'}",
+        )
+        pdf.ln(4)
+
+        pdf.set_text_color(24, 24, 24)
+        pdf.set_font(font_family, "B", 16)
+        pdf.cell(0, 10, "Summary", ln=True)
+        pdf.set_font(font_family, "", 11)
+
+        summary_lines = [
+            f"Total Issues: {summary.get('totalIssues', 'N/A')}",
+            f"High Severity: {summary.get('highSeverity', 'N/A')}",
+            f"WCAG Compliance: {summary.get('wcagCompliance', 'N/A')}",
+            f"PDF/UA Compliance: {summary.get('pdfuaCompliance', 'N/A')}",
+            f"PDF/A Compliance: {summary.get('pdfaCompliance', 'N/A')}",
+            f"Overall Score: {summary.get('complianceScore', 'N/A')}",
+        ]
+        pdf.multi_cell(0, 6, "\n".join(summary_lines))
+        pdf.ln(4)
+
+        category_names = [
+            "missingMetadata",
+            "missingLanguage",
+            "missingAltText",
+            "poorContrast",
+            "structureIssues",
+            "readingOrderIssues",
+            "tableIssues",
+            "formIssues",
+            "untaggedContent",
+            "pdfuaIssues",
+            "pdfaIssues",
+            "wcagIssues",
+        ]
+
+        for category in category_names:
+            issues = results.get(category)
+            if not issues:
+                continue
+
+            pretty_name = category.replace("Issues", " Issues").replace("pdf", "PDF ").title()
+            pdf.set_font(font_family, "B", 14)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 9, pretty_name, ln=True)
+            pdf.set_font(font_family, "", 11)
+            pdf.set_text_color(60, 60, 60)
+
+            for idx, issue in enumerate(issues, start=1):
+                severity = str(issue.get("severity", "medium")).capitalize()
+                description = (
+                    issue.get("description")
+                    or issue.get("message")
+                    or "Issue description not available."
+                )
+                clause = issue.get("clause") or issue.get("criterion")
+                recommendation = issue.get("recommendation") or issue.get("remediation")
+                pages = issue.get("pages")
+                bullet = f"{idx}. {description}"
+                pdf.multi_cell(0, 6, bullet)
+                detail_bits = [
+                    f"Severity: {severity}",
+                ]
+                if clause:
+                    detail_bits.append(f"Clause: {clause}")
+                if pages:
+                    detail_bits.append(f"Pages: {', '.join(str(p) for p in pages)}")
+                pdf.multi_cell(0, 6, "; ".join(detail_bits))
+                if recommendation:
+                    pdf.set_text_color(20, 85, 40)
+                    pdf.multi_cell(0, 6, f"Recommendation: {recommendation}")
+                    pdf.set_text_color(60, 60, 60)
+                pdf.ln(2)
+            pdf.ln(3)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_scan = self._build_slug(scan_id)
+        output_name = f"accessibility-report-{safe_scan}-{timestamp}.pdf"
+        output_path = os.path.join(self.output_dir, output_name)
+        pdf.output(output_path)
+
+        title = f"Accessibility Report - {filename}"
+        author = group_name or "Document A11y Accelerator"
+        subject = "Automated accessibility assessment results"
+        description = (
+            "Detailed PDF accessibility compliance report containing aggregated "
+            "WCAG, PDF/UA, and PDF/A findings for the analyzed document."
+        )
+
+        self._post_process_accessibility(
+            output_path,
+            title=title,
+            author=author,
+            subject=subject,
+            description=description,
+            fonts_embedded=fonts_embedded,
+        )
+
+        return output_path
+
     def _post_process_accessibility(
         self,
         pdf_path: str,
         *,
-        company_name: str,
+        title: str,
+        author: str,
+        subject: str,
+        description: str,
         fonts_embedded: bool,
     ) -> None:
         """
@@ -311,29 +451,32 @@ class PDFGenerator:
         """
         try:
             with pikepdf.open(pdf_path, allow_overwriting_input=True) as pdf:
-                doc_title = f"{company_name} - Services Overview"
-                subject = "Company Services and Information"
-                description = (
-                    "Digitally generated accessible brochure outlining company services "
-                    "with semantic structure, metadata, and embedded fonts."
-                )
+                if not pdf.docinfo:
+                    pdf.docinfo = pdf.make_indirect(Dictionary())
 
-                pdf.docinfo["/Title"] = doc_title
-                pdf.docinfo["/Author"] = company_name
+                pdf.docinfo["/Title"] = title
+                pdf.docinfo["/Author"] = author
                 pdf.docinfo["/Subject"] = subject
                 pdf.docinfo["/Creator"] = "Document A11y Accelerator PDF Generator"
                 pdf.docinfo["/Producer"] = "Document A11y Accelerator"
+                pdf.docinfo["/Keywords"] = "accessible, PDF/UA, WCAG"
 
                 pdf.Root.Lang = self.DEFAULT_LANGUAGE
                 pdf.Root.ViewerPreferences = pdf.make_indirect(Dictionary(DisplayDocTitle=True))
-                pdf.Root.MarkInfo = pdf.make_indirect(Dictionary(Marked=True, Suspects=False))
+                mark_info = getattr(pdf.Root, "MarkInfo", None)
+                if not mark_info:
+                    mark_info = pdf.make_indirect(Dictionary(Marked=True, Suspects=False))
+                    pdf.Root.MarkInfo = mark_info
+                else:
+                    mark_info[Name("/Marked")] = True
+                    mark_info[Name("/Suspects")] = False
 
                 self._ensure_struct_tree(pdf)
-                self._synchronize_metadata(pdf, doc_title, company_name, description)
+                self._synchronize_metadata(pdf, title, author, description)
                 if fonts_embedded:
                     self._ensure_pdfa_requirements(pdf)
 
-                pdf.save(pdf_path)
+                pdf.save(pdf_path, linearize=True)
         except Exception as exc:
             print(f"[PDFGenerator] Warning: Failed to apply accessibility post-processing: {exc}")
 
@@ -352,6 +495,20 @@ class PDFGenerator:
                 )
             )
             pdf.Root.StructTreeRoot = struct_tree
+        else:
+            struct_tree.Type = Name("/StructTreeRoot")
+            if not hasattr(struct_tree, "K") or not isinstance(struct_tree.K, Array):
+                struct_tree.K = Array([])
+            if not hasattr(struct_tree, "RoleMap"):
+                struct_tree.RoleMap = pdf.make_indirect(Dictionary())
+            if not hasattr(struct_tree, "ParentTree"):
+                struct_tree.ParentTree = pdf.make_indirect(Dictionary(Nums=Array([]), ParentTreeNext=0))
+
+        parent_tree = struct_tree.ParentTree
+        if not hasattr(parent_tree, "Nums") or not isinstance(parent_tree.Nums, Array):
+            parent_tree.Nums = Array([])
+        if not hasattr(parent_tree, "ParentTreeNext"):
+            parent_tree.ParentTreeNext = 0
 
         # Ensure a Document element exists
         document_elem = None
@@ -377,6 +534,7 @@ class PDFGenerator:
 
         # Rebuild children for each page
         document_elem.K = Array([])
+        parent_tree_entries = Array([])
         for page_index, page in enumerate(pdf.pages, start=1):
             section_elem = pdf.make_indirect(
                 Dictionary(
@@ -412,6 +570,15 @@ class PDFGenerator:
             )
             section_elem.K.append(paragraph_elem)
 
+            struct_parent_index = page_index - 1
+            page_obj = page.obj
+            page_obj.StructParents = struct_parent_index
+            parent_tree_entries.append(struct_parent_index)
+            parent_tree_entries.append(Array([section_elem]))
+
+        parent_tree.Nums = parent_tree_entries
+        parent_tree.ParentTreeNext = len(pdf.pages)
+
     def _synchronize_metadata(
         self,
         pdf: pikepdf.Pdf,
@@ -421,17 +588,18 @@ class PDFGenerator:
     ) -> None:
         """Ensure XMP metadata exists and is synchronized with document info."""
         timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-        with pdf.open_metadata(set_pikepdf_as_editor=False) as meta:
-            meta["dc:title"] = title
-            meta["dc:creator"] = [author]
-            meta["dc:description"] = description
-            meta["pdf:Producer"] = "Document A11y Accelerator"
-            meta["xmp:CreatorTool"] = "Document A11y Accelerator PDF Generator"
-            meta["xmp:CreateDate"] = timestamp
-            meta["xmp:ModifyDate"] = timestamp
-            meta["pdf:Keywords"] = "accessible, PDF/UA, WCAG"
-            meta["pdfaid:part"] = "1"
-            meta["pdfaid:conformance"] = "A"
+        xmp_packet = self._build_xmp_metadata_packet(
+            title=title,
+            author=author,
+            description=description,
+            timestamp=timestamp,
+        )
+        metadata_stream = Stream(pdf, xmp_packet.encode("utf-8"))
+        metadata_stream.stream_dict = Dictionary(
+            Type=Name("/Metadata"),
+            Subtype=Name("/XML"),
+        )
+        pdf.Root.Metadata = pdf.make_indirect(metadata_stream)
 
     def _ensure_pdfa_requirements(self, pdf: pikepdf.Pdf) -> None:
         """
@@ -466,3 +634,78 @@ class PDFGenerator:
             meta["{http://www.aiim.org/pdfa/ns/id/}conformance"] = "A"
             meta["pdfaid:part"] = "1"
             meta["pdfaid:conformance"] = "A"
+
+    def _build_xmp_metadata_packet(
+        self,
+        *,
+        title: str,
+        author: str,
+        description: str,
+        timestamp: str,
+    ) -> str:
+        """Build an explicit XMP packet so validators see dc:title and PDF/UA identifiers."""
+        escaped_title = self._escape_xml(title)
+        escaped_author = self._escape_xml(author)
+        escaped_description = self._escape_xml(description)
+        lang = self.DEFAULT_LANGUAGE
+        keywords = "accessible, PDF/UA, WCAG"
+        packet = f"""<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+    xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"
+    xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">
+    <dc:format>application/pdf</dc:format>
+    <dc:title>
+      <rdf:Alt>
+        <rdf:li xml:lang="{lang}">{escaped_title}</rdf:li>
+        <rdf:li xml:lang="x-default">{escaped_title}</rdf:li>
+      </rdf:Alt>
+    </dc:title>
+    <dc:creator>
+      <rdf:Seq>
+        <rdf:li>{escaped_author}</rdf:li>
+      </rdf:Seq>
+    </dc:creator>
+    <dc:description>
+      <rdf:Alt>
+        <rdf:li xml:lang="{lang}">{escaped_description}</rdf:li>
+        <rdf:li xml:lang="x-default">{escaped_description}</rdf:li>
+      </rdf:Alt>
+    </dc:description>
+    <pdf:Producer>Document A11y Accelerator</pdf:Producer>
+    <pdf:Keywords>{self._escape_xml(keywords)}</pdf:Keywords>
+    <pdf:Trapped>False</pdf:Trapped>
+    <xmp:CreatorTool>Document A11y Accelerator PDF Generator</xmp:CreatorTool>
+    <xmp:CreateDate>{timestamp}</xmp:CreateDate>
+    <xmp:ModifyDate>{timestamp}</xmp:ModifyDate>
+    <xmp:MetadataDate>{timestamp}</xmp:MetadataDate>
+    <pdfaid:part>1</pdfaid:part>
+    <pdfaid:conformance>A</pdfaid:conformance>
+    <pdfuaid:part>1</pdfuaid:part>
+    <pdfuaid:conformance>PDF/UA-1</pdfuaid:conformance>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"""
+        return packet
+
+    @staticmethod
+    def _escape_xml(value: Optional[str]) -> str:
+        """Basic XML escaping for metadata values."""
+        if not value:
+            return ""
+        replacements = {
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&apos;",
+        }
+        escaped = value
+        for char, entity in replacements.items():
+            escaped = escaped.replace(char, entity)
+        return escaped

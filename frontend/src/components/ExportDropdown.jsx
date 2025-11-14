@@ -1,7 +1,5 @@
 import { useState, useRef, useEffect, useId } from "react"
 import axios from "axios"
-import jsPDF from "jspdf"
-import autoTable from "jspdf-autotable"
 import { useNotification } from "../contexts/NotificationContext"
 import API_BASE_URL from "../config/api"
 import {
@@ -15,7 +13,6 @@ import {
   getIssueWcagCriteria,
   UTF8_BOM,
 } from "../utils/exportUtils"
-import { parseBackendDate } from "../utils/dates"
 
 export default function ExportDropdown({ scanId, filename }) {
   const { showError } = useNotification()
@@ -55,6 +52,17 @@ export default function ExportDropdown({ scanId, filename }) {
     setIsOpen(false)
 
     try {
+      if (format === "pdf") {
+        const response = await axios.get(
+          `${API_BASE_URL}/api/export/${scanId}?format=pdf`,
+          { responseType: "blob" }
+        )
+        const blob = new Blob([response.data], { type: "application/pdf" })
+        const downloadName = `accessibility-report-${scanId}.pdf`
+        downloadFile(blob, downloadName)
+        return
+      }
+
       const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
       const data = response.data || {}
 
@@ -91,8 +99,6 @@ export default function ExportDropdown({ scanId, filename }) {
         const html = generateHTMLReport(data, filename)
         const dataBlob = new Blob([html], { type: HTML_MIME })
         downloadFile(dataBlob, `accessibility-report-${scanId}.html`)
-      } else if (format === "pdf") {
-        generatePDFReport(data, filename, scanId)
       }
     } catch (error) {
       console.error(`Error exporting ${format}:`, error)
@@ -107,226 +113,6 @@ export default function ExportDropdown({ scanId, filename }) {
     link.download = filename
     link.click()
     URL.revokeObjectURL(url)
-  }
-
-  const generatePDFReport = (data, filename, scanId) => {
-    const doc = new jsPDF()
-    const documentLanguage =
-      (typeof navigator !== "undefined" && navigator.language) || "en-US"
-    const generatedDate = parseBackendDate(data.uploadDate) || new Date()
-    const generatedDisplay = generatedDate.toLocaleString()
-    const summary = data.summary || {}
-    const results = data.results || {}
-
-    const PAGE_MARGIN = 20
-    const pageWidth = doc.internal.pageSize.getWidth()
-    const pageHeight = doc.internal.pageSize.getHeight()
-    const usableWidth = pageWidth - PAGE_MARGIN * 2
-
-    doc.setProperties({
-      title: `Accessibility Report - ${filename}`,
-      subject: "Document Accessibility Compliance Report",
-      author: "Document Accessibility Accelerator",
-      keywords: "accessibility, compliance, WCAG, PDF/UA",
-      creator: "Document Accessibility Accelerator",
-    })
-    if (typeof doc.setLanguage === "function") {
-      doc.setLanguage(documentLanguage)
-    }
-    if (typeof doc.setCreationDate === "function") {
-      doc.setCreationDate(generatedDate)
-    }
-
-    const headerHeight = 36
-    const headerTop = PAGE_MARGIN
-    doc.setFillColor(102, 126, 234)
-    doc.rect(PAGE_MARGIN, headerTop, usableWidth, headerHeight, "F")
-
-    doc.setTextColor(255, 255, 255)
-    doc.setFontSize(20)
-    doc.setFont("helvetica", "bold")
-    doc.text("Accessibility Compliance Report", pageWidth / 2, headerTop + 14, {
-      align: "center",
-    })
-
-    doc.setFontSize(11)
-    doc.setFont("helvetica", "normal")
-    doc.text(`Document: ${filename}`, pageWidth / 2, headerTop + 24, { align: "center" })
-    doc.text(`Generated: ${generatedDisplay}`, pageWidth / 2, headerTop + 31, { align: "center" })
-
-    doc.setTextColor(0, 0, 0)
-
-    let yPos = headerTop + headerHeight + 12
-    const ensureSpace = (needed = 0) => {
-      if (yPos + needed > pageHeight - PAGE_MARGIN) {
-        doc.addPage()
-        yPos = PAGE_MARGIN
-      }
-    }
-
-    const writeParagraph = (text, { fontSize = 11, spacing = 4 } = {}) => {
-      if (!text) return
-      doc.setFont("helvetica", "normal")
-      doc.setFontSize(fontSize)
-      const lines = doc.splitTextToSize(text, usableWidth)
-      const lineHeight = fontSize * 0.35 + 4
-      lines.forEach((line) => {
-        ensureSpace(lineHeight)
-        doc.text(line, PAGE_MARGIN, yPos)
-        yPos += lineHeight
-      })
-      yPos += spacing
-    }
-
-    const writeHeading = (text, size = 16, color = [0, 0, 0]) => {
-      ensureSpace(size + 6)
-      doc.setFont("helvetica", "bold")
-      doc.setFontSize(size)
-      doc.setTextColor(...color)
-      doc.text(text, PAGE_MARGIN, yPos)
-      doc.setTextColor(0, 0, 0)
-      yPos += size * 0.35 + 6
-    }
-
-    const updatePositionFromTable = (offset = 12) => {
-      const finalY = doc.lastAutoTable?.finalY
-      if (typeof finalY === "number") {
-        yPos = finalY + offset
-      } else {
-        yPos += offset
-      }
-      ensureSpace(0)
-    }
-
-    writeHeading("Summary", 16)
-    const summaryData = [
-      ["Compliance Score", `${summary.complianceScore || 0}%`],
-      ["Total Issues", `${summary.totalIssues || 0}`],
-      ["High Severity Issues", `${summary.highSeverity || 0}`],
-      [
-        "WCAG Compliance",
-        typeof summary.wcagCompliance === "number" ? `${summary.wcagCompliance}%` : "N/A",
-      ],
-    ]
-    const summaryColumnStyles = {
-      0: { fontStyle: "bold", cellWidth: usableWidth * 0.55 },
-      1: { halign: "left", cellWidth: usableWidth * 0.45 },
-    }
-
-    autoTable(doc, {
-      startY: yPos,
-      tableWidth: usableWidth,
-      margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-      head: [["Metric", "Value"]],
-      body: summaryData,
-      theme: "grid",
-      headStyles: { fillColor: [102, 126, 234], textColor: 255, fontStyle: "bold" },
-      styles: { fontSize: 10, cellPadding: 5, overflow: "linebreak", cellWidth: "wrap" },
-      columnStyles: summaryColumnStyles,
-    })
-    updatePositionFromTable()
-
-    const overviewLine = `Detected ${summary.totalIssues || 0} issue(s) across ${
-      Object.keys(results).length || 0
-    } categories.`
-    writeParagraph(overviewLine)
-
-    const columnRatios = [0.12, 0.38, 0.14, 0.12, 0.24]
-    const columnStyles = columnRatios.reduce((acc, ratio, index) => {
-      acc[index] = { cellWidth: Math.max(ratio * usableWidth, 20) }
-      return acc
-    }, {})
-
-    Object.entries(results).forEach(([category, issues]) => {
-      if (!Array.isArray(issues) || issues.length === 0) {
-        return
-      }
-
-      writeHeading(category.replace(/([A-Z])/g, " $1").trim(), 14, [102, 126, 234])
-      writeParagraph(`${issues.length} issue(s) detected in this category.`)
-
-      const issuesData = issues.map((issue) => {
-        const severityValue = (issue.severity || "medium").toString().toLowerCase()
-        const severityDisplay = severityValue.charAt(0).toUpperCase() + severityValue.slice(1)
-        const description = getIssuePrimaryText(issue)
-        const clause = getIssueClause(issue)
-        const descriptionWithClause = clause ? `${description} (Clause: ${clause})` : description
-        const pages = getIssuePagesText(issue)
-        const recommendation = getIssueRecommendation(issue)
-        const recommendationLabel = getRecommendationLabel(issue)
-        const wcagCriteria = getIssueWcagCriteria(issue) || "N/A"
-        const recommendationCell = recommendation
-          ? `${recommendationLabel || "Recommendation"}: ${recommendation}`
-          : "N/A"
-
-        return [severityDisplay, descriptionWithClause, wcagCriteria, pages, recommendationCell]
-      })
-
-      ensureSpace(10)
-      autoTable(doc, {
-        startY: yPos,
-        tableWidth: usableWidth,
-        margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-        head: [["Severity", "Description", "WCAG Criteria", "Pages", "Recommendation"]],
-        body: issuesData,
-        theme: "striped",
-        headStyles: { fillColor: [102, 126, 234], textColor: 255, fontStyle: "bold" },
-        styles: {
-          fontSize: 9,
-          cellPadding: 4,
-          overflow: "linebreak",
-          cellWidth: "wrap",
-          minCellHeight: 10,
-        },
-        bodyStyles: { valign: "top" },
-        columnStyles,
-        didDrawCell: (cellData) => {
-          if (cellData.column.index === 0 && cellData.section === "body") {
-            const severity = (cellData.cell.raw || "").toLowerCase()
-            let color = [255, 193, 7]
-            if (severity === "critical") color = [220, 53, 69]
-            else if (severity === "high") color = [253, 126, 20]
-            else if (severity === "low") color = [40, 167, 69]
-
-            doc.setFillColor(...color)
-            doc.rect(cellData.cell.x, cellData.cell.y, cellData.cell.width, cellData.cell.height, "F")
-            doc.setTextColor(severity === "medium" ? 0 : 255)
-            doc.setFontSize(9)
-            doc.setFont("helvetica", "bold")
-            doc.text(
-              cellData.cell.raw,
-              cellData.cell.x + cellData.cell.width / 2,
-              cellData.cell.y + cellData.cell.height / 2,
-              {
-                align: "center",
-                baseline: "middle",
-              }
-            )
-            doc.setTextColor(0, 0, 0)
-          }
-        },
-      })
-
-      updatePositionFromTable()
-    })
-
-    const pageCount = doc.internal.getNumberOfPages()
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i)
-      doc.setFontSize(8)
-      doc.setTextColor(128, 128, 128)
-      doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - PAGE_MARGIN / 2, {
-        align: "center",
-      })
-      doc.text(
-        "Generated by Document Accessibility Accelerator",
-        pageWidth / 2,
-        pageHeight - PAGE_MARGIN / 2 + 5,
-        { align: "center" }
-      )
-    }
-
-    doc.save(`accessibility-report-${scanId}.pdf`)
   }
 
   const generateHTMLReport = (data, filename) => {

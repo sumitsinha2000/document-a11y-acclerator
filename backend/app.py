@@ -2,15 +2,21 @@
 
 # Standard library imports
 import os
+import re
 import sys
 import uuid
+import json
+import datetime
+import zipfile
 import asyncio
 import logging
 import traceback
 import tempfile
+import shutil
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from dotenv import load_dotenv
+from io import BytesIO
 
 # Third-party imports
 from fastapi import (
@@ -23,9 +29,10 @@ from fastapi import (
     HTTPException,
     Body,
 )
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from werkzeug.utils import secure_filename
+from psycopg2.extras import RealDictCursor
 
 # Ensure project root in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -33,7 +40,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # Local application imports
-from backend.multi_tier_storage import upload_file_with_fallback
+from backend.multi_tier_storage import (
+    upload_file_with_fallback,
+    has_backblaze_storage,
+    stream_remote_file,
+)
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.auto_fix_engine import AutoFixEngine
 from backend.routes import health_router, groups_router, scans_router, fixes_router
@@ -48,6 +59,30 @@ from backend.utils.app_helpers import (
     build_placeholder_scan_payload,
     update_group_file_count,
     save_scan_to_db,
+    _perform_automated_fix,
+    execute_query,
+    update_batch_statistics,
+    get_db_connection,
+    get_versioned_files,
+    _delete_batch_with_files,
+    _uploads_root,
+    _build_scan_export_payload,
+    get_fixed_version,
+    _fetch_scan_record,
+    _resolve_scan_file_path,
+    _parse_scan_results_json,
+    create_progress_tracker,
+    get_progress_tracker,
+    scan_results_changed,
+    resolve_uploaded_file_path,
+    archive_fixed_pdf_version,
+    save_fix_history,
+    update_scan_status,
+    get_scan_by_id,
+    _fixed_root,
+    _truthy,
+    _extract_version_from_path,
+    _mirror_file_to_remote,
 )
 
 try:

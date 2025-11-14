@@ -877,7 +877,7 @@ class AutoFixEngine:
             
             pdf.save(
                 temp_path,
-                linearize=False,
+                linearize=True,
                 object_stream_mode=pikepdf.ObjectStreamMode.preserve,
                 compress_streams=True,
                 stream_decode_level=pikepdf.StreamDecodeLevel.none
@@ -1130,7 +1130,7 @@ class AutoFixEngine:
             
             pdf.save(
                 temp_path,
-                linearize=False,
+                linearize=True,
                 object_stream_mode=pikepdf.ObjectStreamMode.preserve,
                 compress_streams=True,
                 stream_decode_level=pikepdf.StreamDecodeLevel.none
