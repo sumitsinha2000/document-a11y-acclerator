@@ -786,7 +786,7 @@ Title only, no explanation:"""
             fixed_filename = f"{os.path.splitext(os.path.basename(pdf_path))[0]}_ai_fixed.pdf"
             fixed_path = os.path.join(os.path.dirname(pdf_path), fixed_filename)
             
-            pdf.save(fixed_path)
+            pdf.save(fixed_path, linearize=True)
             pdf.close()
             
             print(f"[SambaNova AI Fix] ✓ Applied {len(fixes_applied)} AI-powered fixes")

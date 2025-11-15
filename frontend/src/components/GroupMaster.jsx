@@ -146,7 +146,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
   const handleDeleteGroup = async (groupId, groupName) => {
     const confirmed = await confirm({
       title: "Delete Group",
-      message: `Are you sure you want to delete "${groupName}"? Files in this group will not be deleted, but will be ungrouped.`,
+      message: `Delete "${groupName}" and permanently remove all files and batches assigned to it? This action cannot be undone.`,
       confirmText: "Delete",
       cancelText: "Cancel",
       type: "danger",
@@ -157,9 +157,19 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
     }
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/groups/${groupId}`)
+      const response = await axios.delete(`${API_BASE_URL}/api/groups/${groupId}`)
+      const data = response?.data || {}
       setGroups(groups.filter((g) => g.id !== groupId))
-      showSuccess(`Group "${groupName}" deleted successfully`)
+      const scanCount = data.deletedScans ?? 0
+      const batchCount = data.deletedBatches ?? 0
+      const fileCount = data.deletedFiles ?? 0
+      const summaryBits = [
+        batchCount ? `${batchCount} batch${batchCount === 1 ? "" : "es"}` : null,
+        scanCount ? `${scanCount} scan${scanCount === 1 ? "" : "s"}` : null,
+        fileCount ? `${fileCount} file${fileCount === 1 ? "" : "s"}` : null,
+      ].filter(Boolean)
+      const detail = summaryBits.length ? ` (${summaryBits.join(", ")} removed)` : ""
+      showSuccess(`Group "${groupName}" deleted${detail}`)
     } catch (err) {
       console.error("[v0] Error deleting group:", err)
       showError(err.response?.data?.error || "Failed to delete group")

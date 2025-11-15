@@ -61,6 +61,65 @@ export default function GroupTreeSidebar({
     fetchGroups();
   }, []);
 
+  const removeGroupById = (groupId, groupName = "") => {
+    const normalizedId = normalizeId(groupId);
+    let wasRemoved = false;
+
+    setGroups((prev) => {
+      const filtered = prev.filter((group) => {
+        const keep = normalizeId(group.id) !== normalizedId;
+        if (!keep) {
+          wasRemoved = true;
+        }
+        return keep;
+      });
+      return wasRemoved ? filtered : prev;
+    });
+
+    if (!wasRemoved) {
+      return false;
+    }
+
+    setGroupFiles((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, normalizedId)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[normalizedId];
+      return next;
+    });
+
+    setGroupBatches((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, normalizedId)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[normalizedId];
+      return next;
+    });
+
+    setSectionStates((prev) => {
+      if (!prev[normalizedId]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[normalizedId];
+      return next;
+    });
+
+    setExpandedGroups((prev) => {
+      if (!prev.has(normalizedId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(normalizedId);
+      return next;
+    });
+
+    setStatusMessage(groupName ? `${groupName} removed` : "Group removed");
+    return true;
+  };
+
   const fetchGroups = async () => {
     try {
       setLoading(true);
@@ -82,6 +141,9 @@ export default function GroupTreeSidebar({
         setGroupBatches({});
         setExpandedGroups(new Set());
         setSectionStates({});
+        if (onNodeSelect) {
+          onNodeSelect(null);
+        }
         return;
       }
 
@@ -135,22 +197,9 @@ export default function GroupTreeSidebar({
         return next;
       });
 
-      const preferredGroup =
-        (initialGroupId &&
-          groupsWithCounts.find((group) => normalizeId(group.id) === normalizeId(initialGroupId))) ||
-        groupsWithCounts[0];
-      const preferredGroupId = normalizeId(preferredGroup.id);
-
-      setExpandedGroups(new Set([preferredGroupId]));
-
-      await fetchGroupData(preferredGroup.id, batchesByGroup[preferredGroupId]);
-
+      setExpandedGroups(new Set());
       if (onNodeSelect) {
-        onNodeSelect({
-          type: "group",
-          id: preferredGroup.id,
-          data: preferredGroup,
-        });
+        onNodeSelect(null);
       }
     } catch (error) {
       console.error("[v0] Error fetching groups:", error);
@@ -177,38 +226,50 @@ export default function GroupTreeSidebar({
       return;
     }
 
-    setExpandedGroups((prev) => {
-      if (prev.has(normalizedInitialId)) {
-        return prev;
-      }
-      const updated = new Set(prev);
-      updated.add(normalizedInitialId);
-      return updated;
-    });
-
     const targetKey = normalizeId(targetGroup.id);
-    fetchGroupData(targetGroup.id, groupBatches[targetKey] || null);
-
-    void handleNodeClick({
-      type: "group",
-      id: targetGroup.id,
-      data: targetGroup,
+    setExpandedGroups(new Set([targetKey]));
+    setSectionStates((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((key) => {
+        if (key !== targetKey) {
+          next[key] = {
+            batches: false,
+            files: false,
+          };
+        }
+      });
+      return next;
     });
+
+    const loadTargetGroup = async () => {
+      const fetchResult = await fetchGroupData(targetGroup.id, null);
+      if (fetchResult?.removed) {
+        return;
+      }
+
+      await handleNodeClick({
+        type: "group",
+        id: targetGroup.id,
+        data: targetGroup,
+      });
+    };
+
+    void loadTargetGroup();
   }, [initialGroupId, groups]);
 
   const fetchGroupData = async (groupId, prefetchedBatches = null) => {
+    const normalizedId = normalizeId(groupId);
+
     try {
       const filesResponse = await axios.get(`${API_BASE_URL}/api/groups/${groupId}/files`);
       const files = filesResponse.data.files || [];
-      const normalizedId = normalizeId(groupId);
+
       setGroupFiles((prev) => ({
         ...prev,
         [normalizedId]: files,
       }));
 
-      let batchesForGroup = Array.isArray(prefetchedBatches)
-        ? prefetchedBatches
-        : null;
+      let batchesForGroup = Array.isArray(prefetchedBatches) ? prefetchedBatches : null;
 
       if (!batchesForGroup) {
         const historyResponse = await axios.get(`${API_BASE_URL}/api/history`);
@@ -222,6 +283,7 @@ export default function GroupTreeSidebar({
         ...prev,
         [normalizedId]: batchesForGroup,
       }));
+
       setGroups((prev) =>
         prev.map((g) =>
           normalizeId(g.id) === normalizedId
@@ -233,6 +295,7 @@ export default function GroupTreeSidebar({
             : g
         )
       );
+
       setSectionStates((prev) => {
         const current = prev[normalizedId] || {
           batches: false,
@@ -243,46 +306,90 @@ export default function GroupTreeSidebar({
           [normalizedId]: current,
         };
       });
+
+      return { success: true, removed: false };
     } catch (error) {
       console.error(`[v0] Error fetching data for group ${groupId}:`, error);
+
+      if (error?.response?.status === 404) {
+        const missingGroup = groups.find((group) => normalizeId(group.id) === normalizedId);
+        removeGroupById(groupId, missingGroup?.name);
+        if (onNodeSelect) {
+          onNodeSelect(null);
+        }
+        return { success: false, removed: true };
+      }
+
+      return { success: false, removed: false };
     }
   };
 
-  const toggleGroup = async (groupId, groupName) => {
-    const normalizedId = normalizeId(groupId);
-    const newExpanded = new Set(expandedGroups);
-    let nextState;
-    if (newExpanded.has(normalizedId)) {
-      newExpanded.delete(normalizedId);
-      nextState = "collapsed";
-      setSectionStates((prev) => ({
-        ...prev,
-        [normalizedId]: {
-          batches: false,
-          files: false,
-        },
-      }));
-    } else {
-      newExpanded.add(normalizedId);
-      await fetchGroupData(groupId, groupBatches[normalizedId] || null);
-      nextState = "expanded";
+  const handleGroupSelection = async (group, { moveFocus = false } = {}) => {
+    if (!group) {
+      return;
     }
-    setExpandedGroups(newExpanded);
-    if (groupName) {
-      setStatusMessage(`${groupName} ${nextState}`);
+
+    const normalizedId = normalizeId(group.id);
+    const isAlreadyExpanded = expandedGroups.has(normalizedId);
+
+    setExpandedGroups(new Set([normalizedId]));
+    setSectionStates((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((key) => {
+        if (key !== normalizedId) {
+          next[key] = {
+            batches: false,
+            files: false,
+          };
+        }
+      });
+      return next;
+    });
+
+    const fetchPromise = !isAlreadyExpanded
+      ? fetchGroupData(group.id, groupBatches[normalizedId] || null)
+      : Promise.resolve(null);
+
+    const selectionResult = await handleNodeClick(
+      {
+        type: "group",
+        id: group.id,
+        data: group,
+      },
+      { moveFocus }
+    );
+
+    if (selectionResult?.removedGroupId) {
+      return;
+    }
+
+    const fetchResult = await fetchPromise;
+    if (fetchResult?.removed) {
+      return;
+    }
+
+    if (!isAlreadyExpanded && group.name) {
+      setStatusMessage(`${group.name} expanded`);
     }
   };
 
   const handleNodeClick = async (node, { moveFocus = false } = {}) => {
     if (!onNodeSelect) {
-      return;
+      return null;
     }
 
     try {
       const result = onNodeSelect(node);
-      if (result && typeof result.then === "function") {
-        await result;
+      const resolved = result && typeof result.then === "function" ? await result : result;
+
+      if (resolved?.removedGroupId) {
+        removeGroupById(resolved.removedGroupId, resolved.removedGroupName || node?.data?.name);
       }
+
+      return resolved;
+    } catch (error) {
+      console.error("[v0] Error handling node selection:", error);
+      return null;
     } finally {
       if (moveFocus) {
         focusDetailsPanel();
@@ -450,12 +557,7 @@ export default function GroupTreeSidebar({
                         : "hover:bg-slate-100 dark:hover:bg-slate-700"
                       } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500`}
                     onClick={() => {
-                      toggleGroup(group.id, group.name);
-                      void handleNodeClick({
-                        type: "group",
-                        id: group.id,
-                        data: group,
-                      });
+                      void handleGroupSelection(group);
                     }}
                     aria-expanded={isExpanded}
                     aria-controls={`group-${group.id}-panel`}

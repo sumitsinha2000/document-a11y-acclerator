@@ -5,10 +5,11 @@ Enhanced with PDF-Extract-Kit integration
 """
 
 import json
+import logging
 from typing import Dict, List, Any, Optional
 import PyPDF2
 import pdfplumber
-from pathlib import Path
+# from pathlib import Path
 
 try:
     from backend.pdf_extract_kit_processor import get_pdf_extract_kit
@@ -31,6 +32,9 @@ try:
 except ImportError:
     PDFA_VALIDATOR_AVAILABLE = False
     print("[Analyzer] PDF/A validator not available")
+
+
+logger = logging.getLogger("pdf-accessibility-analyzer")
 
 
 class PDFAccessibilityAnalyzer:
@@ -113,8 +117,13 @@ class PDFAccessibilityAnalyzer:
         except Exception as e:
             print(f"[Analyzer] Error during analysis: {e}")
             import traceback
-            traceback.print_exc()
-            self._use_simulated_analysis()
+            traceback_text = traceback.format_exc()
+            print(traceback_text)
+            self._use_simulated_analysis(
+                context="PDFAccessibilityAnalyzer.analyze",
+                error=e,
+                traceback_text=traceback_text,
+            )
         
         return self.issues
 
@@ -321,31 +330,46 @@ class PDFAccessibilityAnalyzer:
         except Exception as e:
             print(f"[Analyzer] Error in pdfplumber analysis: {e}")
 
-    def _use_simulated_analysis(self):
+    def _use_simulated_analysis(
+        self,
+        context: Optional[str] = None,
+        error: Optional[BaseException] = None,
+        traceback_text: Optional[str] = None,
+    ):
         """Fallback simulated analysis for demonstration"""
-        print("[Analyzer] Using fallback simulated analysis")
-        
-        self.issues["missingMetadata"].append({
-            "severity": "high",
-            "description": "PDF is missing document title in metadata",
-            "page": 1,
-            "recommendation": "Add document title in PDF properties",
-        })
-        
-        self.issues["untaggedContent"].append({
-            "severity": "high",
-            "description": "Content is not properly tagged for screen readers",
-            "pages": [1, 2, 3],
-            "recommendation": "Use PDF authoring tools to tag all content",
-        })
-        
-        self.issues["missingAltText"].append({
-            "severity": "high",
-            "description": "Images lack alternative text descriptions",
-            "count": 5,
-            "pages": [1, 2, 3],
-            "recommendation": "Add descriptive alt text to all images",
-        })
+        debug_payload = {
+            "context": context or "unknown",
+        }
+        if error:
+            debug_payload["error"] = repr(error)
+            debug_payload["errorType"] = error.__class__.__name__
+        if traceback_text:
+            debug_payload["traceback"] = traceback_text.strip()
+
+        logger.error(
+            "[Analyzer] Falling back after failure: %s",
+            json.dumps(debug_payload, ensure_ascii=False),
+        )
+        print("[Analyzer] Returning partial analysis results due to failure")
+
+        populated_categories = {
+            key: len(value)
+            for key, value in self.issues.items()
+            if isinstance(value, list) and value
+        }
+
+        if populated_categories:
+            logger.warning(
+                "[Analyzer] Partial analysis available; populated categories: %s",
+                json.dumps(populated_categories, ensure_ascii=False),
+            )
+        else:
+            logger.warning(
+                "[Analyzer] No analyzer results were produced before the failure"
+            )
+
+        # Simulated issues disabled to ensure consumers only see real findings.
+        # self.issues["missingMetadata"].append({...})
 
     def calculate_compliance_score(self) -> int:
         """Calculate overall accessibility compliance score (0-100)"""
@@ -456,7 +480,7 @@ class PDFAccessibilityAnalyzer:
     def _analyze_with_wcag_validator(self, pdf_path: str):
         """Analyze PDF using built-in WCAG 2.1 and PDF/UA-1 validator"""
         try:
-            print(f"[Analyzer] ========== WCAG VALIDATOR ANALYSIS ==========")
+            print("[Analyzer] ========== WCAG VALIDATOR ANALYSIS ==========")
             print(f"[Analyzer] Analyzing: {pdf_path}")
             
             validator = WCAGValidator(pdf_path)
@@ -485,32 +509,32 @@ class PDFAccessibilityAnalyzer:
             pdfua_score = validation_results.get('pdfuaScore', 0)
             wcag_compliance = validation_results.get('wcagCompliance', {})
             
-            print(f"[Analyzer] ========== COMPLIANCE SCORES ==========")
+            print("[Analyzer] ========== COMPLIANCE SCORES ==========")
             print(f"[Analyzer] WCAG 2.1 Compliance Score: {wcag_score}%")
             print(f"[Analyzer] PDF/UA-1 Compliance Score: {pdfua_score}%")
-            print(f"[Analyzer] WCAG Levels:")
+            print("[Analyzer] WCAG Levels:")
             print(f"[Analyzer]   Level A:   {'✓ PASS' if wcag_compliance.get('A', False) else '✗ FAIL'}")
             print(f"[Analyzer]   Level AA:  {'✓ PASS' if wcag_compliance.get('AA', False) else '✗ FAIL'}")
             print(f"[Analyzer]   Level AAA: {'✓ PASS' if wcag_compliance.get('AAA', False) else '✗ FAIL'}")
-            print(f"[Analyzer] ========================================")
+            print("[Analyzer] ========================================")
             
         except Exception as e:
-            print(f"[Analyzer] ========== ERROR IN WCAG VALIDATION ==========")
+            print("[Analyzer] ========== ERROR IN WCAG VALIDATION ==========")
             print(f"[Analyzer] Error: {e}")
             import traceback
             traceback.print_exc()
-            print(f"[Analyzer] ==========================================")
+            print("[Analyzer] ==========================================")
 
     def _analyze_with_pdfa_validator(self, pdf_path: str):
         """Analyze PDF using PDF/A validator based on veraPDF library approach"""
         try:
-            print(f"[Analyzer] ========== PDF/A VALIDATOR ANALYSIS ==========")
+            print("[Analyzer] ========== PDF/A VALIDATOR ANALYSIS ==========")
             print(f"[Analyzer] Analyzing: {pdf_path}")
             
             with pikepdf.open(pdf_path) as pdf:
                 validation_results = validate_pdfa(pdf)
             
-            print(f"[Analyzer] PDF/A validation complete")
+            print("[Analyzer] PDF/A validation complete")
             print(f"[Analyzer] Conformance Level: {validation_results.get('conformanceLevel', 'None')}")
             print(f"[Analyzer] Valid: {validation_results.get('isValid', False)}")
             
@@ -532,11 +556,11 @@ class PDFAccessibilityAnalyzer:
                     message = issue.get('message', 'N/A')
                     print(f"[Analyzer]   Issue {i+1} [{severity.upper()}]: {message[:80]}")
             
-            print(f"[Analyzer] ==========================================")
+            print("[Analyzer] ==========================================")
             
         except Exception as e:
-            print(f"[Analyzer] ========== ERROR IN PDF/A VALIDATION ==========")
+            print("[Analyzer] ========== ERROR IN PDF/A VALIDATION ==========")
             print(f"[Analyzer] Error: {e}")
             import traceback
             traceback.print_exc()
-            print(f"[Analyzer] ============================================")
+            print("[Analyzer] ============================================")
