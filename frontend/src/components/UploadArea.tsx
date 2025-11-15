@@ -28,6 +28,7 @@ interface UploadAreaProps {
 
 interface ProjectsResponse {
   projects?: Array<{ id?: string; name?: string; group_id?: string; group_name?: string }>;
+  groups?: Array<{ id?: string; name?: string; group_id?: string; group_name?: string }>;
 }
 
 const UploadArea: FC<UploadAreaProps> = ({ onUpload }) => {
