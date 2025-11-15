@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
+import type { FC } from 'react';
 import { Project, Folder } from '../types';
 import { FileIcon } from './icons/FileIcon';
 import { SparklesIcon } from './icons/SparklesIcon';
@@ -16,7 +17,7 @@ interface DocumentsColumnProps {
   onBulkUpdateIssueStatus: (updates: {docId: string, issueId: string, status: 'Needs Attention' | 'Fixed'}[]) => void;
 }
 
-const DocumentsColumn: React.FC<DocumentsColumnProps> = ({ currentProject, currentFolder, onUpload, onScanFolder, onUpdateIssueStatus, onBulkUpdateIssueStatus }) => {
+const DocumentsColumn: FC<DocumentsColumnProps> = ({ currentProject, currentFolder, onUpload, onScanFolder, onUpdateIssueStatus, onBulkUpdateIssueStatus }) => {
   const [view, setView] = useState<'list' | 'remediate'>('list');
 
   const folderStats = useMemo(() => {

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import type { FC } from 'react';
 import { Project, Folder } from '../types';
 import { FolderIcon } from './icons/FolderIcon';
 import { PlusIcon } from './icons/PlusIcon';
@@ -22,7 +23,7 @@ interface SidebarProps {
   onDeleteFolder: (folderId: string) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({
+const Sidebar: FC<SidebarProps> = ({
   projects,
   currentProject,
   currentFolder,

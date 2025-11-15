@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Project, Document, Folder, AccessibilityReport, Issue } from './types';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -24,10 +24,10 @@ const resolveDocumentStatus = (status?: string | null): Document['status'] => {
     return 'Not Scanned';
   }
   const normalized = status.toLowerCase();
-  if (['uploaded', 'pending', 'unprocessed'].includes(normalized)) {
+  if (['uploaded', 'pending', 'unprocessed', 'draft'].includes(normalized)) {
     return 'Not Scanned';
   }
-  if (['processing', 'scan_pending', 'scanning'].includes(normalized)) {
+  if (['processing', 'scan_pending', 'scanning', 'running'].includes(normalized)) {
     return 'Scanning';
   }
   return 'Scanned';
@@ -93,15 +93,47 @@ const mapScanToDocument = (scan: Record<string, any>, folderId: string): Documen
   };
 };
 
+const mapFolderDocumentEntry = (entry: Record<string, any>, folderId: string): Document => {
+  if (entry.summary || entry.issues) {
+    const docId = String(entry.id ?? fallbackId('doc'));
+    const issues = Array.isArray(entry.issues)
+      ? entry.issues.map((issue: Record<string, any>, index: number) => ({
+          id: String(issue.id ?? `${docId}-issue-${index}`),
+          type: String(issue.type ?? 'Issue'),
+          description: String(issue.description ?? 'Accessibility issue detected.'),
+          location: String(issue.location ?? 'Unknown location'),
+          status: (issue.status === 'Fixed' ? 'Fixed' : 'Needs Attention') as Issue['status'],
+          severity: toIssueSeverity(issue.severity as string),
+        }))
+      : [];
+    const scoreSource =
+      entry.summary?.complianceScore ?? entry.summary?.score ?? (issues.length ? Math.max(0, 100 - issues.length * 5) : 0);
+    return {
+      id: docId,
+      name: entry.name ?? entry.filename ?? 'Document',
+      size: Number(entry.size ?? entry.fileSize ?? 0),
+      uploadDate: entry.uploadDate ? new Date(entry.uploadDate) : new Date(),
+      status: resolveDocumentStatus(entry.status),
+      accessibilityReport: issues.length
+        ? {
+            score: Math.round(Number(scoreSource) || 0),
+            issues,
+          }
+        : undefined,
+    };
+  }
+  return mapScanToDocument(entry, folderId);
+};
+
 const mapBatchToFolder = (batch: Record<string, any>): Folder => {
-  const folderId = String(batch.batchId ?? batch.id ?? fallbackId('folder'));
+  const folderId = String(batch.folderId ?? batch.batchId ?? batch.id ?? fallbackId('folder'));
   const timestamp = batch.uploadDate ?? batch.createdAt;
   const readableDate = timestamp ? new Date(timestamp).toLocaleString() : '';
   return {
     id: folderId,
     name: batch.name || `Folder ${readableDate || folderId}`,
     documents: [],
-    projectId: batch.groupId ?? batch.group_id ?? undefined,
+    projectId: batch.projectId ?? batch.groupId ?? batch.group_id ?? undefined,
     isRemote: true,
     lastSyncedAt: null,
   };
@@ -132,54 +164,60 @@ const App: React.FC = () => {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncingFolderId, setSyncingFolderId] = useState<string | null>(null);
 
-  const ensureFolderDocuments = useCallback(async (projectId: string, folderId: string) => {
-    setSyncingFolderId(folderId);
-    try {
-      const response = await http.get(API_ENDPOINTS.batchDetails(folderId));
-      const remoteScans = Array.isArray(response.data?.scans) ? response.data.scans : [];
-      const documents = remoteScans.map((scan: Record<string, any>) => mapScanToDocument(scan, folderId));
+  const ensureFolderDocuments = useCallback(
+    async (projectId: string, folderId: string) => {
+      setSyncingFolderId(folderId);
+      try {
+        const response = await http.get(API_ENDPOINTS.folderDetails(folderId));
+        const remoteFolderMeta = response.data?.folder;
+        const remoteDocs = Array.isArray(response.data?.documents) ? response.data.documents : [];
+        const documents = remoteDocs.map((entry: Record<string, any>) => mapFolderDocumentEntry(entry, folderId));
 
-      let nextProjectState: Project | null = null;
-      let nextFolderState: Folder | null = null;
-      setProjects((prev) =>
-        prev.map((project) => {
-          if (project.id !== projectId) return project;
-          const updatedFolders = project.folders.map((folder) => {
-            if (folder.id !== folderId) return folder;
-            const hydratedFolder: Folder = {
-              ...folder,
-              documents,
-              lastSyncedAt: new Date(),
-              isRemote: true,
-            };
-            nextFolderState = hydratedFolder;
-            return hydratedFolder;
-          });
-          nextProjectState = { ...project, folders: updatedFolders };
-          return nextProjectState;
-        }),
-      );
+        let nextProjectState: Project | null = null;
+        let nextFolderState: Folder | null = null;
+        setProjects((prev) =>
+          prev.map((project) => {
+            if (project.id !== projectId) return project;
+            const updatedFolders = project.folders.map((folder) => {
+              if (folder.id !== folderId) return folder;
+              const hydratedFolder: Folder = {
+                ...folder,
+                name: remoteFolderMeta?.name ?? folder.name,
+                documents,
+                lastSyncedAt: new Date(),
+                isRemote: true,
+              };
+              nextFolderState = hydratedFolder;
+              return hydratedFolder;
+            });
+            nextProjectState = { ...project, folders: updatedFolders };
+            return nextProjectState;
+          }),
+        );
 
-      if (nextProjectState) {
-        setCurrentProject((prev) => (prev?.id === nextProjectState.id ? nextProjectState : prev ?? nextProjectState));
+        if (nextProjectState) {
+          setCurrentProject((prev) => (prev?.id === nextProjectState.id ? nextProjectState : prev ?? nextProjectState));
+        }
+        if (nextFolderState && currentFolder?.id === folderId) {
+          setCurrentFolder(nextFolderState);
+        }
+      } catch (error) {
+        console.error('[App] Failed to hydrate folder', error);
+        showError('Unable to load folder details from the server.');
+      } finally {
+        setSyncingFolderId(null);
       }
-      if (nextFolderState && currentFolder?.id === folderId) {
-        setCurrentFolder(nextFolderState);
-      }
-    } catch (error) {
-      console.error('[App] Failed to hydrate folder', error);
-      showError('Unable to load folder details from the server.');
-    } finally {
-      setSyncingFolderId(null);
-    }
-  }, [currentFolder, showError]);
+    },
+    [currentFolder, showError],
+  );
 
   const loadProjectsFromBackend = useCallback(async () => {
     setIsBootstrapping(true);
     setSyncError(null);
     try {
-      const [projectsResponse, historyResponse] = await Promise.all([
+      const [projectsResponse, foldersResponse, historyResponse] = await Promise.all([
         http.get(API_ENDPOINTS.projects),
+        http.get(API_ENDPOINTS.folders),
         http.get(API_ENDPOINTS.history),
       ]);
 
@@ -187,8 +225,10 @@ const App: React.FC = () => {
         ? projectsResponse.data.groups.map((group: Record<string, any>) => mapProjectFromApi(group))
         : [];
 
-      const batches = Array.isArray(historyResponse.data?.batches) ? historyResponse.data.batches : [];
-      const { assignments, unattached } = partitionBatchesByProject(batches);
+      const folderPayload = Array.isArray(foldersResponse.data?.folders) ? foldersResponse.data.folders : [];
+      const historyBatches = Array.isArray(historyResponse.data?.batches) ? historyResponse.data.batches : [];
+      const batchSource = folderPayload.length > 0 ? folderPayload : historyBatches;
+      const { assignments, unattached } = partitionBatchesByProject(batchSource);
 
       const knownProjectIds = new Set(remoteProjects.map((project) => project.id));
       const merged: Project[] = remoteProjects.map((project) => ({
@@ -480,70 +520,67 @@ const App: React.FC = () => {
     if (updatedFolderState) setCurrentFolder(updatedFolderState);
   }, [currentProject, currentFolder, ensureFolderDocuments, loadProjectsFromBackend]);
   
-  const handleScanFolder = useCallback(() => {
+  const simulateLocalFolderScan = useCallback(() => {
     if (!currentProject || !currentFolder) return;
 
-    // Phase 1: Set status to 'Scanning' for unscanned docs
     let updatedProjectState: Project | null = null;
     let updatedFolderState: Folder | null = null;
-    
-    setProjects(prevProjects =>
-      prevProjects.map(p => {
-        if (p.id === currentProject.id) {
-          const updatedFolders = p.folders.map(f => {
-            if (f.id === currentFolder.id) {
+
+    setProjects((prevProjects) =>
+      prevProjects.map((project) => {
+        if (project.id === currentProject.id) {
+          const updatedFolders = project.folders.map((folder) => {
+            if (folder.id === currentFolder.id) {
               updatedFolderState = {
-                ...f,
-                documents: f.documents.map(doc =>
-                  doc.status === 'Not Scanned' ? { ...doc, status: 'Scanning' } : doc
+                ...folder,
+                documents: folder.documents.map((doc) =>
+                  doc.status === 'Not Scanned' ? { ...doc, status: 'Scanning' } : doc,
                 ),
               };
               return updatedFolderState;
             }
-            return f;
+            return folder;
           });
-          updatedProjectState = { ...p, folders: updatedFolders };
+          updatedProjectState = { ...project, folders: updatedFolders };
           return updatedProjectState;
         }
-        return p;
-      })
+        return project;
+      }),
     );
     if (updatedProjectState) setCurrentProject(updatedProjectState);
     if (updatedFolderState) setCurrentFolder(updatedFolderState);
-    
-    // Phase 2: Simulate scan and set status to 'Scanned' with a report
+
     setTimeout(() => {
       let finalProjectState: Project | null = null;
       let finalFolderState: Folder | null = null;
 
-      setProjects(prevProjects =>
-        prevProjects.map(p => {
-          if (p.id === currentProject.id) {
-            const updatedFolders = p.folders.map(f => {
-              if (f.id === currentFolder.id) {
+      setProjects((prevProjects) =>
+        prevProjects.map((project) => {
+          if (project.id === currentProject.id) {
+            const updatedFolders = project.folders.map((folder) => {
+              if (folder.id === currentFolder.id) {
                 finalFolderState = {
-                  ...f,
-                  documents: f.documents.map(doc => {
+                  ...folder,
+                  documents: folder.documents.map((doc) => {
                     if (doc.status === 'Scanning') {
-                      // Mock report generation
                       const issueTypes = ['Missing Alt Text', 'Low Contrast', 'Empty Link', 'No Page Title', 'Untagged PDF'];
                       const severities: Issue['severity'][] = ['Critical', 'Serious', 'Moderate', 'Minor'];
                       const issues: Issue[] = [];
-                      const issueCount = Math.floor(Math.random() * 5); // 0 to 4 issues
-                      
+                      const issueCount = Math.floor(Math.random() * 5);
+
                       for (let i = 0; i < issueCount; i++) {
                         issues.push({
-                            id: `issue-${doc.id}-${i}`,
-                            type: issueTypes[Math.floor(Math.random() * issueTypes.length)],
-                            description: 'This is a mock description of the accessibility issue that was found during the scan.',
-                            location: `Page ${Math.floor(Math.random() * 10) + 1}`,
-                            status: 'Needs Attention',
-                            severity: severities[Math.floor(Math.random() * severities.length)],
+                          id: `issue-${doc.id}-${i}`,
+                          type: issueTypes[Math.floor(Math.random() * issueTypes.length)],
+                          description: 'This is a mock description of the accessibility issue that was found during the scan.',
+                          location: `Page ${Math.floor(Math.random() * 10) + 1}`,
+                          status: 'Needs Attention',
+                          severity: severities[Math.floor(Math.random() * severities.length)],
                         });
                       }
-                      
+
                       const report: AccessibilityReport = {
-                        score: Math.max(0, 100 - (issueCount * (Math.floor(Math.random() * 5) + 5))), // Simple scoring
+                        score: Math.max(0, 100 - issueCount * (Math.floor(Math.random() * 5) + 5)),
                         issues,
                       };
                       return { ...doc, status: 'Scanned', accessibilityReport: report };
@@ -553,18 +590,64 @@ const App: React.FC = () => {
                 };
                 return finalFolderState;
               }
-              return f;
+              return folder;
             });
-            finalProjectState = { ...p, folders: updatedFolders };
+            finalProjectState = { ...project, folders: updatedFolders };
             return finalProjectState;
           }
-          return p;
-        })
+          return project;
+        }),
       );
       if (finalProjectState) setCurrentProject(finalProjectState);
       if (finalFolderState) setCurrentFolder(finalFolderState);
-    }, 2000); // Simulate a 2-second scan
+    }, 2000);
   }, [currentProject, currentFolder]);
+
+  const handleScanFolder = useCallback(async () => {
+    if (!currentProject || !currentFolder) return;
+
+    if (!currentFolder.isRemote) {
+      simulateLocalFolderScan();
+      return;
+    }
+
+    const pendingDocuments = currentFolder.documents.filter((doc) => doc.status !== 'Scanning');
+    if (pendingDocuments.length === 0) {
+      showInfo('All documents in this folder have already been scanned.');
+      return;
+    }
+
+    setProjects((prevProjects) =>
+      prevProjects.map((project) => {
+        if (project.id !== currentProject.id) return project;
+        const updatedFolders = project.folders.map((folder) => {
+          if (folder.id !== currentFolder.id) return folder;
+          return {
+            ...folder,
+            documents: folder.documents.map((doc) =>
+              pendingDocuments.some((pending) => pending.id === doc.id)
+                ? { ...doc, status: 'Scanning' as Document['status'] }
+                : doc,
+            ),
+          };
+        });
+        return { ...project, folders: updatedFolders };
+      }),
+    );
+
+    try {
+      for (const doc of pendingDocuments) {
+        await http.post(API_ENDPOINTS.startScan(doc.id));
+      }
+      showSuccess(
+        `Scan started for ${pendingDocuments.length} document${pendingDocuments.length === 1 ? '' : 's'}.`,
+      );
+      await ensureFolderDocuments(currentProject.id, currentFolder.id);
+    } catch (error) {
+      console.error('[App] Failed to trigger scan', error);
+      showError('Failed to start scans for this folder.');
+    }
+  }, [currentProject, currentFolder, ensureFolderDocuments, showError, showInfo, showSuccess, simulateLocalFolderScan]);
 
   const handleUpdateIssueStatus = useCallback((docId: string, issueId: string, status: 'Needs Attention' | 'Fixed') => {
     if (!currentProject || !currentFolder) return;

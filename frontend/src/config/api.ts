@@ -5,9 +5,19 @@ const sanitize = (value?: string | null) => {
   return value.replace(/\/+$/, '');
 };
 
+declare global {
+  interface ImportMetaEnv {
+    readonly VITE_API_BASE_URL?: string;
+  }
+
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }
+}
+
 const resolveEnvBaseUrl = () => {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL as string;
+  if (import.meta.env?.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
   }
 
   if (typeof process !== 'undefined' && process.env?.VITE_API_BASE_URL) {
@@ -26,6 +36,10 @@ export const API_ENDPOINTS = {
   groups: `${API_BASE_URL}/api/groups`,
   projects: `${API_BASE_URL}/api/groups`,
   projectDetails: (projectId: string) => `${API_BASE_URL}/api/groups/${projectId}`,
+  folders: `${API_BASE_URL}/api/folders`,
+  folderDetails: (folderId: string) => `${API_BASE_URL}/api/folders/${folderId}`,
+  folderRemediation: (folderId: string) => `${API_BASE_URL}/api/folders/${folderId}/remediation`,
+  folderDocuments: (folderId: string) => `${API_BASE_URL}/api/folders/${folderId}/documents`,
   health: `${API_BASE_URL}/api/health`,
   scan: `${API_BASE_URL}/api/scan`,
   scanBatch: `${API_BASE_URL}/api/scan-batch`,

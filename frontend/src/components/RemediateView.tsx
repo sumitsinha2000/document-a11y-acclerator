@@ -1,5 +1,9 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import type { FC, ReactNode } from 'react';
 import { Folder, Issue } from '../types';
+import http from '../lib/http';
+import { API_ENDPOINTS } from '../config/api';
+import { useNotification } from '../contexts/NotificationContext';
 import { ArrowLeftIcon } from './icons/ArrowLeftIcon';
 import { FileIcon } from './icons/FileIcon';
 import { AcademicCapIcon } from './icons/AcademicCapIcon';
@@ -31,8 +35,96 @@ const severityConfig: Record<Issue['severity'], { color: string, badgeColor: str
 const allSeverities: Issue['severity'][] = ['Critical', 'Serious', 'Moderate', 'Minor'];
 const allStatuses: Issue['status'][] = ['Needs Attention', 'Fixed'];
 
-export const RemediateView: React.FC<RemediateViewProps> = ({ folder, onBack, onUpdateIssueStatus, onBulkUpdateIssueStatus }) => {
-  const allScannedDocs = useMemo(() => folder.documents.filter(d => d.status === 'Scanned' && d.accessibilityReport), [folder.documents]);
+export const RemediateView: FC<RemediateViewProps> = ({ folder, onBack, onUpdateIssueStatus, onBulkUpdateIssueStatus }) => {
+  const { showError } = useNotification();
+  const [folderData, setFolderData] = useState<Folder>(folder);
+  const [isLoadingRemote, setIsLoadingRemote] = useState(false);
+
+  const deriveIssueSeverity = (value?: string): Issue['severity'] => {
+    const normalized = value?.toLowerCase();
+    if (normalized === 'critical') return 'Critical';
+    if (normalized === 'serious' || normalized === 'high') return 'Serious';
+    if (normalized === 'moderate' || normalized === 'medium') return 'Moderate';
+    return 'Minor';
+  };
+
+  const adaptRemoteDocument = (doc: Record<string, any>): Folder['documents'][number] => {
+    const docId = String(doc.id ?? doc.scanId ?? `${folder.id}-${Math.random()}`);
+    const issues = Array.isArray(doc.issues)
+      ? doc.issues.map((issue: Record<string, any>, index: number) => ({
+          id: String(issue.id ?? `${docId}-issue-${index}`),
+          type: String(issue.type ?? 'Issue'),
+          description: String(issue.description ?? 'Accessibility issue detected.'),
+          location: String(issue.location ?? 'Unknown location'),
+          status: (issue.status === 'Fixed' ? 'Fixed' : 'Needs Attention') as Issue['status'],
+          severity: deriveIssueSeverity(issue.severity as string),
+        }))
+      : [];
+    const scoreValue =
+      typeof doc.summary?.complianceScore === 'number'
+        ? doc.summary.complianceScore
+        : typeof doc.summary?.score === 'number'
+          ? doc.summary.score
+          : issues.length
+            ? Math.max(0, 100 - issues.length * 5)
+            : 0;
+    const rawStatus = (doc.status || '').toLowerCase();
+    const status: Folder['documents'][number]['status'] =
+      rawStatus === 'scanned'
+        ? 'Scanned'
+        : rawStatus === 'processing' || rawStatus === 'scanning'
+          ? 'Scanning'
+          : 'Not Scanned';
+    return {
+      id: docId,
+      name: doc.name ?? doc.filename ?? 'Document',
+      size: Number(doc.size ?? doc.fileSize ?? 0),
+      uploadDate: doc.uploadDate ? new Date(doc.uploadDate) : new Date(),
+      status,
+      accessibilityReport: issues.length ? { score: Math.round(scoreValue), issues } : undefined,
+    };
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!folder.isRemote) {
+      setFolderData(folder);
+      return;
+    }
+    setIsLoadingRemote(true);
+    http
+      .get(API_ENDPOINTS.folderRemediation(folder.id))
+      .then((response) => {
+        if (cancelled) return;
+        const remoteDocs = Array.isArray(response.data?.documents) ? response.data.documents : [];
+        const adaptedDocs = remoteDocs.map((doc: Record<string, any>) => adaptRemoteDocument(doc));
+        setFolderData({
+          ...folder,
+          name: response.data?.folder?.name ?? folder.name,
+          documents: adaptedDocs,
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('[RemediateView] Failed to load remediation data', error);
+        showError('Failed to load remediation data for this folder.');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingRemote(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [folder, showError]);
+
+  const workingFolder = folder.isRemote ? folderData : folder;
+
+  const allScannedDocs = useMemo(
+    () => workingFolder.documents.filter((d) => d.status === 'Scanned' && d.accessibilityReport),
+    [workingFolder.documents],
+  );
 
   const allIssues = useMemo(() => {
     const issues: IssueWithDoc[] = [];
@@ -149,7 +241,7 @@ export const RemediateView: React.FC<RemediateViewProps> = ({ folder, onBack, on
   const handleDownloadReport = () => {
     let reportContent = `Accessibility Remediation Report\n`;
     reportContent += `===================================\n\n`;
-    reportContent += `Folder: ${folder.name}\n`;
+    reportContent += `Folder: ${workingFolder.name}\n`;
     reportContent += `Date: ${new Date().toLocaleString()}\n\n`;
 
     reportContent += `--- Summary ---\n`;
@@ -176,7 +268,7 @@ export const RemediateView: React.FC<RemediateViewProps> = ({ folder, onBack, on
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const safeFolderName = folder.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const safeFolderName = workingFolder.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
     link.download = `${safeFolderName}_accessibility_report.txt`;
     document.body.appendChild(link);
     link.click();
@@ -217,7 +309,7 @@ export const RemediateView: React.FC<RemediateViewProps> = ({ folder, onBack, on
                 <ArrowLeftIcon className="w-5 h-5 text-gray-700" />
             </button>
             <h2 className="text-xl font-bold text-gray-800 tracking-tight">
-              Remediation for <span className="text-indigo-600">{folder.name}</span>
+          Remediation for <span className="text-indigo-600">{workingFolder.name}</span>
             </h2>
         </div>
         <div className="flex items-center gap-2">
@@ -239,6 +331,13 @@ export const RemediateView: React.FC<RemediateViewProps> = ({ folder, onBack, on
             </button>
         </div>
       </div>
+
+      {folder.isRemote && isLoadingRemote && (
+        <div className="flex items-center gap-2 rounded-md border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+          <SpinnerIcon className="h-4 w-4 animate-spin" />
+          <span>Refreshing remediation data for this folder…</span>
+        </div>
+      )}
 
       {/* Dashboard Section */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -400,7 +499,7 @@ export const RemediateView: React.FC<RemediateViewProps> = ({ folder, onBack, on
 };
 
 
-const DashboardCard: React.FC<{ icon: React.ReactNode, title: string, value: string | React.ReactNode }> = ({ icon, title, value }) => (
+const DashboardCard: FC<{ icon: ReactNode; title: string; value: string | ReactNode }> = ({ icon, title, value }) => (
   <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 flex items-start gap-4">
     <div className="bg-white p-2 rounded-md border border-gray-200">
       {icon}

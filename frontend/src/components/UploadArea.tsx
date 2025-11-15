@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ChangeEvent, DragEvent, FC, KeyboardEvent } from 'react';
 import { API_ENDPOINTS } from '../config/api';
 import { useNotification } from '../contexts/NotificationContext';
 import http from '../lib/http';
@@ -29,7 +30,7 @@ interface ProjectsResponse {
   projects?: Array<{ id?: string; name?: string; group_id?: string; group_name?: string }>;
 }
 
-const UploadArea: React.FC<UploadAreaProps> = ({ onUpload }) => {
+const UploadArea: FC<UploadAreaProps> = ({ onUpload }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showError, showSuccess, showInfo } = useNotification();
 
@@ -44,7 +45,7 @@ const UploadArea: React.FC<UploadAreaProps> = ({ onUpload }) => {
   const fetchProjects = useCallback(async () => {
     try {
       const response = await http.get<ProjectsResponse>(API_ENDPOINTS.projects);
-      const payload = response.data?.projects ?? [];
+      const payload = response.data?.projects ?? response.data?.groups ?? [];
       const parsed = payload
         .map((group) => {
           const id = group.id || group.group_id;
@@ -68,19 +69,19 @@ const UploadArea: React.FC<UploadAreaProps> = ({ onUpload }) => {
     setSrAnnouncement(message);
   };
 
-  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(true);
   };
 
-  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node)) {
       return;
     }
     setIsDragging(false);
   };
 
-  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
     if (event.dataTransfer.files?.length) {
@@ -92,7 +93,7 @@ const UploadArea: React.FC<UploadAreaProps> = ({ onUpload }) => {
     fileInputRef.current?.click();
   };
 
-  const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.files?.length) {
       handleFileSelection(event.target.files);
       event.target.value = '';
@@ -314,7 +315,7 @@ const UploadArea: React.FC<UploadAreaProps> = ({ onUpload }) => {
           onClick={handleBrowseClick}
           role="button"
           tabIndex={0}
-          onKeyDown={(event) => {
+          onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
               handleBrowseClick();
