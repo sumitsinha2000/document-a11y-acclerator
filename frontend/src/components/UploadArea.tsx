@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent, FC, KeyboardEvent } from 'react';
 import { API_ENDPOINTS } from '../config/api';
 import { useNotification } from '../contexts/NotificationContext';
@@ -17,54 +17,24 @@ interface UploadTracker {
   message?: string;
 }
 
-interface ProjectOption {
-  id: string;
-  name: string;
-}
-
 interface UploadAreaProps {
   onUpload: (files: FileList) => void;
+  projectId?: string;
+  projectName?: string;
 }
 
-interface ProjectsResponse {
-  projects?: Array<{ id?: string; name?: string; group_id?: string; group_name?: string }>;
-  groups?: Array<{ id?: string; name?: string; group_id?: string; group_name?: string }>;
-}
-
-const UploadArea: FC<UploadAreaProps> = ({ onUpload }) => {
+const UploadArea: FC<UploadAreaProps> = ({ onUpload, projectId, projectName }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showError, showSuccess, showInfo } = useNotification();
 
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [scanMode, setScanMode] = useState<ScanMode>('scan-now');
-  const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [uploadItems, setUploadItems] = useState<UploadTracker[]>([]);
   const [srAnnouncement, setSrAnnouncement] = useState('');
 
-  const fetchProjects = useCallback(async () => {
-    try {
-      const response = await http.get<ProjectsResponse>(API_ENDPOINTS.projects);
-      const payload = response.data?.projects ?? response.data?.groups ?? [];
-      const parsed = payload
-        .map((group) => {
-          const id = group.id || group.group_id;
-          const name = group.name || group.group_name || id;
-          if (!id || !name) return null;
-          return { id, name };
-        })
-        .filter((item): item is ProjectOption => Boolean(item));
-      setProjects(parsed);
-    } catch (error) {
-      console.error('[UploadArea] Failed to load projects', error);
-      showError('Could not load projects. Continue by typing a project ID manually.');
-    }
-  }, [showError]);
-
-  useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+  const projectLabel = projectName?.trim() || projectId?.trim() || 'No project selected';
+  const hasProject = Boolean(projectId?.trim());
 
   const announce = (message: string) => {
     setSrAnnouncement(message);
@@ -110,14 +80,14 @@ const UploadArea: FC<UploadAreaProps> = ({ onUpload }) => {
     return dataTransfer.files;
   };
 
-  const uploadSingleFile = async (file: File, trackerId: string) => {
+  const uploadSingleFile = async (file: File, trackerId: string, activeProjectId: string) => {
     const endpoint = scanMode === 'upload-only' ? API_ENDPOINTS.upload : API_ENDPOINTS.scan;
     const formData = new FormData();
     formData.append('file', file);
-    const trimmedProjectId = selectedProjectId.trim();
-    if (trimmedProjectId) {
-      formData.append('project_id', trimmedProjectId);
-      formData.append('group_id', trimmedProjectId);
+    const normalizedProjectId = activeProjectId.trim();
+    if (normalizedProjectId) {
+      formData.append('project_id', normalizedProjectId);
+      formData.append('group_id', normalizedProjectId);
     }
     if (scanMode === 'scan-now') {
       formData.append('scan_mode', 'scan_now');
@@ -200,7 +170,7 @@ const UploadArea: FC<UploadAreaProps> = ({ onUpload }) => {
     }
   };
 
-  const processSequentialUploads = async (files: File[]) => {
+  const processSequentialUploads = async (files: File[], activeProjectId: string) => {
     setIsUploading(true);
     for (const file of files) {
       const trackerId = `${file.name}-${Date.now()}-${Math.random()}`;
@@ -209,7 +179,7 @@ const UploadArea: FC<UploadAreaProps> = ({ onUpload }) => {
         { id: trackerId, fileName: file.name, status: 'queued', progress: 0 },
       ]);
       try {
-        await uploadSingleFile(file, trackerId);
+        await uploadSingleFile(file, trackerId, activeProjectId);
       } catch {
         // Error already handled per file; continue to the next one.
       }
@@ -230,8 +200,10 @@ const UploadArea: FC<UploadAreaProps> = ({ onUpload }) => {
       return;
     }
 
-    if (!selectedProjectId.trim()) {
-      showError('Please enter a project ID before uploading.');
+    const activeProjectId = projectId?.trim() ?? '';
+
+    if (!activeProjectId) {
+      showError('Select a folder before uploading.');
       announce('Project selection required.');
       return;
     }
@@ -241,7 +213,7 @@ const UploadArea: FC<UploadAreaProps> = ({ onUpload }) => {
     }
 
     announce(`Uploading ${pdfFiles.length} file${pdfFiles.length > 1 ? 's' : ''}.`);
-    void processSequentialUploads(pdfFiles);
+    void processSequentialUploads(pdfFiles, activeProjectId);
   };
 
   const removeUploadItem = (id: string) => {
@@ -257,25 +229,13 @@ const UploadArea: FC<UploadAreaProps> = ({ onUpload }) => {
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-4">
           <div>
-            <label htmlFor="project-input" className="text-sm font-semibold text-gray-700">
-              Project ID
-            </label>
-            <input
-              id="project-input"
-              type="text"
-              className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              placeholder="Enter or select a project"
-              list="project-suggestions"
-              value={selectedProjectId}
-              onChange={(event) => setSelectedProjectId(event.target.value)}
-            />
-            <datalist id="project-suggestions">
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </datalist>
+            <p className="text-sm font-semibold text-gray-700">Target project</p>
+            <p className={`mt-1 text-sm font-medium ${hasProject ? 'text-gray-900' : 'text-red-500'}`}>
+              {projectLabel}
+            </p>
+            {!hasProject && (
+              <p className="text-xs text-red-500 mt-1">Select a folder to enable uploads.</p>
+            )}
           </div>
           <div>
             <p className="text-sm font-semibold text-gray-700">Scan Mode</p>
@@ -299,30 +259,27 @@ const UploadArea: FC<UploadAreaProps> = ({ onUpload }) => {
               </button>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={fetchProjects}
-            className="text-left text-xs font-medium text-indigo-600 hover:text-indigo-700"
-          >
-            Refresh projects
-          </button>
         </div>
 
         <div
           className={`md:col-span-2 rounded-lg border-2 border-dashed bg-white p-6 text-center transition ${isDragging ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400'}`}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={handleBrowseClick}
+          onDragOver={hasProject ? handleDragOver : undefined}
+          onDragLeave={hasProject ? handleDragLeave : undefined}
+          onDrop={hasProject ? handleDrop : undefined}
+          onClick={hasProject ? handleBrowseClick : undefined}
           role="button"
           tabIndex={0}
           onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+            if (!hasProject) {
+              event.preventDefault();
+              return;
+            }
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
               handleBrowseClick();
             }
           }}
-          aria-disabled={isUploading}
+          aria-disabled={!hasProject || isUploading}
         >
           <input
             ref={fileInputRef}

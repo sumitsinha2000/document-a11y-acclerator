@@ -74,7 +74,11 @@ const DocumentsColumn: FC<DocumentsColumnProps> = ({ currentProject, currentFold
         </div>
       </div>
       
-      <UploadArea onUpload={onUpload} />
+      <UploadArea
+        onUpload={onUpload}
+        projectId={currentFolder.projectId ?? currentProject.id}
+        projectName={currentProject.name}
+      />
       
       <div className="flex-grow overflow-y-auto space-y-2 pr-1 -mr-1">
         {currentFolder.documents.length > 0 ? (
