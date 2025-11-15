@@ -17,8 +17,12 @@ interface UploadTracker {
   message?: string;
 }
 
+interface UploadResult {
+  scanId?: string;
+}
+
 interface UploadAreaProps {
-  onUpload: (files: FileList) => void;
+  onUpload: (files: FileList, result?: UploadResult) => void;
   projectId?: string;
   projectName?: string;
 }
@@ -133,7 +137,8 @@ const UploadArea: FC<UploadAreaProps> = ({ onUpload, projectId, projectName }) =
 
       const filesForParent = buildFileList(file);
       if (filesForParent) {
-        onUpload(filesForParent);
+        const scanId = response.data?.scanId ?? response.data?.result?.scanId;
+        onUpload(filesForParent, scanId ? { scanId } : undefined);
       }
 
       setUploadItems((prev) =>

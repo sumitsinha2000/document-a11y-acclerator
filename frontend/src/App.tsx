@@ -164,8 +164,12 @@ const App: React.FC = () => {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncingFolderId, setSyncingFolderId] = useState<string | null>(null);
 
-  const ensureFolderDocuments = useCallback(
-    async (projectId: string, folderId: string) => {
+interface UploadMetadata {
+  scanId?: string;
+}
+
+const ensureFolderDocuments = useCallback(
+  async (projectId: string, folderId: string) => {
       setSyncingFolderId(folderId);
       try {
         const response = await http.get(API_ENDPOINTS.folderDetails(folderId));
@@ -207,9 +211,73 @@ const App: React.FC = () => {
       } finally {
         setSyncingFolderId(null);
       }
-    },
-    [currentFolder, showError],
-  );
+  },
+  [currentFolder, showError],
+);
+
+const syncFolderWithBackend = useCallback(
+  async (folder: Folder, project: Project) => {
+    if (folder.isRemote) {
+      return folder;
+    }
+    try {
+      await http.post(API_ENDPOINTS.folders, {
+        folderId: folder.id,
+        name: folder.name,
+        projectId: project.id,
+      });
+      const syncedFolder: Folder = {
+        ...folder,
+        isRemote: true,
+        lastSyncedAt: new Date(),
+      };
+      setProjects((prevProjects) =>
+        prevProjects.map((proj) =>
+          proj.id === project.id
+            ? {
+                ...proj,
+                folders: proj.folders.map((existingFolder) =>
+                  existingFolder.id === folder.id ? syncedFolder : existingFolder,
+                ),
+              }
+            : proj,
+        ),
+      );
+      setCurrentProject((prev) =>
+        prev && prev.id === project.id
+          ? {
+              ...prev,
+              folders: prev.folders.map((existingFolder) =>
+                existingFolder.id === folder.id ? syncedFolder : existingFolder,
+              ),
+            }
+          : prev,
+      );
+      if (currentFolder?.id === folder.id) {
+        setCurrentFolder(syncedFolder);
+      }
+      showSuccess('Folder synced with backend.');
+      return syncedFolder;
+    } catch (error) {
+      console.error('[App] Failed to sync folder with backend', error);
+      showError('Unable to sync folder with the backend.');
+      return folder;
+    }
+  },
+  [currentFolder, showError, showSuccess],
+);
+
+const assignDocumentToFolder = useCallback(
+  async (folderId: string, documentId: string) => {
+    try {
+      await http.post(API_ENDPOINTS.folderDocuments(folderId), { documentIds: [documentId] });
+    } catch (error) {
+      console.error('[App] Failed to assign document to folder', error);
+      showError('Document uploaded but could not be attached to the folder.');
+    }
+  },
+  [showError],
+);
 
   const loadProjectsFromBackend = useCallback(async () => {
     setIsBootstrapping(true);
@@ -479,46 +547,56 @@ const App: React.FC = () => {
     }
   }, [currentProject, currentFolder, showError]);
 
-  const handleUploadDocuments = useCallback((files: FileList) => {
-    if (!currentProject || !currentFolder) return;
+  const handleUploadDocuments = useCallback(
+    async (files: FileList, metadata?: UploadMetadata) => {
+      if (!currentProject || !currentFolder) return;
 
-    if (currentFolder.isRemote) {
-      void ensureFolderDocuments(currentProject.id, currentFolder.id);
-      void loadProjectsFromBackend();
-      return;
-    }
+      const projectSnapshot = currentProject;
+      const folderSnapshot = currentFolder;
 
-    const newDocuments: Document[] = Array.from(files).map((file) => ({
-      id: `doc-${Date.now()}-${Math.random()}`,
-      name: file.name,
-      size: file.size,
-      uploadDate: new Date(),
-      status: 'Not Scanned',
-    }));
+      const newDocuments: Document[] = Array.from(files).map((file) => ({
+        id: `doc-${Date.now()}-${Math.random()}`,
+        name: file.name,
+        size: file.size,
+        uploadDate: new Date(),
+        status: 'Not Scanned',
+      }));
 
-    let updatedProjectState: Project | null = null;
-    let updatedFolderState: Folder | null = null;
+      let updatedProjectState: Project | null = null;
+      let updatedFolderState: Folder | null = null;
 
-    setProjects((prevProjects) =>
-      prevProjects.map((project) => {
-        if (project.id === currentProject.id) {
-          const updatedFolders = project.folders.map((folder) => {
-            if (folder.id === currentFolder.id) {
-              updatedFolderState = { ...folder, documents: [...folder.documents, ...newDocuments] };
-              return updatedFolderState;
-            }
-            return folder;
-          });
-          updatedProjectState = { ...project, folders: updatedFolders };
-          return updatedProjectState;
-        }
-        return project;
-      }),
-    );
+      setProjects((prevProjects) =>
+        prevProjects.map((project) => {
+          if (project.id === projectSnapshot.id) {
+            const updatedFolders = project.folders.map((folder) => {
+              if (folder.id === folderSnapshot.id) {
+                updatedFolderState = { ...folder, documents: [...folder.documents, ...newDocuments] };
+                return updatedFolderState;
+              }
+              return folder;
+            });
+            updatedProjectState = { ...project, folders: updatedFolders };
+            return updatedProjectState;
+          }
+          return project;
+        }),
+      );
 
-    if (updatedProjectState) setCurrentProject(updatedProjectState);
-    if (updatedFolderState) setCurrentFolder(updatedFolderState);
-  }, [currentProject, currentFolder, ensureFolderDocuments, loadProjectsFromBackend]);
+      if (updatedProjectState) setCurrentProject(updatedProjectState);
+      if (updatedFolderState) setCurrentFolder(updatedFolderState);
+
+      const syncedFolder = await syncFolderWithBackend(folderSnapshot, projectSnapshot);
+
+      if (!syncedFolder.isRemote) return;
+
+      if (metadata?.scanId) {
+        await assignDocumentToFolder(syncedFolder.id, metadata.scanId);
+      }
+
+      await ensureFolderDocuments(projectSnapshot.id, syncedFolder.id);
+    },
+    [currentProject, currentFolder, ensureFolderDocuments, syncFolderWithBackend, assignDocumentToFolder],
+  );
   
   const simulateLocalFolderScan = useCallback(() => {
     if (!currentProject || !currentFolder) return;
