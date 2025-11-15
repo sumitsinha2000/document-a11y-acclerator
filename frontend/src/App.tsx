@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Project, Document, Folder, AccessibilityReport, Issue } from './types';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -168,7 +168,18 @@ interface UploadMetadata {
   scanId?: string;
 }
 
-const ensureFolderDocuments = useCallback(
+  const currentProjectRef = useRef<Project | null>(null);
+  const currentFolderRef = useRef<Folder | null>(null);
+
+  useEffect(() => {
+    currentProjectRef.current = currentProject;
+  }, [currentProject]);
+
+  useEffect(() => {
+    currentFolderRef.current = currentFolder;
+  }, [currentFolder]);
+
+  const ensureFolderDocuments = useCallback(
   async (projectId: string, folderId: string) => {
       setSyncingFolderId(folderId);
       try {
@@ -324,14 +335,17 @@ const assignDocumentToFolder = useCallback(
 
       setProjects(merged);
 
-      const nextProject = currentProject
-        ? merged.find((project) => project.id === currentProject.id) ?? merged[0] ?? null
+      const previousProject = currentProjectRef.current;
+      const previousFolder = currentFolderRef.current;
+
+      const nextProject = previousProject
+        ? merged.find((project) => project.id === previousProject.id) ?? merged[0] ?? null
         : merged[0] ?? null;
       setCurrentProject(nextProject ?? null);
 
       const nextFolder =
-        nextProject && currentFolder
-          ? nextProject.folders.find((folder) => folder.id === currentFolder.id) ??
+        nextProject && previousFolder
+          ? nextProject.folders.find((folder) => folder.id === previousFolder.id) ??
             nextProject.folders[0] ??
             null
           : nextProject?.folders[0] ?? null;
@@ -347,7 +361,7 @@ const assignDocumentToFolder = useCallback(
     } finally {
       setIsBootstrapping(false);
     }
-  }, [currentProject, currentFolder, ensureFolderDocuments, showError]);
+  }, [ensureFolderDocuments, showError]);
 
   useEffect(() => {
     void loadProjectsFromBackend();

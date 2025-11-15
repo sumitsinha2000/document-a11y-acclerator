@@ -159,14 +159,12 @@ def execute_query(query: str, params: Optional[tuple] = None, fetch: bool = Fals
             conn = get_db_connection()
             cur = conn.cursor()
             cur.execute(query, params or ())
+            result: Any = True
             if fetch:
                 result = cur.fetchall()
-                conn.close()
-                return result
-            else:
-                conn.commit()
-                conn.close()
-                return True
+            conn.commit()
+            conn.close()
+            return result
         except Exception as e:
             if conn:
                 conn.rollback()
