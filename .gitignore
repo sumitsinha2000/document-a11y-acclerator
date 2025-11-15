@@ -36,3 +36,5 @@ next-env.d.ts
 backend/generated/
 pdf_extract_kit
 /backend/generated_pdfs
+
+/original_frontend/*
