@@ -50,40 +50,47 @@ interface UploadMetadata {
     folderCacheRef.current = readFolderCacheFromStorage();
   }, []);
 
-  const applyFolderDocuments = useCallback(
-    (projectId: string, folderId: string, documents: Document[], metadata?: { name?: string; syncedAt?: Date }) => {
-      let nextProjectState: Project | null = null;
-      let nextFolderState: Folder | null = null;
-      setProjects((prev) =>
-        prev.map((project) => {
+  const updateProjectFolder = useCallback(
+    (projectId: string, folderId: string, updater: (folder: Folder) => Folder) => {
+      let updatedProjectState: Project | null = null;
+      let updatedFolderState: Folder | null = null;
+      setProjects((prevProjects) =>
+        prevProjects.map((project) => {
           if (project.id !== projectId) return project;
           const updatedFolders = project.folders.map((folder) => {
             if (folder.id !== folderId) return folder;
-            const hydratedFolder: Folder = {
-              ...folder,
-              name: metadata?.name ?? folder.name,
-              documents,
-              lastSyncedAt: metadata?.syncedAt ?? new Date(),
-              isRemote: true,
-            };
-            nextFolderState = hydratedFolder;
-            return hydratedFolder;
+            const nextFolder = updater(folder);
+            updatedFolderState = nextFolder;
+            return nextFolder;
           });
-          nextProjectState = { ...project, folders: updatedFolders };
-          return nextProjectState;
+          updatedProjectState = { ...project, folders: updatedFolders };
+          return updatedProjectState;
         }),
       );
-
-      if (nextProjectState) {
+      if (updatedProjectState) {
         setCurrentProject((prev) =>
-          prev?.id === nextProjectState.id ? nextProjectState : prev ?? nextProjectState,
+          prev?.id === updatedProjectState.id ? updatedProjectState : prev ?? updatedProjectState,
         );
       }
-      if (nextFolderState && currentFolderRef.current?.id === folderId) {
-        setCurrentFolder(nextFolderState);
+      if (updatedFolderState && currentFolder?.id === folderId) {
+        setCurrentFolder(updatedFolderState);
       }
+      return { updatedProjectState, updatedFolderState };
     },
-    [currentFolderRef],
+    [currentFolder],
+  );
+
+  const applyFolderDocuments = useCallback(
+    (projectId: string, folderId: string, documents: Document[], metadata?: { name?: string; syncedAt?: Date }) => {
+      updateProjectFolder(projectId, folderId, (folder) => ({
+        ...folder,
+        name: metadata?.name ?? folder.name,
+        documents,
+        lastSyncedAt: metadata?.syncedAt ?? new Date(),
+        isRemote: true,
+      }));
+    },
+    [updateProjectFolder],
   );
 
   const refreshProjectFolderCount = useCallback(async (projectId: string) => {
@@ -496,28 +503,10 @@ const assignDocumentToFolder = useCallback(
         status: 'Not Scanned',
       }));
 
-      let updatedProjectState: Project | null = null;
-      let updatedFolderState: Folder | null = null;
-
-      setProjects((prevProjects) =>
-        prevProjects.map((project) => {
-          if (project.id === projectSnapshot.id) {
-            const updatedFolders = project.folders.map((folder) => {
-              if (folder.id === folderSnapshot.id) {
-                updatedFolderState = { ...folder, documents: [...folder.documents, ...newDocuments] };
-                return updatedFolderState;
-              }
-              return folder;
-            });
-            updatedProjectState = { ...project, folders: updatedFolders };
-            return updatedProjectState;
-          }
-          return project;
-        }),
-      );
-
-      if (updatedProjectState) setCurrentProject(updatedProjectState);
-      if (updatedFolderState) setCurrentFolder(updatedFolderState);
+      updateProjectFolder(projectSnapshot.id, folderSnapshot.id, (folder) => ({
+        ...folder,
+        documents: [...folder.documents, ...newDocuments],
+      }));
 
       const syncedFolder = await syncFolderWithBackend(folderSnapshot, projectSnapshot);
 
@@ -538,82 +527,45 @@ const assignDocumentToFolder = useCallback(
     let updatedProjectState: Project | null = null;
     let updatedFolderState: Folder | null = null;
 
-    setProjects((prevProjects) =>
-      prevProjects.map((project) => {
-        if (project.id === currentProject.id) {
-          const updatedFolders = project.folders.map((folder) => {
-            if (folder.id === currentFolder.id) {
-              updatedFolderState = {
-                ...folder,
-                documents: folder.documents.map((doc) =>
-                  doc.status === 'Not Scanned' ? { ...doc, status: 'Scanning' } : doc,
-                ),
-              };
-              return updatedFolderState;
-            }
-            return folder;
-          });
-          updatedProjectState = { ...project, folders: updatedFolders };
-          return updatedProjectState;
-        }
-        return project;
-      }),
-    );
-    if (updatedProjectState) setCurrentProject(updatedProjectState);
-    if (updatedFolderState) setCurrentFolder(updatedFolderState);
+    updateProjectFolder(currentProject.id, currentFolder.id, (folder) => ({
+      ...folder,
+      documents: folder.documents.map((doc) =>
+        doc.status === 'Not Scanned' ? { ...doc, status: 'Scanning' } : doc,
+      ),
+    }));
 
     setTimeout(() => {
-      let finalProjectState: Project | null = null;
-      let finalFolderState: Folder | null = null;
+      updateProjectFolder(currentProject.id, currentFolder.id, (folder) => ({
+        ...folder,
+        documents: folder.documents.map((doc) => {
+          if (doc.status === 'Scanning') {
+            const issueTypes = ['Missing Alt Text', 'Low Contrast', 'Empty Link', 'No Page Title', 'Untagged PDF'];
+            const severities: Issue['severity'][] = ['Critical', 'Serious', 'Moderate', 'Minor'];
+            const issues: Issue[] = [];
+            const issueCount = Math.floor(Math.random() * 5);
 
-      setProjects((prevProjects) =>
-        prevProjects.map((project) => {
-          if (project.id === currentProject.id) {
-            const updatedFolders = project.folders.map((folder) => {
-              if (folder.id === currentFolder.id) {
-                finalFolderState = {
-                  ...folder,
-                  documents: folder.documents.map((doc) => {
-                    if (doc.status === 'Scanning') {
-                      const issueTypes = ['Missing Alt Text', 'Low Contrast', 'Empty Link', 'No Page Title', 'Untagged PDF'];
-                      const severities: Issue['severity'][] = ['Critical', 'Serious', 'Moderate', 'Minor'];
-                      const issues: Issue[] = [];
-                      const issueCount = Math.floor(Math.random() * 5);
+            for (let i = 0; i < issueCount; i++) {
+              issues.push({
+                id: `issue-${doc.id}-${i}`,
+                type: issueTypes[Math.floor(Math.random() * issueTypes.length)],
+                description: 'This is a mock description of the accessibility issue that was found during the scan.',
+                location: `Page ${Math.floor(Math.random() * 10) + 1}`,
+                status: 'Needs Attention',
+                severity: severities[Math.floor(Math.random() * severities.length)],
+              });
+            }
 
-                      for (let i = 0; i < issueCount; i++) {
-                        issues.push({
-                          id: `issue-${doc.id}-${i}`,
-                          type: issueTypes[Math.floor(Math.random() * issueTypes.length)],
-                          description: 'This is a mock description of the accessibility issue that was found during the scan.',
-                          location: `Page ${Math.floor(Math.random() * 10) + 1}`,
-                          status: 'Needs Attention',
-                          severity: severities[Math.floor(Math.random() * severities.length)],
-                        });
-                      }
-
-                      const report: AccessibilityReport = {
-                        score: Math.max(0, 100 - issueCount * (Math.floor(Math.random() * 5) + 5)),
-                        issues,
-                      };
-                      return { ...doc, status: 'Scanned', accessibilityReport: report };
-                    }
-                    return doc;
-                  }),
-                };
-                return finalFolderState;
-              }
-              return folder;
-            });
-            finalProjectState = { ...project, folders: updatedFolders };
-            return finalProjectState;
+            const report: AccessibilityReport = {
+              score: Math.max(0, 100 - issueCount * (Math.floor(Math.random() * 5) + 5)),
+              issues,
+            };
+            return { ...doc, status: 'Scanned', accessibilityReport: report };
           }
-          return project;
+          return doc;
         }),
-      );
-      if (finalProjectState) setCurrentProject(finalProjectState);
-      if (finalFolderState) setCurrentFolder(finalFolderState);
+      }));
     }, 2000);
-  }, [currentProject, currentFolder]);
+  }, [currentProject, currentFolder, updateProjectFolder]);
 
   const handleScanFolder = useCallback(async () => {
     if (!currentProject || !currentFolder) return;
@@ -629,23 +581,14 @@ const assignDocumentToFolder = useCallback(
       return;
     }
 
-    setProjects((prevProjects) =>
-      prevProjects.map((project) => {
-        if (project.id !== currentProject.id) return project;
-        const updatedFolders = project.folders.map((folder) => {
-          if (folder.id !== currentFolder.id) return folder;
-          return {
-            ...folder,
-            documents: folder.documents.map((doc) =>
-              pendingDocuments.some((pending) => pending.id === doc.id)
-                ? { ...doc, status: 'Scanning' as Document['status'] }
-                : doc,
-            ),
-          };
-        });
-        return { ...project, folders: updatedFolders };
-      }),
-    );
+    updateProjectFolder(currentProject.id, currentFolder.id, (folder) => ({
+      ...folder,
+      documents: folder.documents.map((doc) =>
+        pendingDocuments.some((pending) => pending.id === doc.id)
+          ? { ...doc, status: 'Scanning' as Document['status'] }
+          : doc,
+      ),
+    }));
 
     try {
       for (const doc of pendingDocuments) {
@@ -659,96 +602,56 @@ const assignDocumentToFolder = useCallback(
       console.error('[App] Failed to trigger scan', error);
       showError('Failed to start scans for this folder.');
     }
-  }, [currentProject, currentFolder, ensureFolderDocuments, showError, showInfo, showSuccess, simulateLocalFolderScan]);
+  }, [currentProject, currentFolder, ensureFolderDocuments, showError, showInfo, showSuccess, simulateLocalFolderScan, updateProjectFolder]);
 
-  const handleUpdateIssueStatus = useCallback((docId: string, issueId: string, status: 'Needs Attention' | 'Fixed') => {
-    if (!currentProject || !currentFolder) return;
+  const handleUpdateIssueStatus = useCallback(
+    (docId: string, issueId: string, status: 'Needs Attention' | 'Fixed') => {
+      if (!currentProject || !currentFolder) return;
 
-    let updatedProjectState: Project | null = null;
-    let updatedFolderState: Folder | null = null;
+      updateProjectFolder(currentProject.id, currentFolder.id, (folder) => ({
+        ...folder,
+        documents: folder.documents.map((doc) => {
+          if (doc.id === docId && doc.accessibilityReport) {
+            const updatedIssues = doc.accessibilityReport.issues.map((issue) =>
+              issue.id === issueId ? { ...issue, status } : issue,
+            );
+            return { ...doc, accessibilityReport: { ...doc.accessibilityReport, issues: updatedIssues } };
+          }
+          return doc;
+        }),
+      }));
+    },
+    [currentProject, currentFolder, updateProjectFolder],
+  );
 
-    setProjects(prevProjects => 
-        prevProjects.map(p => {
-            if (p.id === currentProject.id) {
-                const updatedFolders = p.folders.map(f => {
-                    if (f.id === currentFolder.id) {
-                        const updatedDocuments = f.documents.map(d => {
-                            if (d.id === docId && d.accessibilityReport) {
-                                const updatedIssues = d.accessibilityReport.issues.map(i => {
-                                    if (i.id === issueId) {
-                                        return { ...i, status };
-                                    }
-                                    return i;
-                                });
-                                return { ...d, accessibilityReport: { ...d.accessibilityReport, issues: updatedIssues } };
-                            }
-                            return d;
-                        });
-                        updatedFolderState = { ...f, documents: updatedDocuments };
-                        return updatedFolderState;
-                    }
-                    return f;
-                });
-                updatedProjectState = { ...p, folders: updatedFolders };
-                return updatedProjectState;
-            }
-            return p;
-        })
-    );
+  const handleBulkUpdateIssueStatus = useCallback(
+    (updates: { docId: string; issueId: string; status: 'Needs Attention' | 'Fixed' }[]) => {
+      if (!currentProject || !currentFolder || updates.length === 0) return;
 
-    if (updatedProjectState) setCurrentProject(updatedProjectState);
-    if (updatedFolderState) setCurrentFolder(updatedFolderState);
+      const updatesMap = new Map<string, Map<string, 'Needs Attention' | 'Fixed'>>();
+      updates.forEach((update) => {
+        if (!updatesMap.has(update.docId)) {
+          updatesMap.set(update.docId, new Map());
+        }
+        updatesMap.get(update.docId)!.set(update.issueId, update.status);
+      });
 
-  }, [currentProject, currentFolder]);
-
-  const handleBulkUpdateIssueStatus = useCallback((updates: {docId: string, issueId: string, status: 'Needs Attention' | 'Fixed'}[]) => {
-    if (!currentProject || !currentFolder || updates.length === 0) return;
-
-    let updatedProjectState: Project | null = null;
-    let updatedFolderState: Folder | null = null;
-    
-    const updatesMap = new Map<string, Map<string, 'Needs Attention' | 'Fixed'>>();
-    updates.forEach(u => {
-      if (!updatesMap.has(u.docId)) {
-        updatesMap.set(u.docId, new Map());
-      }
-      updatesMap.get(u.docId)!.set(u.issueId, u.status);
-    });
-
-    setProjects(prevProjects => 
-        prevProjects.map(p => {
-            if (p.id === currentProject.id) {
-                const updatedFolders = p.folders.map(f => {
-                    if (f.id === currentFolder.id) {
-                        const updatedDocuments = f.documents.map(d => {
-                            const docUpdates = updatesMap.get(d.id);
-                            if (docUpdates && d.accessibilityReport) {
-                                const updatedIssues = d.accessibilityReport.issues.map(i => {
-                                    if (docUpdates.has(i.id)) {
-                                        return { ...i, status: docUpdates.get(i.id)! };
-                                    }
-                                    return i;
-                                });
-                                return { ...d, accessibilityReport: { ...d.accessibilityReport, issues: updatedIssues } };
-                            }
-                            return d;
-                        });
-                        updatedFolderState = { ...f, documents: updatedDocuments };
-                        return updatedFolderState;
-                    }
-                    return f;
-                });
-                updatedProjectState = { ...p, folders: updatedFolders };
-                return updatedProjectState;
-            }
-            return p;
-        })
-    );
-
-    if (updatedProjectState) setCurrentProject(updatedProjectState);
-    if (updatedFolderState) setCurrentFolder(updatedFolderState);
-
-  }, [currentProject, currentFolder]);
+      updateProjectFolder(currentProject.id, currentFolder.id, (folder) => ({
+        ...folder,
+        documents: folder.documents.map((doc) => {
+          const docUpdates = updatesMap.get(doc.id);
+          if (docUpdates && doc.accessibilityReport) {
+            const updatedIssues = doc.accessibilityReport.issues.map((issue) =>
+              docUpdates.has(issue.id) ? { ...issue, status: docUpdates.get(issue.id)! } : issue,
+            );
+            return { ...doc, accessibilityReport: { ...doc.accessibilityReport, issues: updatedIssues } };
+          }
+          return doc;
+        }),
+      }));
+    },
+    [currentProject, currentFolder, updateProjectFolder],
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
