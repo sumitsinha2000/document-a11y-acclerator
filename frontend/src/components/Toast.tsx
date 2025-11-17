@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { ReactNode, useEffect } from 'react';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -8,6 +8,78 @@ interface ToastProps {
   duration?: number;
   onClose: () => void;
 }
+
+const TYPE_STYLES: Record<
+  ToastType,
+  {
+    title: string;
+    icon: ReactNode;
+    accentBar: string;
+    border: string;
+    iconBg: string;
+    text: string;
+    subText: string;
+  }
+> = {
+  success: {
+    title: 'Success',
+    accentBar: 'bg-emerald-500',
+    border: 'border-emerald-100/70',
+    iconBg: 'bg-emerald-500/15 text-emerald-600',
+    text: 'text-emerald-900',
+    subText: 'text-emerald-800/80',
+    icon: (
+      <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+        <circle cx="12" cy="12" r="9" strokeOpacity={0.9} />
+        <path d="M8.5 12.5l2.5 2.5 4.5-5.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  error: {
+    title: 'Something went wrong',
+    accentBar: 'bg-rose-500',
+    border: 'border-rose-100/70',
+    iconBg: 'bg-rose-500/15 text-rose-600',
+    text: 'text-rose-900',
+    subText: 'text-rose-800/80',
+    icon: (
+      <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+        <circle cx="12" cy="12" r="9" strokeOpacity={0.9} />
+        <path d="M9 9l6 6m0-6-6 6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  warning: {
+    title: 'Heads up',
+    accentBar: 'bg-amber-500',
+    border: 'border-amber-100/70',
+    iconBg: 'bg-amber-500/15 text-amber-600',
+    text: 'text-amber-900',
+    subText: 'text-amber-800/80',
+    icon: (
+      <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+        <path d="M12 4l8 14H4l8-14z" strokeLinejoin="round" strokeOpacity={0.9} />
+        <path d="M12 10v3.5" strokeLinecap="round" />
+        <circle cx="12" cy="16.5" r="0.9" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+  info: {
+    title: 'FYI',
+    accentBar: 'bg-sky-500',
+    border: 'border-sky-100/70',
+    iconBg: 'bg-sky-500/15 text-sky-600',
+    text: 'text-sky-900',
+    subText: 'text-sky-800/80',
+    icon: (
+      <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+        <circle cx="12" cy="12" r="9" strokeOpacity={0.9} />
+        <path d="M12 10.5v5" strokeLinecap="round" />
+        <circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+};
 
 const Toast = ({ message, type = 'info', duration = 5000, onClose }: ToastProps) => {
   useEffect(() => {
@@ -19,84 +91,29 @@ const Toast = ({ message, type = 'info', duration = 5000, onClose }: ToastProps)
     }
   }, [duration, onClose]);
 
-  const styles = {
-    success: {
-      bg: 'bg-emerald-50 dark:bg-emerald-900/30',
-      border: 'border-emerald-200 dark:border-emerald-800',
-      text: 'text-emerald-800 dark:text-emerald-200',
-      icon: (
-        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-            clipRule="evenodd"
-          />
-        </svg>
-      ),
-    },
-    error: {
-      bg: 'bg-red-50 dark:bg-red-900/30',
-      border: 'border-red-200 dark:border-red-800',
-      text: 'text-red-800 dark:text-red-200',
-      icon: (
-        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-            clipRule="evenodd"
-          />
-        </svg>
-      ),
-    },
-    warning: {
-      bg: 'bg-amber-50 dark:bg-amber-900/30',
-      border: 'border-amber-200 dark:border-amber-800',
-      text: 'text-amber-800 dark:text-amber-200',
-      icon: (
-        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-            clipRule="evenodd"
-          />
-        </svg>
-      ),
-    },
-    info: {
-      bg: 'bg-blue-50 dark:bg-blue-900/30',
-      border: 'border-blue-200 dark:border-blue-800',
-      text: 'text-blue-800 dark:text-blue-200',
-      icon: (
-        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-            clipRule="evenodd"
-          />
-        </svg>
-      ),
-    },
-  } as const;
-
-  const style = styles[type] || styles.info;
+  const style = TYPE_STYLES[type] ?? TYPE_STYLES.info;
+  const liveRegion = type === 'error' || type === 'warning' ? 'assertive' : 'polite';
 
   return (
     <div
-      className={`flex items-start gap-3 p-4 rounded-lg border ${style.bg} ${style.border} shadow-lg animate-slide-in-right`}
-      role="alert"
-      aria-live="assertive"
+      className={`group relative flex w-full min-w-[280px] max-w-md items-start gap-4 overflow-hidden rounded-2xl border bg-white/95 p-4 shadow-xl ring-1 ring-black/5 backdrop-blur ${style.border}`}
+      role={liveRegion === 'assertive' ? 'alert' : 'status'}
+      aria-live={liveRegion}
+      data-toast-type={type}
     >
-      <div className={style.text}>{style.icon}</div>
-      <div className="flex-1 min-w-0">
-        <p className={`text-sm font-medium ${style.text} whitespace-pre-wrap`}>{message}</p>
+      <span className="sr-only">{style.title}</span>
+      <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full ${style.iconBg}`}>{style.icon}</div>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <p className={`text-sm font-semibold ${style.text}`}>{style.title}</p>
+        <p className={`text-sm leading-relaxed ${style.subText} whitespace-pre-line`}>{message}</p>
       </div>
       <button
         onClick={onClose}
-        className={`flex-shrink-0 ${style.text} hover:opacity-70 transition-opacity focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 rounded`}
+        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
         aria-label="Close notification"
       >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6l12 12M18 6L6 18" />
         </svg>
       </button>
     </div>
