@@ -158,9 +158,12 @@ const Sidebar: FC<SidebarProps> = ({
 
       <div className="flex-grow overflow-y-auto space-y-1 pr-1 -mr-1">
         {projects.length > 0 ? (
-          projects.map(project => (
-            <div key={project.id}>
-              <div className="relative group/project">
+          projects.map(project => {
+            const folderCount = project.folderCount ?? project.folders.length;
+            const docCount = project.folders.reduce((total, folder) => total + folder.documents.length, 0);
+            return (
+              <div key={project.id}>
+                <div className="relative group/project">
                 {editingProjectId === project.id ? (
                   <form onSubmit={handleProjectEditSubmit} className="flex gap-2 items-center p-2.5 bg-gray-200 rounded-md">
                     <input
@@ -193,6 +196,9 @@ const Sidebar: FC<SidebarProps> = ({
                       <FolderIcon className={`w-5 h-5 flex-shrink-0 ${currentProject?.id === project.id ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-500'}`} />
                       <div className="flex-1 overflow-hidden">
                         <h3 className="text-sm font-semibold text-gray-800 truncate">{project.name}</h3>
+                        <p className={`text-xs ${currentProject?.id === project.id ? 'text-indigo-500' : 'text-gray-500'}`}>
+                          {folderCount} folder{folderCount !== 1 ? 's' : ''} · {docCount} document{docCount !== 1 ? 's' : ''}
+                        </p>
                       </div>
                     </button>
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2 opacity-0 group-hover/project:opacity-100 transition-opacity">
@@ -279,8 +285,9 @@ const Sidebar: FC<SidebarProps> = ({
                 </div>
               )}
             </div>
-          ))
-        ) : (
+          );
+        })
+      ) : (
           <div className="text-center py-12 text-gray-500 text-sm">
             <p>No projects yet. Create one to get started!</p>
           </div>

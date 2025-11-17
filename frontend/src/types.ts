@@ -34,4 +34,5 @@ export interface Project {
   id: string;
   name: string;
   folders: Folder[];
+  folderCount?: number;
 }

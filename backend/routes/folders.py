@@ -145,6 +145,14 @@ def _build_folder_response(folder: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _build_folder_payload(folder_id: str) -> Dict[str, Any] | None:
+    folder = _fetch_folder_record(folder_id)
+    if not folder:
+        return None
+    documents = [_map_document_payload(row) for row in _fetch_folder_documents(folder_id)]
+    return {"folder": _build_folder_response(folder), "documents": documents}
+
+
 @router.get("")
 def list_folders(limit: int = 200):
     try:
@@ -209,14 +217,20 @@ def create_folder(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail="Unable to create folder")
 
 
+@router.get("/{folder_id}/details")
+def get_folder_details(folder_id: str):
+    payload = _build_folder_payload(folder_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    return SafeJSONResponse(payload)
+
+
 @router.get("/{folder_id}")
 def get_folder(folder_id: str):
-    folder = _fetch_folder_record(folder_id)
-    if not folder:
+    payload = _build_folder_payload(folder_id)
+    if not payload:
         raise HTTPException(status_code=404, detail="Folder not found")
-
-    documents = [_map_document_payload(row) for row in _fetch_folder_documents(folder_id)]
-    return SafeJSONResponse({"folder": _build_folder_response(folder), "documents": documents})
+    return SafeJSONResponse(payload)
 
 
 @router.get("/{folder_id}/remediation")

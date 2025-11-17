@@ -51,6 +51,85 @@ async def get_groups():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@router.get("/summaries")
+async def get_group_summaries():
+    """Return consolidated summary data for each project."""
+    try:
+        summary_rows = execute_query(
+            """
+            SELECT
+                g.id AS groupId,
+                g.name,
+                g.description,
+                g.created_at AS createdAt,
+                COALESCE(g.file_count, 0) AS fileCount,
+                COUNT(b.id) AS folderCount,
+                MAX(b.created_at) AS lastBatchAt
+            FROM groups g
+            LEFT JOIN batches b ON b.group_id = g.id
+            GROUP BY g.id, g.name, g.description, g.created_at, g.file_count
+            ORDER BY g.created_at DESC
+            """,
+            fetch=True,
+        )
+        bucket_rows = execute_query(
+            "SELECT COUNT(*) AS folderCount FROM batches WHERE group_id IS NULL",
+            fetch=True,
+        ) or []
+        unassigned_count = int((bucket_rows[0].get("folderCount") if bucket_rows else 0) or 0)
+        projects = [dict(row) for row in summary_rows or []]
+        return SafeJSONResponse({"projects": projects, "unassignedFolderCount": unassigned_count})
+    except Exception:
+        logger.exception("doca11y-backend:get_group_summaries DB error")
+        return JSONResponse(
+            {"error": "Failed to fetch project summaries"}, status_code=500
+        )
+
+
+@router.get("/names")
+async def get_group_names():
+    """Return minimal project names list for lightweight navigation."""
+    try:
+        rows = execute_query(
+            """
+            SELECT id, name
+            FROM groups
+            ORDER BY created_at DESC
+            """,
+            fetch=True,
+        ) or []
+        return SafeJSONResponse({"projects": [dict(row) for row in rows]})
+    except Exception:
+        logger.exception("doca11y-backend:get_group_names DB error")
+        return JSONResponse(
+            {"error": "Failed to fetch project names"}, status_code=500
+        )
+
+
+@router.get("/{group_id}/folder-count")
+async def get_group_folder_count(group_id: str):
+    """Return the number of folders/batches linked to a project."""
+    try:
+        if group_id == "__unassigned":
+            rows = execute_query(
+                "SELECT COUNT(*) AS folder_count FROM batches WHERE group_id IS NULL",
+                fetch=True,
+            ) or []
+        else:
+            rows = execute_query(
+                "SELECT COUNT(*) AS folder_count FROM batches WHERE group_id = %s",
+                (group_id,),
+                fetch=True,
+            ) or []
+        count = int((rows[0].get("folder_count") if rows else 0) or 0)
+        return SafeJSONResponse({"groupId": group_id, "folderCount": count})
+    except Exception:
+        logger.exception("doca11y-backend:get_group_folder_count DB error")
+        return JSONResponse(
+            {"error": "Failed to fetch folder count"}, status_code=500
+        )
+
+
 @router.get("/{group_id}/details")
 async def get_group_details(group_id: str):
     """

@@ -155,6 +155,112 @@ const partitionBatchesByProject = (batches: Array<Record<string, any>>) => {
   return { assignments, unattached };
 };
 
+const mergeFoldersWithExisting = (incoming: Folder[], existing: Map<string, Folder>): Folder[] =>
+  incoming.map((folder) => {
+    const stored = existing.get(folder.id);
+    if (!stored) {
+      return folder;
+    }
+    const combinedDocuments = folder.documents.length > 0 ? folder.documents : stored.documents;
+    return {
+      ...folder,
+      documents: combinedDocuments,
+      lastSyncedAt: folder.lastSyncedAt ?? stored.lastSyncedAt,
+      isRemote: folder.isRemote ?? stored.isRemote,
+    };
+  });
+
+const mergeProjectsWithAssignments = (
+  baseProjects: Project[],
+  assignments: Map<string, Folder[]>,
+  unattached: Folder[],
+): Project[] => {
+  const folderLookup = new Map<string, Folder>();
+  baseProjects.forEach((project) => {
+    project.folders.forEach((folder) => folderLookup.set(folder.id, folder));
+  });
+
+  const cleaned = baseProjects.filter((project) => project.id !== '__unassigned');
+
+  const updatedProjects = cleaned.map((project) => {
+    const assigned = assignments.get(project.id);
+    if (!assigned) {
+      return project;
+    }
+    return {
+      ...project,
+      folders: mergeFoldersWithExisting(assigned, folderLookup),
+    };
+  });
+
+  const knownIds = new Set(updatedProjects.map((project) => project.id));
+  assignments.forEach((folders, projectId) => {
+    if (knownIds.has(projectId)) return;
+    knownIds.add(projectId);
+    updatedProjects.push({
+      id: projectId,
+      name: `Project ${projectId}`,
+      folders: mergeFoldersWithExisting(folders, folderLookup),
+    });
+  });
+
+  if (unattached.length > 0) {
+    updatedProjects.push({
+      id: '__unassigned',
+      name: 'Unassigned Uploads',
+      folders: mergeFoldersWithExisting(unattached, folderLookup),
+    });
+  }
+
+  return updatedProjects;
+};
+
+type SerializedDocument = Omit<Document, 'uploadDate'> & { uploadDate: string };
+
+interface CachedFolderDetails {
+  documents: SerializedDocument[];
+  folderName?: string;
+  fetchedAt: number;
+}
+
+const FOLDER_CACHE_KEY = 'document-a11y-folder-cache';
+
+const serializeDocuments = (documents: Document[]): SerializedDocument[] =>
+  documents.map((doc) => ({
+    ...doc,
+    uploadDate: doc.uploadDate.toISOString(),
+  }));
+
+const deserializeDocuments = (records: SerializedDocument[]): Document[] =>
+  records.map((record) => ({
+    ...record,
+    uploadDate: new Date(record.uploadDate),
+  }));
+
+const readFolderCacheFromStorage = (): Record<string, CachedFolderDetails> => {
+  if (typeof window === 'undefined') return {};
+  const serialized = window.localStorage.getItem(FOLDER_CACHE_KEY);
+  if (!serialized) return {};
+  try {
+    const parsed = JSON.parse(serialized ?? '{}');
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+  } catch {
+    window.localStorage.removeItem(FOLDER_CACHE_KEY);
+  }
+  return {};
+};
+
+const persistFolderCache = (cache: Record<string, CachedFolderDetails>) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(FOLDER_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // best effort
+  }
+};
+
 const App: React.FC = () => {
   const { showError, showSuccess, showInfo } = useNotification();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -179,43 +285,92 @@ interface UploadMetadata {
     currentFolderRef.current = currentFolder;
   }, [currentFolder]);
 
-  const ensureFolderDocuments = useCallback(
+  const folderCacheRef = useRef<Record<string, CachedFolderDetails>>({});
+  useEffect(() => {
+    folderCacheRef.current = readFolderCacheFromStorage();
+  }, []);
+
+  const applyFolderDocuments = useCallback(
+    (projectId: string, folderId: string, documents: Document[], metadata?: { name?: string; syncedAt?: Date }) => {
+      let nextProjectState: Project | null = null;
+      let nextFolderState: Folder | null = null;
+      setProjects((prev) =>
+        prev.map((project) => {
+          if (project.id !== projectId) return project;
+          const updatedFolders = project.folders.map((folder) => {
+            if (folder.id !== folderId) return folder;
+            const hydratedFolder: Folder = {
+              ...folder,
+              name: metadata?.name ?? folder.name,
+              documents,
+              lastSyncedAt: metadata?.syncedAt ?? new Date(),
+              isRemote: true,
+            };
+            nextFolderState = hydratedFolder;
+            return hydratedFolder;
+          });
+          nextProjectState = { ...project, folders: updatedFolders };
+          return nextProjectState;
+        }),
+      );
+
+      if (nextProjectState) {
+        setCurrentProject((prev) =>
+          prev?.id === nextProjectState.id ? nextProjectState : prev ?? nextProjectState,
+        );
+      }
+      if (nextFolderState && currentFolderRef.current?.id === folderId) {
+        setCurrentFolder(nextFolderState);
+      }
+    },
+    [currentFolderRef],
+  );
+
+  const refreshProjectFolderCount = useCallback(async (projectId: string) => {
+    if (!projectId || projectId === '__unassigned') return;
+    try {
+      const response = await http.get(API_ENDPOINTS.projectFolderCount(projectId));
+      const folderCount = Number(response.data?.folderCount ?? 0);
+      setProjects((prev) =>
+        prev.map((project) =>
+          project.id === projectId ? { ...project, folderCount } : project,
+        ),
+      );
+      setCurrentProject((prev) =>
+        prev && prev.id === projectId ? { ...prev, folderCount } : prev,
+      );
+    } catch (error) {
+      console.error('[App] Failed to load folder count', error);
+    }
+  }, []);
+
+const ensureFolderDocuments = useCallback(
   async (projectId: string, folderId: string) => {
+      const cachedEntry = folderCacheRef.current[folderId];
+      if (cachedEntry) {
+        const cachedDocuments = deserializeDocuments(cachedEntry.documents);
+        applyFolderDocuments(projectId, folderId, cachedDocuments, {
+          name: cachedEntry.folderName,
+          syncedAt: new Date(cachedEntry.fetchedAt),
+        });
+      }
+
       setSyncingFolderId(folderId);
       try {
         const response = await http.get(API_ENDPOINTS.folderDetails(folderId));
         const remoteFolderMeta = response.data?.folder;
         const remoteDocs = Array.isArray(response.data?.documents) ? response.data.documents : [];
         const documents = remoteDocs.map((entry: Record<string, any>) => mapFolderDocumentEntry(entry, folderId));
-
-        let nextProjectState: Project | null = null;
-        let nextFolderState: Folder | null = null;
-        setProjects((prev) =>
-          prev.map((project) => {
-            if (project.id !== projectId) return project;
-            const updatedFolders = project.folders.map((folder) => {
-              if (folder.id !== folderId) return folder;
-              const hydratedFolder: Folder = {
-                ...folder,
-                name: remoteFolderMeta?.name ?? folder.name,
-                documents,
-                lastSyncedAt: new Date(),
-                isRemote: true,
-              };
-              nextFolderState = hydratedFolder;
-              return hydratedFolder;
-            });
-            nextProjectState = { ...project, folders: updatedFolders };
-            return nextProjectState;
-          }),
-        );
-
-        if (nextProjectState) {
-          setCurrentProject((prev) => (prev?.id === nextProjectState.id ? nextProjectState : prev ?? nextProjectState));
-        }
-        if (nextFolderState && currentFolder?.id === folderId) {
-          setCurrentFolder(nextFolderState);
-        }
+        applyFolderDocuments(projectId, folderId, documents, {
+          name: remoteFolderMeta?.name ?? cachedEntry?.folderName,
+          syncedAt: new Date(),
+        });
+        folderCacheRef.current[folderId] = {
+          documents: serializeDocuments(documents),
+          folderName: remoteFolderMeta?.name ?? cachedEntry?.folderName,
+          fetchedAt: Date.now(),
+        };
+        persistFolderCache(folderCacheRef.current);
       } catch (error) {
         console.error('[App] Failed to hydrate folder', error);
         showError('Unable to load folder details from the server.');
@@ -223,7 +378,24 @@ interface UploadMetadata {
         setSyncingFolderId(null);
       }
   },
-  [currentFolder, showError],
+  [applyFolderDocuments, showError],
+);
+
+const refreshHistoryBatches = useCallback(
+  async () => {
+    try {
+      const response = await http.get(API_ENDPOINTS.history);
+      const historyBatches = Array.isArray(response.data?.batches) ? response.data.batches : [];
+      if (!historyBatches.length) {
+        return;
+      }
+      const { assignments, unattached } = partitionBatchesByProject(historyBatches);
+      setProjects((prev) => mergeProjectsWithAssignments(prev, assignments, unattached));
+    } catch (error) {
+      console.error('[App] Failed to refresh history', error);
+    }
+  },
+  [mergeProjectsWithAssignments],
 );
 
 const syncFolderWithBackend = useCallback(
@@ -294,44 +466,29 @@ const assignDocumentToFolder = useCallback(
     setIsBootstrapping(true);
     setSyncError(null);
     try {
-      const [projectsResponse, foldersResponse, historyResponse] = await Promise.all([
-        http.get(API_ENDPOINTS.projects),
+      const [projectNamesResponse, foldersResponse] = await Promise.all([
+        http.get(API_ENDPOINTS.projectNames),
         http.get(API_ENDPOINTS.folders),
-        http.get(API_ENDPOINTS.history),
       ]);
 
-      const remoteProjects = Array.isArray(projectsResponse.data?.groups)
-        ? projectsResponse.data.groups.map((group: Record<string, any>) => mapProjectFromApi(group))
+      const remoteProjects = Array.isArray(projectNamesResponse.data?.projects)
+        ? projectNamesResponse.data.projects.map((project: Record<string, any>) => mapProjectFromApi(project))
         : [];
 
       const folderPayload = Array.isArray(foldersResponse.data?.folders) ? foldersResponse.data.folders : [];
-      const historyBatches = Array.isArray(historyResponse.data?.batches) ? historyResponse.data.batches : [];
-      const batchSource = folderPayload.length > 0 ? folderPayload : historyBatches;
+      let batchSource = folderPayload;
+      if (batchSource.length === 0) {
+        try {
+          const historyResponse = await http.get(API_ENDPOINTS.history);
+          const historyBatches = Array.isArray(historyResponse.data?.batches) ? historyResponse.data.batches : [];
+          batchSource = historyBatches;
+        } catch (historyError) {
+          console.error('[App] Failed to load history fallback', historyError);
+        }
+      }
       const { assignments, unattached } = partitionBatchesByProject(batchSource);
 
-      const knownProjectIds = new Set(remoteProjects.map((project) => project.id));
-      const merged: Project[] = remoteProjects.map((project) => ({
-        ...project,
-        folders: assignments.get(project.id) ?? [],
-      }));
-
-      assignments.forEach((folders, projectId) => {
-        if (!knownProjectIds.has(projectId)) {
-          merged.push({
-            id: projectId,
-            name: `Project ${projectId}`,
-            folders,
-          });
-        }
-      });
-
-      if (unattached.length > 0) {
-        merged.push({
-          id: '__unassigned',
-          name: 'Unassigned Uploads',
-          folders: unattached,
-        });
-      }
+      const merged = mergeProjectsWithAssignments(remoteProjects, assignments, unattached);
 
       setProjects(merged);
 
@@ -354,6 +511,7 @@ const assignDocumentToFolder = useCallback(
       if (nextProject && nextFolder && nextFolder.isRemote && nextFolder.documents.length === 0) {
         void ensureFolderDocuments(nextProject.id, nextFolder.id);
       }
+      void refreshHistoryBatches();
     } catch (error) {
       console.error('[App] Failed to load projects', error);
       setSyncError('Unable to load projects from the backend.');
@@ -361,7 +519,7 @@ const assignDocumentToFolder = useCallback(
     } finally {
       setIsBootstrapping(false);
     }
-  }, [ensureFolderDocuments, showError]);
+  }, [ensureFolderDocuments, showError, refreshHistoryBatches]);
 
   useEffect(() => {
     void loadProjectsFromBackend();
@@ -412,7 +570,9 @@ const assignDocumentToFolder = useCallback(
     if (project && nextFolder && nextFolder.isRemote && nextFolder.documents.length === 0) {
       void ensureFolderDocuments(project.id, nextFolder.id);
     }
-  }, [projects, currentFolder, ensureFolderDocuments]);
+
+    void refreshProjectFolderCount(project.id);
+  }, [projects, currentFolder, ensureFolderDocuments, refreshProjectFolderCount]);
 
   const handleUpdateProject = useCallback(async (projectId: string, newName: string) => {
     const trimmed = newName.trim();
