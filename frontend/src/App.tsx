@@ -395,8 +395,8 @@ const assignDocumentToFolder = useCallback(
       }),
     );
     setCurrentFolder(newFolder);
-    showInfo('Folder created locally. Upload a batch to sync it with the backend.');
-  }, [currentProject, showInfo]);
+    showSuccess('Folder created.');
+  }, [currentProject, showSuccess]);
 
   const handleSelectFolder = useCallback((folderId: string) => {
     if (!currentProject) return;
