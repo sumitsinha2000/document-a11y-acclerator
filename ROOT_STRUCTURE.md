@@ -7,6 +7,7 @@ This repository contains a **React + Vite frontend** application with a **Python
 ## Directory Structure
 
 ### `frontend/` - Main Application ⭐
+
 This is the **primary application** that runs in production.
 
 - **Technology**: React 18 + Vite
@@ -16,6 +17,7 @@ This is the **primary application** that runs in production.
 - **Main Component**: `frontend/src/App.jsx`
 
 **Key Features**:
+
 - Professional loading screen with progress bar
 - Feature showcase slideshow
 - Main upload interface
@@ -24,6 +26,7 @@ This is the **primary application** that runs in production.
 - Dark mode support
 
 ### `backend/` - API Server
+
 The Flask backend that handles PDF processing and database operations.
 
 - **Technology**: Python Flask
@@ -32,6 +35,7 @@ The Flask backend that handles PDF processing and database operations.
 - **Entry Point**: `backend/app.py`
 
 ### `app/` - Not Used in Production ⚠️
+
 This directory contains a Next.js setup that is **NOT used in production**.
 
 - It was created during development/testing
@@ -40,11 +44,13 @@ This directory contains a Next.js setup that is **NOT used in production**.
 - It may be used for development tools or documentation pages
 
 ### `scripts/` - Database Setup
+
 SQL scripts for setting up the PostgreSQL database schema.
 
 ## Deployment Configuration
 
 The `vercel.json` file at the root configures Vercel to:
+
 1. Build from the `frontend/` directory
 2. Output to `frontend/dist`
 3. Proxy API requests to the backend

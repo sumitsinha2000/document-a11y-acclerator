@@ -14,6 +14,7 @@ The frontend application is successfully deployed to Vercel, but the backend API
 ## Why This Is Happening
 
 The application has two parts:
+
 1. **Frontend** (React + Vite) - ✅ Successfully deployed to Vercel
 2. **Backend** (Flask API) - ❌ Not found in repository / Not deployed
 
@@ -27,14 +28,20 @@ If you have a backend codebase elsewhere:
 
 1. **Add backend to repository:**
    \`\`\`bash
+
    # Create backend directory
+
    mkdir backend
    cd backend
-   
+
    # Add your Flask app files here
+
    # - app.py or server.py
+
    # - requirements.txt
+
    # - Any other backend files
+
    \`\`\`
 
 2. **Deploy backend to Vercel:**
@@ -59,7 +66,7 @@ If you need to create a backend from scratch:
    ├── requirements.txt    # Python dependencies
    ├── vercel.json        # Vercel configuration
    └── api/
-       ├── __init__.py
+       ├── **init**.py
        ├── routes.py      # API routes
        └── models.py      # Database models
    \`\`\`
@@ -117,6 +124,7 @@ The Neon PostgreSQL database is already connected via Vercel integration. Your b
 ## Need Help?
 
 If you have questions about:
+
 - Where your backend code is located
 - How to structure the backend
 - Which deployment option to choose
@@ -126,6 +134,7 @@ Please provide more information about your backend setup, and I can help you con
 ## Current Frontend Configuration
 
 The frontend is configured to call APIs at:
+
 - Development: `http://localhost:5000` (when VITE_API_URL is not set)
 - Production: Uses VITE_API_URL environment variable or relative URLs
 

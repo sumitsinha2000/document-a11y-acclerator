@@ -3,6 +3,7 @@
 ## Problem Summary
 
 The application was experiencing critical build errors on Vercel:
+
 - **ReferenceError: Cannot access 'f'/'k'/'j' before initialization**
 - **Massive bundle size**: 1.2MB+ main bundle causing initialization failures
 - **Blank page on deployment**: App crashes on load due to circular dependencies
@@ -26,6 +27,7 @@ npm run cleanup:use-client
 \`\`\`
 
 This script will:
+
 - Scan all `.jsx` and `.js` files in `frontend/src/`
 - Remove `"use client"` or `'use client'` from the top of each file
 - Report how many files were cleaned
@@ -70,6 +72,7 @@ manualChunks(id) {
 \`\`\`
 
 **Result**: Instead of one 1.2MB bundle, the app now has:
+
 - `react-vendor.js` (~150KB)
 - `pdf-libs.js` (~200KB)
 - `export-libs.js` (~200KB)
