@@ -2,7 +2,6 @@ import { useState, useEffect, lazy, Suspense, useCallback, startTransition } fro
 import axios from "axios"
 import "./App.css"
 import LoadingScreen from "./components/LoadingScreen"
-import UploadArea from "./components/UploadArea"
 import ThemeToggle from "./components/ThemeToggle"
 import { NotificationProvider, useNotification } from "./contexts/NotificationContext"
 import NotificationContainer from "./components/NotificationContainer"
@@ -29,12 +28,13 @@ function AppContent() {
   console.log("[v0] AppContent rendering")
 
   // const [isLoading, setIsLoading] = useState(true)
-  const [currentView, setCurrentView] = useState("upload")
+  const [currentView, setCurrentView] = useState("dashboard")
   const [scanHistory, setScanHistory] = useState([])
   const [scanResults, setScanResults] = useState([])
   const [currentBatch, setCurrentBatch] = useState(null)
   const [loading, setLoading] = useState(false)
   const [selectedGroupId, setSelectedGroupId] = useState(null)
+  const [isUploadPanelOpen, setUploadPanelOpen] = useState(false)
   const transitionToView = useCallback(
     (view) => {
       startTransition(() => {
@@ -58,6 +58,12 @@ function AppContent() {
     console.log("[v0] AppContent mounted, fetching scan history")
     fetchScanHistory()
   }, [fetchScanHistory])
+
+  useEffect(() => {
+    if (currentView !== "dashboard") {
+      setUploadPanelOpen(false)
+    }
+  }, [currentView])
 
   // const handleLoadingComplete = () => {
   //   console.log("[v0] Loading complete")
@@ -115,8 +121,27 @@ function AppContent() {
     fetchScanHistory()
   }
 
+  const handleDashboardUploadComplete = (scans) => {
+    handleScanComplete(scans)
+    setUploadPanelOpen(false)
+  }
+
+  const handleDashboardUploadDeferred = (details) => {
+    handleUploadDeferred(details)
+    setUploadPanelOpen(false)
+  }
+
   const handleViewHistory = () => {
     transitionToView("history")
+  }
+
+  const handleOpenUploadPanel = () => {
+    setUploadPanelOpen(true)
+    transitionToView("dashboard")
+  }
+
+  const handleCloseUploadPanel = () => {
+    setUploadPanelOpen(false)
   }
 
   const handleSelectScan = async (scan) => {
@@ -162,9 +187,9 @@ function AppContent() {
   }
 
   const handleBackToUpload = () => {
-    setCurrentView("upload")
     setScanResults([])
     setCurrentBatch(null)
+    handleOpenUploadPanel()
   }
 
   const handleViewGenerator = () => {
@@ -211,7 +236,7 @@ function AppContent() {
                 <button
                   onClick={handleBackToUpload}
                   className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
-                    currentView === "upload"
+                    isUploadPanelOpen
                       ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
                       : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white"
                   }`}
@@ -223,7 +248,6 @@ function AppContent() {
                         strokeLinejoin="round"
                         strokeWidth={2}
                         d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                        aria-hidden="true"
                       />
                     </svg>
                     Upload
@@ -292,27 +316,6 @@ function AppContent() {
                     History
                   </span>
                 </button>
-
-           {/* /     <button
-                  onClick={handleViewGenerator}
-                  className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
-                    currentView === "generator"
-                      ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
-                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                      />
-                    </svg>
-                    Generator
-                  </span>
-                </button> */}
               </nav>
             </div>
 
@@ -337,18 +340,19 @@ function AppContent() {
       <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 max-w-full">
         <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-full">
 
-          {currentView === "upload" && (
-            <UploadArea onScanComplete={handleScanComplete} onUploadDeferred={handleUploadDeferred} />
-          )}
           {currentView === "groups" && <GroupMaster onBack={handleBackToUpload} onOpenGroupDashboard={handleOpenGroupDashboard} />}
           {currentView === "dashboard" && (
             <GroupDashboard
               onSelectScan={handleSelectScan}
               onSelectBatch={handleSelectBatch}
-              onBack={handleBackToUpload}
+              onUploadRequest={handleOpenUploadPanel}
+              uploadSectionOpen={isUploadPanelOpen}
+              onCloseUploadSection={handleCloseUploadPanel}
+              onScanComplete={handleDashboardUploadComplete}
+              onUploadDeferred={handleDashboardUploadDeferred}
               initialGroupId={selectedGroupId}
+              scanHistory={scanHistory}
             />
-
           )}
           {currentView === "history" && (
             <Suspense fallback={<ComponentLoader />}>

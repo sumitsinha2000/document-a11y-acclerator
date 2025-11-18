@@ -2,23 +2,37 @@ import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 import GroupTreeSidebar from "./GroupTreeSidebar"
-import { BatchInsightPanel, FileInsightPanel, GroupInsightPanel } from "./DashboardInsights"
 import API_BASE_URL from "../config/api"
 import { parseBackendDate } from "../utils/dates"
+import UploadArea from "./UploadArea"
 
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id))
 const getCacheKey = (node) => (node ? `${node.type}:${normalizeId(node.id)}` : "")
 
-export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, initialGroupId }) {
+export default function GroupDashboard({
+  onSelectScan,
+  onSelectBatch,
+  initialGroupId,
+  uploadSectionOpen = false,
+  onUploadRequest = () => {},
+  onCloseUploadSection = () => {},
+  onScanComplete = () => {},
+  onUploadDeferred = () => {},
+  scanHistory = [],
+}) {
   const { showError, showSuccess } = useNotification()
 
   const [selectedNode, setSelectedNode] = useState(null)
   const [nodeData, setNodeData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
-  const [startingScan, setStartingScan] = useState(false)
-  const [startingFolderScan, setStartingFolderScan] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [uploadContext, setUploadContext] = useState({
+    groupId: null,
+    groupName: null,
+    folderId: null,
+    folderName: null,
+  })
 
   const latestRequestRef = useRef(0)
   const cacheRef = useRef(new Map())
@@ -39,6 +53,56 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
     }
   }
 
+  const deriveUploadContext = (node, nodeDataPayload = null) => {
+    if (!node && !nodeDataPayload) {
+      return {
+        groupId: null,
+        groupName: null,
+        folderId: null,
+        folderName: null,
+      }
+    }
+
+    const groupId =
+      nodeDataPayload?.groupId ??
+      nodeDataPayload?.group_id ??
+      node?.data?.groupId ??
+      node?.data?.group_id ??
+      (node?.type === "group" ? node.id : null)
+    const groupName =
+      nodeDataPayload?.groupName ??
+      nodeDataPayload?.name ??
+      node?.data?.groupName ??
+      node?.data?.name ??
+      ""
+
+    let folderId =
+      nodeDataPayload?.batchId ??
+      nodeDataPayload?.folderId ??
+      (node?.type === "batch" ? node.id : null)
+    let folderName =
+      nodeDataPayload?.name ??
+      nodeDataPayload?.folderName ??
+      (node?.type === "batch" ? node.data?.name ?? "" : "")
+
+    if (!folderId && node?.type === "file") {
+      folderId = node.data?.batchId ?? node.data?.folderId ?? null
+      folderName = folderName || node.data?.batchName || node.data?.folderName || ""
+    }
+
+    return {
+      groupId,
+      groupName,
+      folderId,
+      folderName,
+    }
+  }
+
+  const updateUploadContext = (node, nodeDataPayload = null) => {
+    const context = deriveUploadContext(node, nodeDataPayload)
+    setUploadContext(context)
+  }
+
 
   const handleNodeSelect = async (node) => {
     if (!node) {
@@ -46,6 +110,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
       setNodeData(null)
       setLoading(false)
       setIsRefreshing(false)
+      updateUploadContext(null)
       return { cleared: true }
     }
 
@@ -56,6 +121,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
     latestRequestRef.current = nextRequestId
 
     setSelectedNode(node)
+    updateUploadContext(node)
 
     if (usedCache) {
       setNodeData(cachedEntry.nodeData)
@@ -74,6 +140,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
       }
       setNodeData(payload.nodeData)
       setSelectedNode(payload.selectedNode)
+      updateUploadContext(node, payload.nodeData)
     }
 
     try {
@@ -169,95 +236,6 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
     }
   }
 
-  const handleBeginScan = async () => {
-    if (!nodeData || nodeData.type !== "file") {
-      return
-    }
-
-    const scanId = nodeData.scanId || nodeData.id || selectedNode?.id
-    if (!scanId) {
-      showError("Unable to determine which file to scan.")
-      return
-    }
-
-    try {
-      setStartingScan(true)
-      await axios.post(`${API_BASE_URL}/api/scan/${scanId}/start`)
-      showSuccess(`Started scanning ${nodeData.fileName || nodeData.filename}.`)
-
-      const refreshed = await axios.get(`${API_BASE_URL}/api/scan/${scanId}`)
-      setNodeData({
-        type: "file",
-        ...refreshed.data,
-      })
-    } catch (error) {
-      console.error("[v0] Error starting deferred scan from dashboard:", error)
-      const errorMsg = error.response?.data?.error || error.message || "Failed to start scan"
-      showError(errorMsg)
-    } finally {
-      setStartingScan(false)
-    }
-  }
-
-  const handleBeginFolderScan = async () => {
-    if (!nodeData || nodeData.type !== "batch") {
-      return
-    }
-
-    const folderId = nodeData.batchId || selectedNode?.id
-    if (!folderId) {
-      showError("Unable to determine which folder to scan.")
-      return
-    }
-
-    const scansToStart =
-      nodeData.scans?.filter((scan) => (scan.status || "").toLowerCase() === "uploaded") || []
-
-    if (scansToStart.length === 0) {
-      showError("All files in this folder have already been sent for scanning.")
-      return
-    }
-
-    try {
-      setStartingFolderScan(true)
-      const failedScans = []
-
-      for (const scan of scansToStart) {
-        try {
-          await axios.post(`${API_BASE_URL}/api/scan/${scan.scanId}/start`)
-        } catch (scanError) {
-          console.error("[v0] Error starting deferred scan for folder item:", scanError)
-          failedScans.push(scan.filename || scan.scanId)
-        }
-      }
-
-      if (failedScans.length === scansToStart.length) {
-        showError("Failed to start scanning for files in this folder.")
-        return
-      }
-
-      if (failedScans.length > 0) {
-        showError(`Some files failed to start scanning: ${failedScans.join(", ")}`)
-      } else {
-        showSuccess(
-          `Started scanning ${scansToStart.length} file${scansToStart.length === 1 ? "" : "s"} in this folder.`
-        )
-      }
-
-      const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${folderId}`)
-      setNodeData({
-        type: "batch",
-        ...refreshed.data,
-      })
-    } catch (error) {
-      console.error("[v0] Error starting folder scan:", error)
-      const errorMsg = error.response?.data?.error || error.message || "Failed to start folder scan"
-      showError(errorMsg)
-    } finally {
-      setStartingFolderScan(false)
-    }
-  }
-
   if (initialLoading) {
     return (
       <div className="flex h-screen bg-slate-50 dark:bg-slate-900 items-center justify-center">
@@ -269,22 +247,9 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
     )
   }
 
-  const fileIsUploaded = nodeData?.type === "file" && nodeData?.status === "uploaded"
-  const fileScanDateLabel = fileIsUploaded ? "Uploaded on" : "Scanned on"
-  const fileDateValue = nodeData?.type === "file" ? nodeData?.uploadDate || nodeData?.created_at || nodeData?.timestamp : null
-  const parsedFileDate = parseBackendDate(fileDateValue)
-  const targetFileName =
-    nodeData?.type === "file" ? nodeData.fileName || nodeData.filename || "selected file" : "selected file"
-  const folderHasUploadedFiles =
-    nodeData?.type === "batch" && nodeData?.scans?.some((scan) => (scan.status || "").toLowerCase() === "uploaded")
-  const folderReadyToScan =
-    nodeData?.type === "batch" &&
-    ((nodeData?.scans?.length || 0) === 0 ||
-      nodeData?.scans?.every((scan) => (scan.status || "").toLowerCase() === "uploaded"))
-  const nodeUploadDate = parseBackendDate(nodeData?.uploadDate)
-
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
+
       <GroupTreeSidebar
         onNodeSelect={handleNodeSelect}
         selectedNode={selectedNode}
@@ -310,13 +275,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                       fill="none"
                       stroke="currentColor"
                     >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        strokeWidth="4"
-                      ></circle>
+                      <circle cx="12" cy="12" r="10" strokeWidth="4" className="opacity-25"></circle>
                       <path
                         className="opacity-75"
                         d="M4 12a8 8 0 018-8"
@@ -341,10 +300,21 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
               </p>
             </div>
             <button
-              onClick={onBack}
-              className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              onClick={onUploadRequest}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 rounded-lg shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 transition-colors"
             >
-              ← Back to Upload
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-3-3m3 3 3-3" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 19h14" />
+              </svg>
+              Upload Files
             </button>
           </div>
 
@@ -352,246 +322,96 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600"></div>
             </div>
-          ) : nodeData ? (
+          ) : (
             <>
-              {nodeData.type === "group" && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5">
-                      <div className="text-3xl font-bold text-violet-600 dark:text-violet-400">
-                        {nodeData.avg_compliance || 0}%
-                      </div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Avg Compliance</div>
+              {uploadSectionOpen && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                  <div className="flex items-center justify-between gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white">Upload PDF documents</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Drop files directly into the dashboard without navigating away.
+                      </p>
+                      {uploadContext.groupId && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          {uploadContext.groupName || "Selected project"} automatically selected{uploadContext.folderName ? ` · Folder: ${uploadContext.folderName}` : ""}
+                        </p>
+                      )}
                     </div>
-                    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5">
-                      <div className="text-3xl font-bold text-rose-600 dark:text-rose-400">
-                        {nodeData.total_issues || 0}
-                      </div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Total Issues</div>
-                    </div>
-                    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5">
-                      <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
-                        {nodeData.issues_fixed || 0}
-                      </div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Fixed Issues</div>
-                    </div>
-                    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5">
-                      <div className="text-3xl font-bold text-slate-900 dark:text-white">
-                        {nodeData.file_count || 0}
-                      </div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Total Files</div>
-                    </div>
+                    <button
+                      onClick={onCloseUploadSection}
+                      className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 transition-colors hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-white"
+                    >
+                      Close upload
+                    </button>
                   </div>
-
-                  {nodeData.description && (
-                    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5">
-                      <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">Description</h3>
-                      <p className="text-slate-600 dark:text-slate-400">{nodeData.description}</p>
-                    </div>
-                  )}
-
-                  <GroupInsightPanel
-                    categoryTotals={nodeData.category_totals}
-                    severityTotals={nodeData.severity_totals}
-                    statusCounts={nodeData.status_counts}
-                    totalFiles={nodeData.file_count}
-                    totalIssues={nodeData.total_issues}
-                  />
+                  <div className="mt-4">
+                    <UploadArea
+                      onScanComplete={onScanComplete}
+                      onUploadDeferred={onUploadDeferred}
+                      autoSelectGroupId={uploadContext.groupId}
+                      autoSelectFolderId={uploadContext.folderId}
+                      autoSelectFolderName={uploadContext.folderName}
+                    />
+                  </div>
                 </div>
               )}
 
-              {nodeData.type === "file" && (
-                <div className="space-y-6">
-                  <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
-                    <div className="flex items-start justify-between mb-6">
-                      <div>
-                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-                          {nodeData.fileName || nodeData.filename}
-                        </h2>
-                        <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
-                          <span>
-                            {fileScanDateLabel}{" "}
-                            {parsedFileDate ? parsedFileDate.toLocaleDateString() : "N/A"}
-                          </span>
-                          {nodeData.status && (
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs font-medium ${nodeData.status === "fixed"
-                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                                  : nodeData.status === "processed"
-                                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                    : nodeData.status === "uploaded"
-                                      ? "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200"
-                                      : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                                }`}
-                            >
-                              {nodeData.status === "uploaded" ? "Uploaded" : nodeData.status}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Uploaded documents</h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      Recent scans tied to the project you are viewing. Click to open the report.
+                    </p>
+                  </div>
+                  <button
+                    onClick={onUploadRequest}
+                    className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600 rounded-full border border-slate-300 hover:border-slate-400 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-600 transition-colors"
+                  >
+                    Upload more
+                  </button>
+                </div>
+                <div className="mt-5 space-y-3">
+                  {scanHistory.length === 0 ? (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      No uploads yet. Use the upload panel above to add your first document.
+                    </p>
+                  ) : (
+                    scanHistory.slice(0, 6).map((scan) => {
+                      const scanDate = parseBackendDate(scan.uploadDate || scan.created_at || scan.timestamp)
+                      return (
+                        <article
+                          key={scan.scanId || scan.id || scan.batchId || scan.filename}
+                          className="flex items-center justify-between gap-4 rounded-2xl border border-slate-100 px-4 py-3 transition-colors hover:border-slate-200 dark:border-slate-800 dark:hover:border-slate-700"
+                        >
+                          <div>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                              {scan.filename || scan.fileName || "Untitled PDF"}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              {(scan.groupName || scan.group_name || "Unknown project") +
+                                (scanDate ? ` · ${scanDate.toLocaleDateString()}` : "")}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-600 bg-indigo-50 rounded-full dark:text-indigo-300 dark:bg-indigo-900/30">
+                              {scan.status || "Uploaded"}
                             </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => onSelectScan(nodeData)}
-                          disabled={fileIsUploaded}
-                          className={`px-4 py-2 rounded-lg transition-colors font-medium ${fileIsUploaded
-                              ? "bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400 cursor-not-allowed"
-                              : "bg-violet-600 hover:bg-violet-700 text-white"
-                            }`}
-                        >
-                          View Full Report
-                        </button>
-                        {fileIsUploaded && (
-                          <button
-                            onClick={handleBeginScan}
-                            disabled={startingScan}
-                            aria-label={
-                              startingScan
-                                ? `Starting scan for ${targetFileName}`
-                                : `Begin scan for ${targetFileName}`
-                            }
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {startingScan ? "Starting..." : "Begin Scan"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
-                        <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                          {fileIsUploaded ? "0" : `${(nodeData.summary?.complianceScore ?? 0).toLocaleString()}%`}
-                        </div>
-                        <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Compliance Score</div>
-                      </div>
-                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
-                        <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                          {fileIsUploaded ? "0" : (nodeData.summary?.totalIssues ?? 0)}
-                        </div>
-                        <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Total Issues</div>
-                      </div>
-                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
-                        <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">
-                          {fileIsUploaded ? "0" : (nodeData.summary?.highSeverity ?? 0)}
-                        </div>
-                        <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">High Severity</div>
-                      </div>
-                    </div>
-
-                    {!fileIsUploaded && (
-                      <div className="mt-6">
-                        <FileInsightPanel results={nodeData.results} summary={nodeData.summary} />
-                      </div>
-                    )}
-
-                    {fileIsUploaded && (
-                      <div className="mt-4 p-4 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400">
-                        This file is ready to scan. Use the "Begin Scan" button to generate accessibility results.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {nodeData.type === "batch" && (
-                <div className="space-y-6">
-                  <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
-                    <div className="flex items-start justify-between mb-6">
-                      <div>
-                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-                          {nodeData.name || "Folder"}
-                        </h2>
-                        <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
-                          <span>
-                            Created on{" "}
-                            {nodeUploadDate ? nodeUploadDate.toLocaleDateString() : "Unknown"}
-                          </span>
-                          <span>{nodeData.fileCount || 0} files</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2" role="group" aria-label="Folder actions">
-                        <button
-                          type="button"
-                          onClick={() => onSelectBatch(nodeData.batchId)}
-                          className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors font-medium"
-                        >
-                          View Folder Report
-                        </button>
-                        {folderHasUploadedFiles && (
-                          <button
-                            type="button"
-                            onClick={handleBeginFolderScan}
-                            disabled={startingFolderScan}
-                            aria-disabled={startingFolderScan}
-                            aria-busy={startingFolderScan}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {startingFolderScan ? "Starting..." : "Begin Scan"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-4">
-                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
-                        <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                          {nodeData.totalIssues || 0}
-                        </div>
-                        <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Total Issues</div>
-                      </div>
-                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
-                        <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                          {nodeData.fixedIssues || 0}
-                        </div>
-                        <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Fixed</div>
-                      </div>
-                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
-                        <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                          {nodeData.remainingIssues || 0}
-                        </div>
-                        <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Remaining</div>
-                      </div>
-                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4">
-                        <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                          {nodeData.unprocessedFiles || 0}
-                        </div>
-                        <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">Unprocessed</div>
-                      </div>
-                    </div>
-
-                    <div className="mt-6">
-                      <BatchInsightPanel scans={nodeData.scans} />
-                    </div>
-
-                    {folderReadyToScan && (
-                      <div className="mt-4 p-4 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400">
-                        This folder is ready to scan. Use the "Begin Scan" button to generate accessibility results.
-                      </div>
-                    )}
+                            <button
+                              onClick={() => onSelectScan(scan)}
+                              className="text-xs font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+                            >
+                              View
+                            </button>
+                          </div>
+                        </article>
+                      )
+                    })
+                  )}
                 </div>
               </div>
-            )}
             </>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <svg
-                className="w-20 h-20 text-slate-300 dark:text-slate-600 mb-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                />
-              </svg>
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">No Selection</h3>
-              <p className="text-slate-600 dark:text-slate-400">
-                Select a project or file from the sidebar to view details
-              </p>
-            </div>
           )}
         </div>
       </div>

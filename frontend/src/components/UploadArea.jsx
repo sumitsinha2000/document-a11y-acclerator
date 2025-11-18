@@ -6,7 +6,13 @@ import GroupSelector from "./GroupSelector"
 import UploadProgressToast from "./UploadProgressToast"
 import { API_ENDPOINTS } from "../config/api";
 
-export default function UploadArea({ onScanComplete, onUploadDeferred }) {
+export default function UploadArea({
+  onScanComplete,
+  onUploadDeferred,
+  autoSelectGroupId = null,
+  autoSelectFolderId = null,
+  autoSelectFolderName = "",
+}) {
   const [isDragging, setIsDragging] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
   const [error, setError] = useState(null)
@@ -17,6 +23,11 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [selectedFiles, setSelectedFiles] = useState([])
   const [scanMode, setScanMode] = useState("scan-now")
+  useEffect(() => {
+    if (autoSelectGroupId) {
+      setSelectedGroup(autoSelectGroupId)
+    }
+  }, [autoSelectGroupId])
 
   useEffect(() => {
     if (uploadProgress.length > 0) {
@@ -130,6 +141,7 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
     const isDeferred = scanMode === 'upload-only'
     const isBatch = files.length > 1
     const groupId = resolveGroupId()
+    const folderId = autoSelectFolderId
     setSrAnnouncement(
       isDeferred
         ? `Uploading ${files.length} PDF file${files.length === 1 ? '' : 's'} without scanning`
@@ -169,6 +181,9 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
         files.forEach((file) => formData.append('files', file))
         if (groupId) {
           formData.append('group_id', groupId)
+        }
+        if (folderId) {
+          formData.append('folder_id', folderId)
         }
         formData.append('scan_mode', isDeferred ? 'upload_only' : 'scan_now')
 
@@ -230,6 +245,9 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
       formData.append('file', file)
       if (groupId) {
         formData.append('group_id', groupId)
+      }
+      if (folderId) {
+        formData.append('folder_id', folderId)
       }
       if (!isDeferred) {
         formData.append('scan_mode', 'scan_now')
@@ -373,6 +391,12 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
                     Please select a project to continue
                   </p>
                 </div>
+              )}
+
+              {autoSelectFolderName && (
+                <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                  Files will be attached to folder {autoSelectFolderName}.
+                </p>
               )}
             </div>
           </aside>
