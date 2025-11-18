@@ -8,6 +8,7 @@ import { NotificationProvider, useNotification } from "./contexts/NotificationCo
 import NotificationContainer from "./components/NotificationContainer"
 import API_BASE_URL from "./config/api"
 import ErrorBoundary from "./components/ErrorBoundary"
+import amperaLogo from "./assets/ampera_logo_icon.png"
 
 const History = lazy(() => import("./components/History"))
 const ReportViewer = lazy(() => import("./components/ReportViewer"))
@@ -196,18 +197,8 @@ function AppContent() {
             {/* Logo and Brand */}
             <div className="flex items-center gap-8 min-w-0">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-indigo shadow-md flex-shrink-0">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-6 w-6 text-white"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    aria-hidden="true"
-                  >
-                    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-                    <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-                  </svg>
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl shadow-md flex-shrink-0 overflow-hidden">
+                  <img src={amperaLogo} alt="Ampera logo" className="h-full w-full object-contain p-1" />
                 </div>
                 <div className="min-w-0">
                   <p className="text-xl font-bold text-slate-900 dark:text-white truncate">Doc A11y Accelerator</p>

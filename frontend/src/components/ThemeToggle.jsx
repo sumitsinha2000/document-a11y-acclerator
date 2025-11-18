@@ -33,7 +33,7 @@ export default function ThemeToggle() {
     >
       {isDark ? (
         <svg
-          className="w-6 h-6 text-yellow-500"
+          className="w-7 h-7 text-yellow-500"
           fill="currentColor"
           viewBox="0 0 20 20"
           role="img"
@@ -49,7 +49,7 @@ export default function ThemeToggle() {
         </svg>
       ) : (
         <svg
-          className="w-6 h-6 text-gray-700"
+          className="w-7 h-7 text-gray-700"
           fill="currentColor"
           viewBox="0 0 20 20"
           role="img"
