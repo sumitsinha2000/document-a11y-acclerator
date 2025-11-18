@@ -233,38 +233,17 @@ function AppContent() {
 
               {/* Navigation Links */}
               <nav className="hidden md:flex items-center gap-1 flex-shrink-0">
-                <button
-                  onClick={handleBackToUpload}
-                  className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
-                    isUploadPanelOpen
-                      ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
-                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                      />
-                    </svg>
-                    Upload
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => transitionToView("dashboard")}
-                  className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
-                    currentView === "dashboard"
-                      ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
-                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
+              <button
+                onClick={() => transitionToView("dashboard")}
+                className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
+                  currentView === "dashboard"
+                    ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
+                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
