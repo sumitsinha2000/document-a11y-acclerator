@@ -47,7 +47,13 @@ from backend.multi_tier_storage import (
 )
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.auto_fix_engine import AutoFixEngine
-from backend.routes import health_router, groups_router, scans_router, fixes_router
+from backend.routes import (
+    health_router,
+    groups_router,
+    folders_router,
+    scans_router,
+    fixes_router,
+)
 import backend.utils.app_helpers as app_helpers
 from backend.utils.app_helpers import (
     SafeJSONResponse,
@@ -153,6 +159,7 @@ mount_static_if_available(
 
 app.include_router(health_router)
 app.include_router(groups_router)
+app.include_router(folders_router)
 app.include_router(scans_router)
 app.include_router(fixes_router)
 
