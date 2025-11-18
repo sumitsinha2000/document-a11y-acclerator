@@ -104,10 +104,10 @@ function AppContent() {
 
   const handleUploadDeferred = (details) => {
     const count = details?.scanIds?.length ?? 0
-    const hasBatch = Boolean(details?.batchId)
+    const hasFolder = Boolean(details?.batchId)
     const message =
       count > 1
-        ? `${count} files uploaded${hasBatch ? " in the batch" : ""}. Begin scanning whenever you're ready from the dashboard or history view.`
+        ? `${count} files uploaded${hasFolder ? " in the folder" : ""}. Begin scanning whenever you're ready from the dashboard or history view.`
         : count === 1
           ? "File uploaded successfully. Start the scan when you're ready from the dashboard or history view."
           : "Upload completed. Start scanning whenever you're ready from the dashboard or history view."
@@ -154,8 +154,8 @@ function AppContent() {
       })
       setCurrentView("batch")
     } catch (error) {
-      console.error("Error loading batch details:", error)
-      showError("Failed to load batch details: " + (error.response?.data?.error || error.message))
+      console.error("Error loading folder details:", error)
+      showError("Failed to load folder details: " + (error.response?.data?.error || error.message))
     } finally {
       setLoading(false)
     }
@@ -179,7 +179,7 @@ function AppContent() {
         scans: response.data.scans || [],
       })
     } catch (error) {
-      console.error("Error refreshing batch data:", error)
+      console.error("Error refreshing folder data:", error)
     }
   }
 
@@ -268,7 +268,7 @@ function AppContent() {
                         d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
                       />
                     </svg>
-                    Groups
+                    Projects
                   </span>
                 </button>
 

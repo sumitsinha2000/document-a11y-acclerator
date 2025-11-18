@@ -52,8 +52,8 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
     e.stopPropagation()
 
     const confirmed = await confirm({
-      title: "Delete Batch",
-      message: `Delete batch "${batchName}" and permanently remove every file that was uploaded to this group as part of it? This cannot be undone.`,
+      title: "Delete Folder",
+      message: `Delete folder "${batchName}" and permanently remove every file that was uploaded to this project as part of it? This cannot be undone.`,
       confirmText: "Delete",
       cancelText: "Cancel",
       type: "danger",
@@ -65,7 +65,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
 
     try {
       setDeletingBatch(batchId)
-      console.log("[v0] Deleting batch:", batchId)
+      console.log("[v0] Deleting folder:", batchId)
 
       const response = await fetch(`${API_ENDPOINTS.batchDetails(batchId)}`, {
         method: "DELETE",
@@ -73,22 +73,22 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to delete batch")
+        throw new Error(errorData.error || "Failed to delete folder")
       }
 
       const result = await response.json()
-      console.log("[v0] Batch deleted successfully:", result)
+      console.log("[v0] Folder deleted successfully:", result)
 
       await fetchHistory()
 
       showSuccess(
-        `Deleted batch${
+        `Deleted folder${
           result.batchName ? ` "${result.batchName}"` : ""
         } with ${result.deletedScans ?? 0} scans (${result.deletedFiles ?? 0} files removed)`,
       )
     } catch (error) {
-      console.error("[v0] Error deleting batch:", error)
-      showError(`Failed to delete batch: ${error.message}`)
+      console.error("[v0] Error deleting folder:", error)
+      showError(`Failed to delete folder: ${error.message}`)
     } finally {
       setDeletingBatch(null)
     }
@@ -99,7 +99,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
 
     const confirmed = await confirm({
       title: "Delete File",
-      message: `Delete "${filename}" and remove it from its group history? This permanently deletes the file and cannot be undone.`,
+      message: `Delete "${filename}" and remove it from its project history? This permanently deletes the file and cannot be undone.`,
       confirmText: "Delete",
       cancelText: "Cancel",
       type: "danger",
@@ -333,7 +333,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                 : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
             }`}
           >
-            Batches ({batches.length})
+            Folders ({batches.length})
           </button>
           <button
             onClick={() => setView("individual")}
@@ -349,13 +349,13 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
 
         <div className="relative">
           <label htmlFor="history-search" className="sr-only">
-            Search scans and batches
+            Search scans and folders
           </label>
           <input
             type="text"
             id="history-search"
             autoComplete="on"
-            placeholder="Search by filename, batch name, group, or ID..."
+            placeholder="Search by filename, folder name, project, or ID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full px-4 py-2 pl-10 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -390,7 +390,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
       {(view === "all" || view === "batches") && filteredBatches.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Batch Uploads {searchQuery && `(${filteredBatches.length} of ${batches.length})`}
+            Folder Uploads {searchQuery && `(${filteredBatches.length} of ${batches.length})`}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredBatches.map((batch) => {
@@ -419,10 +419,10 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                       </svg>
                       <div className="min-w-0">
                         <h3 className="font-semibold text-gray-900 dark:text-white truncate">
-                          {batch.name || "Batch Upload"}
+                          {batch.name || "Folder Upload"}
                         </h3>
                         {batch.groupName && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">Group: {batch.groupName}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">Project: {batch.groupName}</p>
                         )}
                       </div>
                     </div>
@@ -430,7 +430,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                       onClick={(e) => handleDeleteBatch(batch.batchId, batch.name, e)}
                       disabled={deletingBatch === batch.batchId}
                       className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                      title="Delete batch"
+                      title="Delete folder"
                     >
                       {deletingBatch === batch.batchId ? (
                         <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
@@ -539,7 +539,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                           {scan.filename}
                         </h3>
                         {scan.groupName && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">Group: {scan.groupName}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">Project: {scan.groupName}</p>
                         )}
                       </div>
                     </div>

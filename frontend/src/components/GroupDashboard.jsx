@@ -17,7 +17,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [startingScan, setStartingScan] = useState(false)
-  const [startingBatchScan, setStartingBatchScan] = useState(false)
+  const [startingFolderScan, setStartingFolderScan] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   const latestRequestRef = useRef(0)
@@ -152,7 +152,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
 
         const errorPrefix =
           node.type === "batch"
-            ? "Failed to load batch data"
+            ? "Failed to load folder data"
             : node.type === "file"
               ? "Failed to load file data"
               : "Failed to load data"
@@ -199,14 +199,14 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
     }
   }
 
-  const handleBeginBatchScan = async () => {
+  const handleBeginFolderScan = async () => {
     if (!nodeData || nodeData.type !== "batch") {
       return
     }
 
-    const batchId = nodeData.batchId || selectedNode?.id
-    if (!batchId) {
-      showError("Unable to determine which batch to scan.")
+    const folderId = nodeData.batchId || selectedNode?.id
+    if (!folderId) {
+      showError("Unable to determine which folder to scan.")
       return
     }
 
@@ -214,25 +214,25 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
       nodeData.scans?.filter((scan) => (scan.status || "").toLowerCase() === "uploaded") || []
 
     if (scansToStart.length === 0) {
-      showError("All files in this batch have already been sent for scanning.")
+      showError("All files in this folder have already been sent for scanning.")
       return
     }
 
     try {
-      setStartingBatchScan(true)
+      setStartingFolderScan(true)
       const failedScans = []
 
       for (const scan of scansToStart) {
         try {
           await axios.post(`${API_BASE_URL}/api/scan/${scan.scanId}/start`)
         } catch (scanError) {
-          console.error("[v0] Error starting deferred scan for batch item:", scanError)
+          console.error("[v0] Error starting deferred scan for folder item:", scanError)
           failedScans.push(scan.filename || scan.scanId)
         }
       }
 
       if (failedScans.length === scansToStart.length) {
-        showError("Failed to start scanning for files in this batch.")
+        showError("Failed to start scanning for files in this folder.")
         return
       }
 
@@ -240,21 +240,21 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
         showError(`Some files failed to start scanning: ${failedScans.join(", ")}`)
       } else {
         showSuccess(
-          `Started scanning ${scansToStart.length} file${scansToStart.length === 1 ? "" : "s"} in this batch.`
+          `Started scanning ${scansToStart.length} file${scansToStart.length === 1 ? "" : "s"} in this folder.`
         )
       }
 
-      const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${batchId}`)
+      const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${folderId}`)
       setNodeData({
         type: "batch",
         ...refreshed.data,
       })
     } catch (error) {
-      console.error("[v0] Error starting batch scan:", error)
-      const errorMsg = error.response?.data?.error || error.message || "Failed to start batch scan"
+      console.error("[v0] Error starting folder scan:", error)
+      const errorMsg = error.response?.data?.error || error.message || "Failed to start folder scan"
       showError(errorMsg)
     } finally {
-      setStartingBatchScan(false)
+      setStartingFolderScan(false)
     }
   }
 
@@ -275,9 +275,9 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
   const parsedFileDate = parseBackendDate(fileDateValue)
   const targetFileName =
     nodeData?.type === "file" ? nodeData.fileName || nodeData.filename || "selected file" : "selected file"
-  const batchHasUploadedFiles =
+  const folderHasUploadedFiles =
     nodeData?.type === "batch" && nodeData?.scans?.some((scan) => (scan.status || "").toLowerCase() === "uploaded")
-  const batchReadyToScan =
+  const folderReadyToScan =
     nodeData?.type === "batch" &&
     ((nodeData?.scans?.length || 0) === 0 ||
       nodeData?.scans?.every((scan) => (scan.status || "").toLowerCase() === "uploaded"))
@@ -301,7 +301,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Group Dashboard</h1>
+                <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Project Dashboard</h1>
                 {isRefreshing && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800/80 dark:text-slate-300">
                     <svg
@@ -330,8 +330,14 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
               </div>
               <p className="text-base text-slate-600 dark:text-slate-400 mt-1">
                 {selectedNode
-                  ? `Viewing ${selectedNode.type}: ${selectedNode.data?.name || selectedNode.data?.filename || ""}`
-                  : "Select a group or file from the sidebar"}
+                  ? `Viewing ${
+                      selectedNode.type === "group"
+                        ? "project"
+                        : selectedNode.type === "batch"
+                          ? "folder"
+                          : selectedNode.type
+                    }: ${selectedNode.data?.name || selectedNode.data?.filename || ""}`
+                  : "Select a project or file from the sidebar"}
               </p>
             </div>
             <button
@@ -493,7 +499,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                     <div className="flex items-start justify-between mb-6">
                       <div>
                         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-                          {nodeData.name || "Batch"}
+                          {nodeData.name || "Folder"}
                         </h2>
                         <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
                           <span>
@@ -503,24 +509,24 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                           <span>{nodeData.fileCount || 0} files</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2" role="group" aria-label="Batch actions">
+                      <div className="flex items-center gap-2" role="group" aria-label="Folder actions">
                         <button
                           type="button"
                           onClick={() => onSelectBatch(nodeData.batchId)}
                           className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors font-medium"
                         >
-                          View Batch Report
+                          View Folder Report
                         </button>
-                        {batchHasUploadedFiles && (
+                        {folderHasUploadedFiles && (
                           <button
                             type="button"
-                            onClick={handleBeginBatchScan}
-                            disabled={startingBatchScan}
-                            aria-disabled={startingBatchScan}
-                            aria-busy={startingBatchScan}
+                            onClick={handleBeginFolderScan}
+                            disabled={startingFolderScan}
+                            aria-disabled={startingFolderScan}
+                            aria-busy={startingFolderScan}
                             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {startingBatchScan ? "Starting..." : "Begin Scan"}
+                            {startingFolderScan ? "Starting..." : "Begin Scan"}
                           </button>
                         )}
                       </div>
@@ -557,9 +563,9 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
                       <BatchInsightPanel scans={nodeData.scans} />
                     </div>
 
-                    {batchReadyToScan && (
+                    {folderReadyToScan && (
                       <div className="mt-4 p-4 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400">
-                        This batch is ready to scan. Use the "Begin Scan" button to generate accessibility results.
+                        This folder is ready to scan. Use the "Begin Scan" button to generate accessibility results.
                       </div>
                     )}
                 </div>
@@ -583,7 +589,7 @@ export default function GroupDashboard({ onSelectScan, onSelectBatch, onBack, in
               </svg>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">No Selection</h3>
               <p className="text-slate-600 dark:text-slate-400">
-                Select a group or file from the sidebar to view details
+                Select a project or file from the sidebar to view details
               </p>
             </div>
           )}

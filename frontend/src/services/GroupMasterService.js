@@ -53,7 +53,7 @@ class GroupMasterService {
       return groups
     } catch (error) {
       console.error("[GroupMaster] ✗ Error fetching groups:", error)
-      throw new Error(error.response?.data?.error || "Failed to fetch groups")
+      throw new Error(error.response?.data?.error || "Failed to fetch projects")
     }
   }
 
@@ -63,11 +63,11 @@ class GroupMasterService {
   async createGroup(name, description = "") {
     try {
       if (!name || !name.trim()) {
-        throw new Error("Group name is required")
+        throw new Error("Project name is required")
       }
 
       if (name.trim().length > 255) {
-        throw new Error("Group name must be less than 255 characters")
+        throw new Error("Project name must be less than 255 characters")
       }
 
       console.log("[GroupMaster] Creating new group:", name)
@@ -80,7 +80,7 @@ class GroupMasterService {
       const newGroup = response.data.group
 
       if (!newGroup || !newGroup.id || !newGroup.name) {
-        throw new Error("Invalid group data received from server")
+        throw new Error("Invalid project data received from server")
       }
 
       // Update cache
@@ -96,11 +96,11 @@ class GroupMasterService {
       console.error("[GroupMaster] ✗ Error creating group:", error)
 
       if (error.response?.status === 409) {
-        throw new Error("A group with this name already exists")
+        throw new Error("A project with this name already exists")
       } else if (error.response?.status === 400) {
-        throw new Error(error.response.data.error || "Invalid group data")
+        throw new Error(error.response.data.error || "Invalid project data")
       } else {
-        throw new Error(error.response?.data?.error || "Failed to create group. Please try again.")
+        throw new Error(error.response?.data?.error || "Failed to create project. Please try again.")
       }
     }
   }
@@ -125,7 +125,7 @@ class GroupMasterService {
       return group
     } catch (error) {
       console.error("[GroupMaster] ✗ Error fetching group:", error)
-      throw new Error(error.response?.data?.error || "Failed to fetch group")
+      throw new Error(error.response?.data?.error || "Failed to fetch project")
     }
   }
 
@@ -135,7 +135,7 @@ class GroupMasterService {
   async updateGroup(groupId, name, description = "") {
     try {
       if (!name || !name.trim()) {
-        throw new Error("Group name is required")
+        throw new Error("Project name is required")
       }
 
       console.log("[GroupMaster] Updating group:", groupId)
@@ -156,7 +156,7 @@ class GroupMasterService {
       return updatedGroup
     } catch (error) {
       console.error("[GroupMaster] ✗ Error updating group:", error)
-      throw new Error(error.response?.data?.error || "Failed to update group")
+      throw new Error(error.response?.data?.error || "Failed to update project")
     }
   }
 
@@ -178,7 +178,7 @@ class GroupMasterService {
       return true
     } catch (error) {
       console.error("[GroupMaster] ✗ Error deleting group:", error)
-      throw new Error(error.response?.data?.error || "Failed to delete group")
+      throw new Error(error.response?.data?.error || "Failed to delete project")
     }
   }
 

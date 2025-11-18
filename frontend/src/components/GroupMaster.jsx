@@ -49,8 +49,8 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
       setGroups(response.data.groups || [])
       setError(null)
     } catch (err) {
-      console.error("[v0] Error fetching groups:", err)
-      setError("Failed to load groups")
+      console.error("[v0] Error fetching projects:", err)
+      setError("Failed to load projects")
     } finally {
       setLoading(false)
     }
@@ -60,7 +60,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
     e.preventDefault()
 
     if (!formData.name.trim()) {
-      setFormError("Group name is required")
+      setFormError("Project name is required")
       setStatusMessage(null)
       return
     }
@@ -81,14 +81,14 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
       // Reset form
       setFormData({ name: "", description: "" })
       setIsCreating(false)
-      showSuccess(`Group "${newGroup.name}" created successfully`)
+      showSuccess(`Project "${newGroup.name}" created successfully`)
       setStatusMessage({
         type: "success",
-        text: `Group "${newGroup.name}" created successfully.`,
+        text: `Project "${newGroup.name}" created successfully.`,
       })
     } catch (err) {
-      console.error("[v0] Error creating group:", err)
-      setFormError(err.response?.data?.error || "Failed to create group")
+      console.error("[v0] Error creating project:", err)
+      setFormError(err.response?.data?.error || "Failed to create project")
       setStatusMessage(null)
     } finally {
       setFormLoading(false)
@@ -99,7 +99,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
     e.preventDefault()
 
     if (!formData.name.trim()) {
-      setFormError("Group name is required")
+      setFormError("Project name is required")
       setStatusMessage(null)
       return
     }
@@ -129,14 +129,14 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
       setFormData({ name: "", description: "" })
       setEditingGroup(null)
       setIsCreating(false)
-      showSuccess(`Group "${updatedGroup.name}" updated successfully`)
+      showSuccess(`Project "${updatedGroup.name}" updated successfully`)
       setStatusMessage({
         type: "success",
-        text: `Group "${updatedGroup.name}" updated successfully.`,
+        text: `Project "${updatedGroup.name}" updated successfully.`,
       })
     } catch (err) {
-      console.error("[v0] Error updating group:", err)
-      setFormError(err.response?.data?.error || "Failed to update group")
+      console.error("[v0] Error updating project:", err)
+      setFormError(err.response?.data?.error || "Failed to update project")
       setStatusMessage(null)
     } finally {
       setFormLoading(false)
@@ -145,8 +145,8 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
 
   const handleDeleteGroup = async (groupId, groupName) => {
     const confirmed = await confirm({
-      title: "Delete Group",
-      message: `Delete "${groupName}" and permanently remove all files and batches assigned to it? This action cannot be undone.`,
+      title: "Delete Project",
+      message: `Delete "${groupName}" and permanently remove all files and folders assigned to it? This action cannot be undone.`,
       confirmText: "Delete",
       cancelText: "Cancel",
       type: "danger",
@@ -164,15 +164,15 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
       const batchCount = data.deletedBatches ?? 0
       const fileCount = data.deletedFiles ?? 0
       const summaryBits = [
-        batchCount ? `${batchCount} batch${batchCount === 1 ? "" : "es"}` : null,
+        batchCount ? `${batchCount} folder${batchCount === 1 ? "" : "s"}` : null,
         scanCount ? `${scanCount} scan${scanCount === 1 ? "" : "s"}` : null,
         fileCount ? `${fileCount} file${fileCount === 1 ? "" : "s"}` : null,
       ].filter(Boolean)
       const detail = summaryBits.length ? ` (${summaryBits.join(", ")} removed)` : ""
-      showSuccess(`Group "${groupName}" deleted${detail}`)
+      showSuccess(`Project "${groupName}" deleted${detail}`)
     } catch (err) {
-      console.error("[v0] Error deleting group:", err)
-      showError(err.response?.data?.error || "Failed to delete group")
+      console.error("[v0] Error deleting project:", err)
+      showError(err.response?.data?.error || "Failed to delete project")
     }
   }
 
@@ -208,9 +208,9 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
             role="status"
             aria-label="Loading"
           >
-            <span className="sr-only">Loading groups...</span>
+            <span className="sr-only">Loading projects...</span>
           </div>
-          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading groups...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading projects...</p>
         </div>
       </div>
     )
@@ -223,9 +223,9 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Group Management</h1>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Project Management</h1>
               <p className="mt-2 text-gray-600 dark:text-gray-400">
-                Create and manage groups to organize your documents independently
+                Create and manage projects to organize your documents independently
               </p>
             </div>
             {onBack && (
@@ -238,7 +238,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
             )}
           </div>
 
-          {/* Create New Group Button */}
+          {/* Create New Project Button */}
           {!isCreating && !editingGroup && (
             <button
               onClick={handleStartCreate}
@@ -247,7 +247,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              Create New Group
+              Create New Project
             </button>
           )}
         </div>
@@ -256,7 +256,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
         {(isCreating || editingGroup) && (
           <div className="mb-8 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-              {editingGroup ? "Edit Group" : "Create New Group"}
+              {editingGroup ? "Edit Project" : "Create New Project"}
             </h2>
 
             <form onSubmit={editingGroup ? handleUpdateGroup : handleCreateGroup} className="space-y-4">
@@ -274,7 +274,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
 
               <div>
                 <label htmlFor="group-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Group Name <span className="text-red-500">*</span>
+                  Project Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="group-name"
@@ -300,7 +300,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
                   id="group-description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Brief description of this group's purpose"
+                  placeholder="Brief description of this project's purpose"
                   rows={3}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                   disabled={formLoading}
@@ -326,7 +326,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
                   disabled={formLoading || !formData.name.trim()}
                   className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
                 >
-                  {formLoading ? "Saving..." : editingGroup ? "Update Group" : "Create Group"}
+                  {formLoading ? "Saving..." : editingGroup ? "Update Project" : "Create Project"}
                 </button>
                 <button
                   type="button"
@@ -351,10 +351,10 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
           </div>
         )}
 
-        {/* Groups List */}
+        {/* Projects List */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">All Groups ({groups.length})</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">All Projects ({groups.length})</h2>
           </div>
 
           {groups.length === 0 ? (
@@ -373,8 +373,8 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
                   d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
                 />
               </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No groups yet</h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Get started by creating your first group</p>
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No projects yet</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Get started by creating your first project</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -485,9 +485,9 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
               />
             </svg>
             <div>
-              <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-300">About Groups</h3>
+              <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-300">About Projects</h3>
               <p className="mt-1 text-sm text-blue-800 dark:text-blue-400">
-                Groups help you organize and manage related documents together. Create groups here independently, then
+                Projects help you organize and manage related documents together. Create projects here independently, then
                 assign files to them during upload. You can track progress, view statistics, and manage files by
                 project, department, or any category that suits your workflow.
               </p>

@@ -93,14 +93,14 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
 
     setSelectedFiles(pdfFiles)
     setSrAnnouncement(
-      `${pdfFiles.length} PDF ${pdfFiles.length === 1 ? "file" : "files"} selected. Please select a group before uploading.`,
+      `${pdfFiles.length} PDF ${pdfFiles.length === 1 ? "file" : "files"} selected. Please select a project before uploading.`,
     )
   }
 
   const handleUploadWithGroup = async () => {
     if (!selectedGroup) {
-      setError("Please select a group before uploading")
-      setSrAnnouncement("Error: Please select a group before uploading")
+      setError("Please select a project before uploading")
+      setSrAnnouncement("Error: Please select a project before uploading")
       return
     }
 
@@ -212,8 +212,8 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
           onScanComplete(scans)
         }
       } catch (err) {
-        const errorMsg = err.response?.data?.error || err.message || 'Batch upload failed'
-        console.error('[UploadArea] Batch upload error:', err)
+        const errorMsg = err.response?.data?.error || err.message || 'Folder upload failed'
+        console.error('[UploadArea] Folder upload error:', err)
         handleError(errorMsg)
       } finally {
         finalize()
@@ -309,8 +309,8 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
-          {/* Left Column: Group Selection */}
-          <aside className="lg:col-span-4 space-y-4" aria-label="Group selection">
+          {/* Left Column: Project Selection */}
+          <aside className="lg:col-span-4 space-y-4" aria-label="Project selection">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-colors">
               <div className="mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
@@ -328,10 +328,10 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
                       d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
                     />
                   </svg>
-                  Select Group
+                  Select Project
                 </h2>
                 <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                  Choose an existing group or create a new one to organize your files
+                  Choose an existing project or create a new one to organize your files
                 </p>
               </div>
 
@@ -370,7 +370,7 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
                         clipRule="evenodd"
                       />
                     </svg>
-                    Please select a group to continue
+                    Please select a project to continue
                   </p>
                 </div>
               )}
@@ -540,8 +540,8 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
                     className="w-full px-6 py-3.5 text-base font-semibold text-white bg-gradient-indigo rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-lg disabled:hover:shadow-none focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                     aria-label={
                       !selectedGroup
-                        ? "Select a group before uploading"
-                        : `Upload ${selectedFiles.length} file${selectedFiles.length > 1 ? "s" : ""} to selected group`
+                        ? "Select a project before uploading"
+                        : `Upload ${selectedFiles.length} file${selectedFiles.length > 1 ? "s" : ""} to selected project`
                     }
                   >
                     {!selectedGroup ? (
@@ -553,7 +553,7 @@ export default function UploadArea({ onScanComplete, onUploadDeferred }) {
                             clipRule="evenodd"
                           />
                         </svg>
-                        Select a group to upload
+                        Select a project to upload
                       </span>
                     ) : (
                       <span className="flex items-center justify-center gap-2">

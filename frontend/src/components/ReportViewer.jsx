@@ -243,7 +243,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
           <div className="h-full flex flex-col">
             {/* Sidebar Header */}
             <div className="px-4 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Batch Files</h2>
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Folder Files</h2>
               <span className="text-xs text-slate-500 dark:text-slate-400">{scans.length} files</span>
             </div>
 

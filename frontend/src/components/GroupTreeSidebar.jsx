@@ -13,7 +13,7 @@ export default function GroupTreeSidebar({
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [groupFiles, setGroupFiles] = useState({});
-  const [groupBatches, setGroupBatches] = useState({});
+  const [groupFolders, setGroupFolders] = useState({});
   const [error, setError] = useState(null);
   const [sectionStates, setSectionStates] = useState({});
   const [statusMessage, setStatusMessage] = useState("");
@@ -89,7 +89,7 @@ export default function GroupTreeSidebar({
       return next;
     });
 
-    setGroupBatches((prev) => {
+    setGroupFolders((prev) => {
       if (!Object.prototype.hasOwnProperty.call(prev, normalizedId)) {
         return prev;
       }
@@ -116,7 +116,7 @@ export default function GroupTreeSidebar({
       return next;
     });
 
-    setStatusMessage(groupName ? `${groupName} removed` : "Group removed");
+    setStatusMessage(groupName ? `${groupName} removed` : "Project removed");
     return true;
   };
 
@@ -128,17 +128,21 @@ export default function GroupTreeSidebar({
       const response = await axios.get(`${API_BASE_URL}/api/groups`);
       const fetchedGroupsRaw = response.data.groups || [];
 
-      const normalizedGroups = fetchedGroupsRaw.map((group) => ({
-        ...group,
-        fileCount: group.fileCount ?? group.file_count ?? 0,
-        batchCount: group.batchCount ?? group.batch_count ?? 0,
-      }));
+      const normalizedGroups = fetchedGroupsRaw.map((group) => {
+        const derivedFolders = group.folderCount ?? group.batchCount ?? group.batch_count ?? 0;
+        return {
+          ...group,
+          fileCount: group.fileCount ?? group.file_count ?? 0,
+          batchCount: group.batchCount ?? group.batch_count ?? derivedFolders,
+          folderCount: derivedFolders,
+        };
+      });
 
       setGroupFiles({});
 
       if (normalizedGroups.length === 0) {
         setGroups([]);
-        setGroupBatches({});
+        setGroupFolders({});
         setExpandedGroups(new Set());
         setSectionStates({});
         if (onNodeSelect) {
@@ -147,7 +151,7 @@ export default function GroupTreeSidebar({
         return;
       }
 
-      let batchesByGroup = normalizedGroups.reduce((acc, group) => {
+      let foldersByGroup = normalizedGroups.reduce((acc, group) => {
         const key = normalizeId(group.id);
         acc[key] = [];
         return acc;
@@ -155,9 +159,9 @@ export default function GroupTreeSidebar({
 
       try {
         const historyResponse = await axios.get(`${API_BASE_URL}/api/history`);
-        const allBatches = historyResponse.data.batches || [];
+        const allFolders = historyResponse.data.batches || [];
 
-        batchesByGroup = allBatches.reduce((acc, batch) => {
+        foldersByGroup = allFolders.reduce((acc, batch) => {
           const groupKey = normalizeId(batch.groupId);
           if (!groupKey) {
             return acc;
@@ -167,18 +171,20 @@ export default function GroupTreeSidebar({
           }
           acc[groupKey].push(batch);
           return acc;
-        }, batchesByGroup);
+        }, foldersByGroup);
       } catch (historyError) {
-        console.error("[v0] Error fetching batch history:", historyError);
+        console.error("[v0] Error fetching folder history:", historyError);
       }
 
-      setGroupBatches(batchesByGroup);
+      setGroupFolders(foldersByGroup);
 
       const groupsWithCounts = normalizedGroups.map((group) => {
         const key = normalizeId(group.id);
+        const folderTotal = foldersByGroup[key]?.length || group.folderCount || 0;
         return {
           ...group,
-          batchCount: batchesByGroup[key]?.length || group.batchCount || 0,
+          batchCount: folderTotal,
+          folderCount: folderTotal,
         };
       });
 
@@ -189,7 +195,7 @@ export default function GroupTreeSidebar({
           const key = normalizeId(group.id);
           if (!next[key]) {
             next[key] = {
-              batches: false,
+              folders: false,
               files: false,
             };
           }
@@ -233,7 +239,7 @@ export default function GroupTreeSidebar({
       Object.keys(next).forEach((key) => {
         if (key !== targetKey) {
           next[key] = {
-            batches: false,
+            folders: false,
             files: false,
           };
         }
@@ -257,7 +263,7 @@ export default function GroupTreeSidebar({
     void loadTargetGroup();
   }, [initialGroupId, groups]);
 
-  const fetchGroupData = async (groupId, prefetchedBatches = null) => {
+  const fetchGroupData = async (groupId, prefetchedFolders = null) => {
     const normalizedId = normalizeId(groupId);
 
     try {
@@ -269,19 +275,19 @@ export default function GroupTreeSidebar({
         [normalizedId]: files,
       }));
 
-      let batchesForGroup = Array.isArray(prefetchedBatches) ? prefetchedBatches : null;
+      let foldersForGroup = Array.isArray(prefetchedFolders) ? prefetchedFolders : null;
 
-      if (!batchesForGroup) {
+      if (!foldersForGroup) {
         const historyResponse = await axios.get(`${API_BASE_URL}/api/history`);
-        const allBatches = historyResponse.data.batches || [];
-        batchesForGroup = allBatches.filter(
+        const allFolders = historyResponse.data.batches || [];
+        foldersForGroup = allFolders.filter(
           (batch) => normalizeId(batch.groupId) === normalizedId
         );
       }
 
-      setGroupBatches((prev) => ({
+      setGroupFolders((prev) => ({
         ...prev,
-        [normalizedId]: batchesForGroup,
+        [normalizedId]: foldersForGroup,
       }));
 
       setGroups((prev) =>
@@ -290,7 +296,8 @@ export default function GroupTreeSidebar({
             ? {
               ...g,
               fileCount: files.length,
-              batchCount: batchesForGroup.length,
+              batchCount: foldersForGroup.length,
+              folderCount: foldersForGroup.length,
             }
             : g
         )
@@ -298,7 +305,7 @@ export default function GroupTreeSidebar({
 
       setSectionStates((prev) => {
         const current = prev[normalizedId] || {
-          batches: false,
+          folders: false,
           files: false,
         };
         return {
@@ -338,7 +345,7 @@ export default function GroupTreeSidebar({
       Object.keys(next).forEach((key) => {
         if (key !== normalizedId) {
           next[key] = {
-            batches: false,
+            folders: false,
             files: false,
           };
         }
@@ -347,7 +354,7 @@ export default function GroupTreeSidebar({
     });
 
     const fetchPromise = !isAlreadyExpanded
-      ? fetchGroupData(group.id, groupBatches[normalizedId] || null)
+      ? fetchGroupData(group.id, groupFolders[normalizedId] || null)
       : Promise.resolve(null);
 
     const selectionResult = await handleNodeClick(
@@ -369,7 +376,7 @@ export default function GroupTreeSidebar({
     }
 
     if (!isAlreadyExpanded && group.name) {
-      setStatusMessage(`${group.name} expanded`);
+      setStatusMessage(`${group.name} project expanded`);
     }
   };
 
@@ -401,7 +408,7 @@ export default function GroupTreeSidebar({
     const normalizedId = normalizeId(groupId);
     setSectionStates((prev) => {
       const current = prev[normalizedId] || {
-        batches: false,
+        folders: false,
         files: false,
       };
       const nextValue = !current[section];
@@ -470,12 +477,12 @@ export default function GroupTreeSidebar({
   return (
     <aside
       className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 h-full overflow-y-auto"
-      aria-label="Group navigation"
+      aria-label="Project navigation"
     >
       <div className="p-4 border-b border-slate-200 dark:border-slate-700">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-            Groups
+            Projects
           </h2>
           <button
             onClick={handleRefresh}
@@ -498,7 +505,7 @@ export default function GroupTreeSidebar({
           </button>
         </div>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          {groups.length} groups
+          {groups.length} projects
         </p>
       </div>
 
@@ -518,7 +525,7 @@ export default function GroupTreeSidebar({
                 d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
               />
             </svg>
-            <p className="text-sm">No groups yet</p>
+            <p className="text-sm">No projects yet</p>
           </div>
         ) : (
           <div className="space-y-1">
@@ -526,20 +533,20 @@ export default function GroupTreeSidebar({
               const normalizedGroupId = normalizeId(group.id);
               const isExpanded = expandedGroups.has(normalizedGroupId);
               const files = groupFiles[normalizeId(group.id)] || [];
-              const batches = groupBatches[normalizeId(group.id)] || [];
+              const folders = groupFolders[normalizeId(group.id)] || [];
               const sectionState = sectionStates[normalizedGroupId] || {
-                batches: false,
+                folders: false,
                 files: false,
               };
-              const batchCount = batches.length;
+              const folderCount = folders.length;
               const fileCount = files.length;
-              const batchesExpanded = sectionState.batches;
+              const foldersExpanded = sectionState.folders;
               const filesExpanded = sectionState.files;
-              const batchToggleDisabled = batchCount === 0;
+              const folderToggleDisabled = folderCount === 0;
               const fileToggleDisabled = fileCount === 0;
-              const batchAriaLabel = batchToggleDisabled
-                ? "Batches: no batches available"
-                : `Batches: ${batchCount} ${batchCount === 1 ? "batch" : "batches"} available`;
+              const folderAriaLabel = folderToggleDisabled
+                ? "Folders: no folders available"
+                : `Folders: ${folderCount} ${folderCount === 1 ? "folder" : "folders"} available`;
               const fileAriaLabel = fileToggleDisabled
                 ? "Files: no files available"
                 : `Files: ${fileCount} ${fileCount === 1 ? "file" : "files"} available`;
@@ -610,46 +617,46 @@ export default function GroupTreeSidebar({
                         {group.name}
                       </span>
                       <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
-                        {group.fileCount || 0} files, {group.batchCount || 0} batches
+                        {group.fileCount || 0} files, {group.folderCount || 0} folders
                       </span>
                     </span>
                   </button>
 
                   {isExpanded && (
                     <div id={`group-${group.id}-panel`} className="ml-6 space-y-2">
-                      {/* Batches Section */}
+                      {/* Folders Section */}
                       <div className="space-y-1">
                         <button
                           type="button"
-                          className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500 ${batchToggleDisabled
+                          className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500 ${folderToggleDisabled
                               ? "cursor-not-allowed text-slate-400 dark:text-slate-500"
                               : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700/40"
                             }`}
                           onClick={() => {
-                            if (batchToggleDisabled) {
+                            if (folderToggleDisabled) {
                               return;
                             }
-                            toggleSection(group.id, "batches", group.name, "Batches");
+                            toggleSection(group.id, "folders", group.name, "Folders");
                           }}
-                          aria-expanded={batchToggleDisabled ? undefined : batchesExpanded}
-                          aria-controls={batchToggleDisabled ? undefined : `group-${group.id}-batches`}
-                          aria-disabled={batchToggleDisabled || undefined}
-                          disabled={batchToggleDisabled}
-                          aria-label={batchAriaLabel}
-                          title={`${batchCount} ${batchCount === 1 ? "batch" : "batches"}`}
+                          aria-expanded={folderToggleDisabled ? undefined : foldersExpanded}
+                          aria-controls={folderToggleDisabled ? undefined : `group-${group.id}-folders`}
+                          aria-disabled={folderToggleDisabled || undefined}
+                          disabled={folderToggleDisabled}
+                          aria-label={folderAriaLabel}
+                          title={`${folderCount} ${folderCount === 1 ? "folder" : "folders"}`}
                         >
                           <span className="flex items-center gap-2">
-                            <span>Batches</span>
+                            <span>Folders</span>
                             <span
                               aria-hidden="true"
                               className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-700/60 dark:text-slate-300"
                             >
-                              {batchCount}
+                              {folderCount}
                             </span>
                           </span>
-                          {!batchToggleDisabled && (
+                          {!folderToggleDisabled && (
                             <svg
-                              className={`h-3.5 w-3.5 transition-transform ${batchesExpanded ? "rotate-180" : ""
+                              className={`h-3.5 w-3.5 transition-transform ${foldersExpanded ? "rotate-180" : ""
                                 }`}
                               viewBox="0 0 20 20"
                               fill="currentColor"
@@ -663,15 +670,15 @@ export default function GroupTreeSidebar({
                             </svg>
                           )}
                         </button>
-                        {batchesExpanded && (
-                          <ul id={`group-${group.id}-batches`} className="space-y-1" role="group">
-                            {batches.map((batch) => {
+                        {foldersExpanded && (
+                          <ul id={`group-${group.id}-folders`} className="space-y-1" role="group">
+                            {folders.map((folder) => {
                               const isBatchSelected =
                                 selectedNode?.type === "batch" &&
-                                normalizeId(selectedNode?.id) === normalizeId(batch.batchId);
+                                normalizeId(selectedNode?.id) === normalizeId(folder.batchId);
 
                               return (
-                                <li key={batch.batchId}>
+                                <li key={folder.batchId}>
                                   <button
                                     type="button"
                                     className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors ${isBatchSelected
@@ -682,8 +689,8 @@ export default function GroupTreeSidebar({
                                       void handleNodeClick(
                                         {
                                           type: "batch",
-                                          id: batch.batchId,
-                                          data: batch,
+                                          id: folder.batchId,
+                                          data: folder,
                                         },
                                         { moveFocus: true }
                                       )
@@ -719,10 +726,10 @@ export default function GroupTreeSidebar({
                                             : "text-slate-600 dark:text-slate-400"
                                           }`}
                                       >
-                                        {batch.name}
+                                        {folder.name}
                                       </span>
                                       <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
-                                        {batch.fileCount} files
+                                        {folder.fileCount} files
                                       </span>
                                     </span>
                                   </button>
@@ -731,9 +738,9 @@ export default function GroupTreeSidebar({
                             })}
                           </ul>
                         )}
-                        {batchToggleDisabled && (
+                        {folderToggleDisabled && (
                           <p className="sr-only" role="status" aria-live="polite">
-                            No batches available
+                            No folders available
                           </p>
                         )}
                       </div>
@@ -872,9 +879,9 @@ export default function GroupTreeSidebar({
                         )}
                       </div>
 
-                      {files.length === 0 && batches.length === 0 && (
+                      {files.length === 0 && folders.length === 0 && (
                         <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
-                          No files or batches
+                          No files or folders
                         </div>
                       )}
                     </div>

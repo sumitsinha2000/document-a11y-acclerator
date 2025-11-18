@@ -52,14 +52,14 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   useEffect(() => {
     const fetchBatchData = async () => {
       try {
-        console.log("[v0] Fetching batch details:", batchId)
+        console.log("[v0] Fetching folder details:", batchId)
         const response = await axios.get(`${API_BASE_URL}/api/batch/${batchId}`)
         setBatchData(response.data)
         setScansState(normalizeScans(response.data.scans))
-        console.log("[v0] Batch data loaded:", response.data)
+        console.log("[v0] Folder data loaded:", response.data)
       } catch (error) {
-        console.error("[v0] Error fetching batch data:", error)
-        showError(`Failed to load batch details: ${error.message}`)
+        console.error("[v0] Error fetching folder data:", error)
+        showError(`Failed to load folder details: ${error.message}`)
       }
     }
 
@@ -281,7 +281,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
 
     const confirmed = await confirm({
       title: "Apply Automated Fixes",
-      message: `Apply automated fixes to all ${scansState.length} files in this batch?`,
+      message: `Apply automated fixes to all ${scansState.length} files in this folder?`,
       confirmText: "Apply Automated Fixes",
       cancelText: "Cancel",
       type: "warning",
@@ -305,8 +305,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
         await onBatchUpdate(batchId)
       }
     } catch (error) {
-      console.error("[v0] Error fixing batch:", error)
-      showError(`Failed to fix batch: ${error.response?.data?.error || error.message}`)
+      console.error("[v0] Error fixing folder:", error)
+      showError(`Failed to fix folder: ${error.response?.data?.error || error.message}`)
     } finally {
       setFixing(false)
     }
@@ -328,11 +328,11 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       link.remove()
       window.URL.revokeObjectURL(url)
 
-      showSuccess("Batch exported successfully")
+      showSuccess("Folder exported successfully")
     } catch (error) {
-      console.error("Error exporting batch:", error)
+      console.error("Error exporting folder:", error)
       const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message
-      showError(`Failed to export batch: ${errorMessage}`)
+      showError(`Failed to export folder: ${errorMessage}`)
     } finally {
       setExporting(false)
     }
@@ -432,7 +432,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-slate-600 dark:text-slate-400 text-lg">Loading batch data...</p>
+          <p className="text-slate-600 dark:text-slate-400 text-lg">Loading folder data...</p>
         </div>
       </div>
     )
@@ -447,9 +447,9 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
               onClick={() => setSelectedScan(null)}
               className="text-base font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-2 mb-3 transition-colors"
             >
-              ← Back to Batch
+              ← Back to Folder
             </button>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Batch Files</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Folder Files</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{scansState.length} files</p>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
@@ -516,7 +516,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
               </div>
             )}
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-3 tracking-tight">
-              {batchData?.batchName || "Batch Report"}
+              {batchData?.batchName || "Folder Report"}
             </h1>
             <p className="text-base text-slate-600 dark:text-slate-300 font-medium">
               {scansState.length} files uploaded
@@ -545,7 +545,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
               onClick={handleFixAll}
               disabled={fixing}
               className="px-6 py-3.5 bg-indigo-700 hover:bg-indigo-800 focus-visible:bg-indigo-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold text-base shadow-lg transition-colors"
-              aria-label={`Apply automated fixes to all ${scansState.length} files in this batch`}
+              aria-label={`Apply automated fixes to all ${scansState.length} files in this folder`}
               aria-busy={fixing}
             >
               {fixing ? (
