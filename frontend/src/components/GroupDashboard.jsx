@@ -501,15 +501,25 @@ export default function GroupDashboard({
               <div className="px-6 py-6 space-y-6">
                 <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800/70 dark:bg-[#0f1c38]/70">
                   <div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">
                         Dashboard: <span className="text-indigo-600 dark:text-indigo-400">{activeDashboardName}</span>
                       </h1>
                       {isRefreshing && (
                         <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-300">
-                          <svg className="h-3.5 w-3.5 animate-spin text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                          <svg
+                            className="h-3.5 w-3.5 animate-spin text-indigo-500 dark:text-indigo-400"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                          >
                             <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"></circle>
-                            <path className="opacity-75" d="M4 12a8 8 0 018-8" strokeWidth="4" strokeLinecap="round"></path>
+                            <path
+                              className="opacity-75"
+                              d="M4 12a8 8 0 018-8"
+                              strokeWidth="4"
+                              strokeLinecap="round"
+                            ></path>
                           </svg>
                           Refreshing…
                         </span>
@@ -527,6 +537,36 @@ export default function GroupDashboard({
                         : "Select a project to start exploring accessibility insights."}
                     </p>
                   </div>
+                  {(nodeData?.type === "batch" || nodeData?.type === "file") && !uploadSectionOpen && (
+                    <div className="flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={onUploadRequest}
+                        className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+                      >
+                        <svg
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 16V6m0 0l-3 3m3-3 3 3"
+                          />
+                        </svg>
+                        Upload Files
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -696,7 +736,7 @@ export default function GroupDashboard({
                         </div>
                       </div>
                       <div className="flex items-center gap-2" role="group" aria-label="Folder actions">
-                        {!uploadSectionOpen && (
+                        {/* {!uploadSectionOpen && (
                           <button
                             type="button"
                             onClick={onUploadRequest}
@@ -708,7 +748,7 @@ export default function GroupDashboard({
                             </svg>
                             Upload Files
                           </button>
-                        )}
+                        )} */}
                         <button
                           type="button"
                           onClick={() => onSelectBatch(nodeData.batchId)}
