@@ -161,6 +161,7 @@ def execute_query(query: str, params: Optional[tuple] = None, fetch: bool = Fals
             cur.execute(query, params or ())
             if fetch:
                 result = cur.fetchall()
+                conn.commit()
                 conn.close()
                 return result
             else:
