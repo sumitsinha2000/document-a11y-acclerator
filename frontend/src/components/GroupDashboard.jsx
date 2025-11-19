@@ -492,7 +492,7 @@ export default function GroupDashboard({
         </div>
 
         <div className="flex-1 lg:min-w-0">
-          <div className="rounded-[32px] border border-slate-200 bg-white shadow-2xl shadow-slate-200/60 overflow-hidden dark:border-slate-800 dark:bg-[#0b152d]/95 dark:shadow-[0_40px_100px_-50px_rgba(2,6,23,0.9)]">
+          <div className="dashboard-panel border border-slate-200 bg-white shadow-2xl shadow-slate-200/60 overflow-hidden dark:border-slate-800 dark:bg-[#0b152d]/95 dark:shadow-[0_40px_100px_-50px_rgba(2,6,23,0.9)]">
             <div
               className="flex-1 overflow-y-auto"
               id="group-dashboard-details"

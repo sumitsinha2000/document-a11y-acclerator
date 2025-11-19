@@ -868,7 +868,7 @@ export default function GroupTreeSidebar({
 
   if (loading) {
     return (
-      <aside className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+      <aside className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 dashboard-panel border border-gray-200 dark:border-gray-700 p-4">
         <div className="space-y-4 animate-pulse">
           <div className="h-5 w-32 rounded bg-gray-200 dark:bg-gray-700" />
           <div className="flex gap-2">
@@ -887,7 +887,7 @@ export default function GroupTreeSidebar({
 
   if (error) {
     return (
-      <aside className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 text-center space-y-4">
+      <aside className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 dashboard-panel border border-gray-200 dark:border-gray-700 p-6 text-center space-y-4">
         <svg
           className="mx-auto h-12 w-12 text-rose-500"
           fill="none"
@@ -918,7 +918,7 @@ export default function GroupTreeSidebar({
       selectedNode?.type === "file" && normalizeId(selectedNode?.id) === normalizeId(fileId);
 
     return (
-      <aside className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex flex-col space-y-4">
+      <aside className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 dashboard-panel border border-gray-200 dark:border-gray-700 p-4 flex flex-col space-y-4">
         <div className="flex items-center gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
           <button
             type="button"
@@ -1006,7 +1006,7 @@ export default function GroupTreeSidebar({
 
   return (
     <aside
-      className="w-full max-w-sm flex-shrink-0 rounded-[32px] border border-slate-200 bg-white p-6 text-slate-900 shadow-xl shadow-slate-200/60 flex flex-col space-y-6 dark:border-slate-800 dark:bg-gradient-to-b dark:from-slate-950 dark:via-[#0b1120] dark:to-[#070b16] dark:text-slate-100 dark:shadow-[0_35px_80px_-40px_rgba(15,23,42,0.95)]"
+      className="w-full max-w-sm flex-shrink-0 dashboard-panel border border-slate-200 bg-white p-6 text-slate-900 shadow-xl shadow-slate-200/60 flex flex-col space-y-6 dark:border-slate-800 dark:bg-gradient-to-b dark:from-slate-950 dark:via-[#0b1120] dark:to-[#070b16] dark:text-slate-100 dark:shadow-[0_35px_80px_-40px_rgba(15,23,42,0.95)]"
       aria-label="Group navigation"
     >
       <div className="flex items-center justify-between">
