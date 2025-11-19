@@ -349,9 +349,24 @@ export default function GroupTreeSidebar({
     const normalizedId = normalizeId(group.id);
     const isAlreadyExpanded = expandedGroups.has(normalizedId);
 
-    setExpandedGroups(new Set([normalizedId]));
+    setExpandedGroups((prev) => {
+      if (isAlreadyExpanded) {
+        const next = new Set(prev);
+        next.delete(normalizedId);
+        return next;
+      }
+      return new Set([normalizedId]);
+    });
+
     setSectionStates((prev) => {
       const next = { ...prev };
+      if (isAlreadyExpanded) {
+        next[normalizedId] = {
+          batches: false,
+          files: false,
+        };
+        return next;
+      }
       Object.keys(next).forEach((key) => {
         if (key !== normalizedId) {
           next[key] = {
@@ -360,6 +375,12 @@ export default function GroupTreeSidebar({
           };
         }
       });
+      if (!next[normalizedId]) {
+        next[normalizedId] = {
+          batches: false,
+          files: false,
+        };
+      }
       return next;
     });
 
@@ -385,8 +406,8 @@ export default function GroupTreeSidebar({
       return;
     }
 
-    if (!isAlreadyExpanded && group.name) {
-      setStatusMessage(`${group.name} expanded`);
+    if (group.name) {
+      setStatusMessage(`${group.name} ${isAlreadyExpanded ? "collapsed" : "expanded"}`);
     }
   };
 
@@ -756,8 +777,8 @@ export default function GroupTreeSidebar({
             const batchToggleDisabled = batchCount === 0;
             const fileToggleDisabled = fileCount === 0;
             const batchAriaLabel = batchToggleDisabled
-              ? "Batches: no batches available"
-              : `Batches: ${batchCount} ${batchCount === 1 ? "batch" : "batches"} available`;
+              ? "Folders: no folders available"
+              : `Folders: ${batchCount} ${batchCount === 1 ? "folder" : "folders"} available`;
             const fileAriaLabel = fileToggleDisabled
               ? "Files: no files available"
               : `Files: ${fileCount} ${fileCount === 1 ? "file" : "files"} available`;
@@ -870,7 +891,7 @@ export default function GroupTreeSidebar({
                       {group.name}
                     </h3>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {group.fileCount || 0} files · {group.batchCount || 0} batches
+                      {group.fileCount || 0} files · {group.batchCount || 0} folders
                     </p>
                   </div>
                 </button>
@@ -928,7 +949,7 @@ export default function GroupTreeSidebar({
                           if (batchToggleDisabled) {
                             return;
                           }
-                          toggleSection(group.id, "batches", group.name, "Batches");
+                          toggleSection(group.id, "batches", group.name, "Folders");
                         }}
                         aria-expanded={batchToggleDisabled ? undefined : batchesExpanded}
                         aria-controls={batchToggleDisabled ? undefined : `group-${group.id}-batches`}
@@ -947,7 +968,7 @@ export default function GroupTreeSidebar({
                               />
                             </svg>
                           </span>
-                          <span>Batches</span>
+                          <span>Folders</span>
                         </span>
                         {!batchToggleDisabled && (
                           <span className="flex items-center gap-2 text-xs font-semibold text-gray-500">
@@ -1121,7 +1142,7 @@ export default function GroupTreeSidebar({
                       )}
                       {batchToggleDisabled && (
                         <p className="mt-2 text-xs text-gray-500" role="status" aria-live="polite">
-                          No batches available
+                          No folders available
                         </p>
                       )}
                     </div>
@@ -1251,7 +1272,7 @@ export default function GroupTreeSidebar({
 
                     {files.length === 0 && batches.length === 0 && (
                       <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500">
-                        No files or batches
+                        No files or folders
                       </div>
                     )}
                   </div>
