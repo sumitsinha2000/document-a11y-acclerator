@@ -1011,7 +1011,7 @@ export default function GroupTreeSidebar({
     >
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">Projects</p>
+          {/* <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">Projects</p> */}
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Project Library</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">{groups.length} total</p>
         </div>

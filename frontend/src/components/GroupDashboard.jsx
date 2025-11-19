@@ -499,88 +499,36 @@ export default function GroupDashboard({
               data-group-dashboard-details="true"
             >
               <div className="px-6 py-6 space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800/70 dark:bg-[#0f1c38]/70">
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">
-                  Dashboard: <span className="text-indigo-600 dark:text-indigo-400">{activeDashboardName}</span>
-                </h1>
-                {isRefreshing && (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-300">
-                    <svg className="h-3.5 w-3.5 animate-spin text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"></circle>
-                      <path className="opacity-75" d="M4 12a8 8 0 018-8" strokeWidth="4" strokeLinecap="round"></path>
-                    </svg>
-                    Refreshing…
-                  </span>
-                )}
+                <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800/70 dark:bg-[#0f1c38]/70">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">
+                        Dashboard: <span className="text-indigo-600 dark:text-indigo-400">{activeDashboardName}</span>
+                      </h1>
+                      {isRefreshing && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-300">
+                          <svg className="h-3.5 w-3.5 animate-spin text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"></circle>
+                            <path className="opacity-75" d="M4 12a8 8 0 018-8" strokeWidth="4" strokeLinecap="round"></path>
+                          </svg>
+                          Refreshing…
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-500 mt-1 dark:text-slate-300">
+                      {selectedNode
+                        ? `Viewing ${
+                            selectedNode.type === "group"
+                              ? "project"
+                              : selectedNode.type === "batch"
+                                ? "folder"
+                                : "file"
+                          } details`
+                        : "Select a project to start exploring accessibility insights."}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <p className="text-sm text-slate-500 mt-1 dark:text-slate-300">
-                {selectedNode
-                  ? `Viewing ${
-                      selectedNode.type === "group"
-                        ? "project"
-                        : selectedNode.type === "batch"
-                          ? "folder"
-                          : "file"
-                    } details`
-                  : "Select a project to start exploring accessibility insights."}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <button
-                type="button"
-                onClick={() => {
-                  if (canUploadNew) {
-                    onUploadRequest()
-                  }
-                }}
-                disabled={!canUploadNew}
-                className={`flex items-center gap-2 rounded-xl border px-4 py-2 font-semibold transition ${
-                  canUploadNew
-                    ? "border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:border-indigo-500 dark:hover:bg-indigo-500/10"
-                    : "border-slate-200 text-slate-400 cursor-not-allowed dark:border-slate-800 dark:text-slate-500"
-                }`}
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Upload New
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (canScanFolder) {
-                    void handleBeginFolderScan()
-                  }
-                }}
-                disabled={!canScanFolder}
-                className={`rounded-xl px-4 py-2 font-semibold transition ${
-                  canScanFolder
-                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 hover:bg-indigo-500"
-                    : "bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800 dark:text-slate-500"
-                }`}
-              >
-                {scanFolderLabel}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (canRemediate) {
-                    void handleBeginScan()
-                  }
-                }}
-                disabled={!canRemediate}
-                className={`rounded-xl px-4 py-2 font-semibold transition ${
-                  canRemediate
-                    ? "bg-violet-600 text-white shadow-lg shadow-violet-600/40 hover:bg-violet-500"
-                    : "bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800 dark:text-slate-500"
-                }`}
-              >
-                {remediateLabel}
-              </button>
-            </div>
-          </div>
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
@@ -638,8 +586,7 @@ export default function GroupDashboard({
 
               {nodeData.type === "file" && (
                 <div className="space-y-6">
-                  <div className="w-full lg:flex lg:justify-end">
-                    <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 dark:border-slate-800 dark:bg-[#111b36] lg:max-w-xl">
+                  <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 dark:border-slate-800 dark:bg-[#111b36]">
                     <div className="flex items-start justify-between mb-6">
                       <div>
                         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
@@ -652,14 +599,15 @@ export default function GroupDashboard({
                           </span>
                           {nodeData.status && (
                             <span
-                              className={`px-2 py-1 rounded-full text-xs font-medium ${nodeData.status === "fixed"
+                              className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                nodeData.status === "fixed"
                                   ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                                   : nodeData.status === "processed"
                                     ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                                     : nodeData.status === "uploaded"
                                       ? "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200"
                                       : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                                }`}
+                              }`}
                             >
                               {nodeData.status === "uploaded" ? "Uploaded" : nodeData.status}
                             </span>
@@ -670,10 +618,11 @@ export default function GroupDashboard({
                         <button
                           onClick={() => onSelectScan(nodeData)}
                           disabled={fileIsUploaded}
-                          className={`px-4 py-2 rounded-lg transition-colors font-medium ${fileIsUploaded
+                          className={`px-4 py-2 rounded-lg transition-colors font-medium ${
+                            fileIsUploaded
                               ? "bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400 cursor-not-allowed"
                               : "bg-violet-600 hover:bg-violet-700 text-white"
-                            }`}
+                          }`}
                         >
                           View Full Report
                         </button>
@@ -726,7 +675,6 @@ export default function GroupDashboard({
                         This file is ready to scan. Use the "Begin Scan" button to generate accessibility results.
                       </div>
                     )}
-                    </div>
                   </div>
                 </div>
               )}
@@ -819,9 +767,9 @@ export default function GroupDashboard({
                         This folder is ready to scan. Use the "Begin Scan" button to generate accessibility results.
                       </div>
                     )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
             </>
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -837,11 +785,10 @@ export default function GroupDashboard({
               <p className="text-slate-500 dark:text-slate-400">Select a project or file from the sidebar to view details</p>
             </div>
           )}
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
+  </div>
+</div>
   )
 }
