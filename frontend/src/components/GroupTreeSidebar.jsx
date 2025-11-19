@@ -1237,7 +1237,7 @@ export default function GroupTreeSidebar({
                           No folders available
                         </p>
                       ) : (
-                        <ul className="mt-3 space-y-2" role="group">
+                        <ul className="mt-1 space-y-2" role="group">
                           {batches.map((batch) => {
                             const normalizedBatchId = normalizeId(batch.batchId);
                             const isBatchSelected =
