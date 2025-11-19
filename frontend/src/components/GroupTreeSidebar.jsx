@@ -25,6 +25,7 @@ export default function GroupTreeSidebar({
   const [sectionStates, setSectionStates] = useState({});
   const [statusMessage, setStatusMessage] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
+  const [newFolderNames, setNewFolderNames] = useState({});
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editingGroupName, setEditingGroupName] = useState("");
   const [deletingGroupId, setDeletingGroupId] = useState(null);
@@ -34,6 +35,11 @@ export default function GroupTreeSidebar({
   const [deletingBatchInfo, setDeletingBatchInfo] = useState({ id: null, groupId: null });
   const [groupDeleteInProgress, setGroupDeleteInProgress] = useState(false);
   const [batchDeleteInProgress, setBatchDeleteInProgress] = useState(false);
+  const [sidebarView, setSidebarView] = useState("projects");
+  const [activeFolderView, setActiveFolderView] = useState(null);
+  const [folderFiles, setFolderFiles] = useState([]);
+  const [folderFilesLoading, setFolderFilesLoading] = useState(false);
+  const [folderFilesError, setFolderFilesError] = useState(null);
 
   useEffect(() => {
     if (!statusMessage) {
@@ -346,6 +352,8 @@ export default function GroupTreeSidebar({
       return;
     }
 
+    ensureProjectView();
+
     const normalizedId = normalizeId(group.id);
     const isAlreadyExpanded = expandedGroups.has(normalizedId);
 
@@ -465,6 +473,141 @@ export default function GroupTreeSidebar({
     }
     setStatusMessage(`Creating "${newProjectName.trim()}" is coming soon`);
     setNewProjectName("");
+  };
+
+  const ensureProjectView = () => {
+    setSidebarView("projects");
+    setActiveFolderView(null);
+    setFolderFiles([]);
+    setFolderFilesError(null);
+    setFolderFilesLoading(false);
+  };
+
+  const closeFolderView = () => {
+    ensureProjectView();
+  };
+
+  const openFolderView = async (group, batch) => {
+    const normalizedBatchId = normalizeId(batch.batchId || batch.id);
+    if (!normalizedBatchId) {
+      return;
+    }
+    setSidebarView("folder");
+    const folderMeta = {
+      groupId: group.id,
+      groupName: group.name,
+      folderId: batch.batchId || batch.id,
+      folderName: batch.name || `Folder ${batch.batchId || batch.id}`,
+    };
+    setActiveFolderView(folderMeta);
+    setFolderFiles([]);
+    setFolderFilesError(null);
+    setFolderFilesLoading(true);
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/batch/${batch.batchId || batch.id}`);
+      const folderDetails = response.data || {};
+      const scans = folderDetails.scans || [];
+      setFolderFiles(scans);
+      setActiveFolderView((prev) => ({
+        ...(prev || folderMeta),
+        folderName: folderDetails.batchName || folderDetails.folderName || folderMeta.folderName,
+        groupName: folderDetails.groupName || folderMeta.groupName,
+        totalFiles: folderDetails.total_files ?? folderDetails.totalFiles,
+        summary: {
+          issues: folderDetails.total_issues ?? folderDetails.totalIssues,
+          fixed: folderDetails.fixed_issues ?? folderDetails.fixedIssues,
+        },
+      }));
+    } catch (folderError) {
+      console.error("[GroupTreeSidebar] Failed to load folder files:", folderError);
+      setFolderFilesError(folderError?.response?.data?.error || "Failed to load folder files");
+    } finally {
+      setFolderFilesLoading(false);
+    }
+  };
+
+  const handleFolderButtonClick = (group, batch) => {
+    const batchId = batch.batchId || batch.id;
+    if (!batchId) {
+      return;
+    }
+    const batchData = {
+      ...batch,
+      batchId,
+    };
+    void openFolderView(group, batchData);
+    void handleNodeClick(
+      {
+        type: "batch",
+        id: batchId,
+        data: batchData,
+      },
+      { moveFocus: true }
+    );
+  };
+
+  const handleFolderNameChange = (groupId, value) => {
+    const key = normalizeId(groupId);
+    setNewFolderNames((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const handleCreateFolder = async (event, group) => {
+    if (event) {
+      event.preventDefault();
+    }
+    if (!group?.id) {
+      return;
+    }
+    const key = normalizeId(group.id);
+    const folderName = (newFolderNames[key] || "").trim();
+    if (!folderName) {
+      setStatusMessage("Enter a folder name first");
+      return;
+    }
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/folders`, {
+        name: folderName,
+        groupId: group.id,
+      });
+      const folderPayload = response.data?.folder || {};
+      const mappedFolder = {
+        batchId: folderPayload.folderId || folderPayload.batchId || folderPayload.id,
+        name: folderPayload.name || folderName,
+        groupId: folderPayload.groupId || folderPayload.group_id || group.id,
+        fileCount: folderPayload.totalFiles ?? folderPayload.total_files ?? 0,
+        status: folderPayload.status || "uploaded",
+        createdAt: folderPayload.createdAt || folderPayload.created_at,
+      };
+      setGroupBatches((prev) => {
+        const list = prev[key] || [];
+        return {
+          ...prev,
+          [key]: [...list, mappedFolder],
+        };
+      });
+      setGroups((prev) =>
+        prev.map((existingGroup) =>
+          normalizeId(existingGroup.id) === key
+            ? {
+                ...existingGroup,
+                batchCount: (existingGroup.batchCount || 0) + 1,
+                folderCount: (existingGroup.folderCount || existingGroup.batchCount || 0) + 1,
+              }
+            : existingGroup
+        )
+      );
+      setStatusMessage(`${folderName} folder created`);
+      setNewFolderNames((prev) => ({
+        ...prev,
+        [key]: "",
+      }));
+    } catch (folderError) {
+      console.error("[GroupTreeSidebar] Failed to create folder:", folderError);
+      setStatusMessage(folderError?.response?.data?.error || "Failed to create folder");
+    }
   };
 
   const startGroupEdit = (group) => {
@@ -647,6 +790,7 @@ export default function GroupTreeSidebar({
   };
 
   const handleRefresh = async () => {
+    ensureProjectView();
     await fetchGroups();
     if (onRefresh) {
       onRefresh();
@@ -696,6 +840,97 @@ export default function GroupTreeSidebar({
         >
           Retry
         </button>
+      </aside>
+    );
+  }
+
+  if (sidebarView === "folder" && activeFolderView) {
+    const isFileSelected = (fileId) =>
+      selectedNode?.type === "file" && normalizeId(selectedNode?.id) === normalizeId(fileId);
+
+    return (
+      <aside className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex flex-col space-y-4">
+        <div className="flex items-center gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={closeFolderView}
+            className="rounded-full bg-gray-100 p-2 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+            aria-label="Back to projects"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              {activeFolderView.groupName || "Selected project"}
+            </p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Files in {activeFolderView.folderName}
+            </h2>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto space-y-2">
+          {folderFilesLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4].map((item) => (
+                <div
+                  key={item}
+                  className="h-12 rounded-lg bg-gray-100 animate-pulse dark:bg-gray-700"
+                ></div>
+              ))}
+            </div>
+          ) : folderFilesError ? (
+            <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-100">
+              {folderFilesError}
+            </div>
+          ) : folderFiles.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-300">
+              No files in this folder yet.
+            </div>
+          ) : (
+            folderFiles.map((file) => {
+              const fileId = file.scanId || file.id || file.fileId;
+              const selected = isFileSelected(fileId);
+              return (
+                <button
+                  key={fileId || file.filename}
+                  type="button"
+                  className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                    selected
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-900 dark:border-indigo-500/60 dark:bg-indigo-900/30 dark:text-indigo-100"
+                      : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                  }`}
+                  onClick={() => {
+                    if (!fileId) {
+                      return;
+                    }
+                    void handleNodeClick(
+                      {
+                        type: "file",
+                        id: fileId,
+                        data: {
+                          ...file,
+                          filename: file.filename || file.fileName,
+                        },
+                      },
+                      { moveFocus: true }
+                    );
+                  }}
+                >
+                  <p className="text-sm font-semibold truncate">{file.filename || file.fileName || "Untitled file"}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {(file.status || "uploaded").toUpperCase()}
+                  </p>
+                </button>
+              );
+            })
+          )}
+        </div>
+        <div role="status" aria-live="polite" className="sr-only">
+          {statusMessage}
+        </div>
       </aside>
     );
   }
@@ -890,9 +1125,9 @@ export default function GroupTreeSidebar({
                     <h3 className={`text-sm font-semibold truncate ${isSelected ? "text-gray-900 dark:text-white" : "text-gray-800 dark:text-gray-200"}`}>
                       {group.name}
                     </h3>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {/* <p className="text-xs text-gray-500 dark:text-gray-400">
                       {group.fileCount || 0} files · {group.batchCount || 0} folders
-                    </p>
+                    </p> */}
                   </div>
                 </button>
                       <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100">
@@ -1062,24 +1297,15 @@ export default function GroupTreeSidebar({
                                   </div>
                                 ) : (
                                   <>
-                                <button
-                                  type="button"
-                                  className={`w-full text-left p-2 rounded-md transition flex items-center gap-3 ${isBatchSelected
-                                      ? "bg-indigo-600 text-white"
-                                      : "hover:bg-gray-100 dark:hover:bg-gray-800/60 text-gray-700 dark:text-gray-200"
-                                    }`}
-                                  onClick={() =>
-                                    void handleNodeClick(
-                                      {
-                                        type: "batch",
-                                        id: batch.batchId,
-                                        data: batch,
-                                      },
-                                      { moveFocus: true }
-                                    )
-                                  }
-                                  aria-current={isBatchSelected ? "true" : undefined}
-                                >
+                                    <button
+                                      type="button"
+                                      className={`w-full text-left p-2 rounded-md transition flex items-center gap-3 ${isBatchSelected
+                                          ? "bg-indigo-600 text-white"
+                                          : "hover:bg-gray-100 dark:hover:bg-gray-800/60 text-gray-700 dark:text-gray-200"
+                                        }`}
+                                      onClick={() => handleFolderButtonClick(group, batch)}
+                                      aria-current={isBatchSelected ? "true" : undefined}
+                                    >
                                   <span
                                     className={`flex-shrink-0 rounded-md p-1 ${isBatchSelected ? "bg-white/20" : "bg-gray-200 dark:bg-gray-700"}`}
                                   >
@@ -1147,133 +1373,158 @@ export default function GroupTreeSidebar({
                       )}
                     </div>
 
-                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-3">
+                    <form
+                      onSubmit={(event) => handleCreateFolder(event, group)}
+                      className="rounded-2xl border border-dashed border-gray-200 bg-white/70 px-3 py-3 text-sm flex items-center gap-2 shadow-sm dark:border-gray-700 dark:bg-gray-900/40"
+                    >
+                      <input
+                        type="text"
+                        value={newFolderNames[normalizedGroupId] || ""}
+                        onChange={(event) => handleFolderNameChange(group.id, event.target.value)}
+                        placeholder="New folder name..."
+                        className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-950 dark:text-gray-100"
+                        aria-label={`New folder for ${group.name}`}
+                      />
                       <button
-                        type="button"
-                        className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm font-semibold transition ${fileToggleDisabled
-                            ? "cursor-not-allowed text-gray-400"
-                            : filesExpanded
-                              ? "bg-indigo-50 text-indigo-700"
-                              : "text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800/50"
-                          }`}
-                        onClick={() => {
-                          if (fileToggleDisabled) {
-                            return;
-                          }
-                          toggleSection(group.id, "files", group.name, "Files");
-                        }}
-                        aria-expanded={fileToggleDisabled ? undefined : filesExpanded}
-                        aria-controls={fileToggleDisabled ? undefined : `group-${group.id}-files`}
-                        aria-disabled={fileToggleDisabled || undefined}
-                        disabled={fileToggleDisabled}
-                        aria-label={fileAriaLabel}
+                        type="submit"
+                        disabled={!(newFolderNames[normalizedGroupId] || "").trim()}
+                        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm shadow-indigo-200 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-400"
                       >
-                        <span className="flex items-center gap-2">
-                          <span className="rounded-md bg-indigo-100 text-indigo-700 p-1" aria-hidden="true">
-                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                              />
-                            </svg>
-                          </span>
-                          <span>Files</span>
-                        </span>
-                        {!fileToggleDisabled && (
-                          <span className="flex items-center gap-2 text-xs font-semibold text-gray-500">
-                            {fileCount}
-                            <svg
-                              className={`h-3.5 w-3.5 transition-transform ${filesExpanded ? "rotate-180" : ""}`}
-                              viewBox="0 0 20 20"
-                              fill="currentColor"
-                              aria-hidden="true"
-                            >
-                              <path
-                                fillRule="evenodd"
-                                d="M5.23 7.21a.75.75 0 011.06.02L10 11.173l3.71-3.94a.75.75 0 011.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-                                clipRule="evenodd"
-                              />
-                            </svg>
-                          </span>
-                        )}
+                        + Add
                       </button>
-                      {filesExpanded && (
-                        <ul id={`group-${group.id}-files`} className="mt-2 space-y-1" role="group">
-                          {files.map((file) => {
-                            const isFileSelected =
-                              selectedNode?.type === "file" &&
-                              normalizeId(selectedNode?.id) === normalizeId(file.id);
-                            const normalizedStatus =
-                              typeof file.status === "string" ? file.status.toLowerCase() : "";
-                            const statusClasses =
-                              FILE_STATUS_STYLES[normalizedStatus] || FILE_STATUS_STYLES.default;
-                            const statusLabel =
-                              normalizedStatus === "uploaded" ? "Uploaded" : file.status;
+                    </form>
 
-                            return (
-                              <li key={file.id}>
-                                <button
-                                  type="button"
-                                  className={`w-full text-left p-2 rounded-md transition flex items-center gap-3 ${isFileSelected
-                                      ? "bg-indigo-600 text-white"
-                                      : "hover:bg-gray-100 dark:hover:bg-gray-800/60 text-gray-700 dark:text-gray-200"
-                                    }`}
-                                  onClick={() =>
-                                    void handleNodeClick(
-                                      {
-                                        type: "file",
-                                        id: file.id,
-                                        data: file,
-                                      },
-                                      { moveFocus: true }
-                                    )
-                                  }
-                                  aria-current={isFileSelected ? "true" : undefined}
+                    {false && (
+                      <>
+                        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-3">
+                          <button
+                            type="button"
+                            className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm font-semibold transition ${fileToggleDisabled
+                                ? "cursor-not-allowed text-gray-400"
+                                : filesExpanded
+                                  ? "bg-indigo-50 text-indigo-700"
+                                  : "text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800/50"
+                              }`}
+                            onClick={() => {
+                              if (fileToggleDisabled) {
+                                return;
+                              }
+                              toggleSection(group.id, "files", group.name, "Files");
+                            }}
+                            aria-expanded={fileToggleDisabled ? undefined : filesExpanded}
+                            aria-controls={fileToggleDisabled ? undefined : `group-${group.id}-files`}
+                            aria-disabled={fileToggleDisabled || undefined}
+                            disabled={fileToggleDisabled}
+                            aria-label={fileAriaLabel}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span className="rounded-md bg-indigo-100 text-indigo-700 p-1" aria-hidden="true">
+                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                  />
+                                </svg>
+                              </span>
+                              <span>Files</span>
+                            </span>
+                            {!fileToggleDisabled && (
+                              <span className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+                                {fileCount}
+                                <svg
+                                  className={`h-3.5 w-3.5 transition-transform ${filesExpanded ? "rotate-180" : ""}`}
+                                  viewBox="0 0 20 20"
+                                  fill="currentColor"
+                                  aria-hidden="true"
                                 >
-                                  <span
-                                    className={`flex-shrink-0 rounded-md p-1 ${isFileSelected ? "bg-white/20" : "bg-gray-200 dark:bg-gray-700"}`}
-                                  >
-                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                      />
-                                    </svg>
-                                  </span>
-                                  <span className="flex-1 min-w-0">
-                                    <span className="block truncate text-sm font-medium">
-                                      {file.filename}
-                                    </span>
-                                    {file.status && (
-                                      <span
-                                        className={`mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClasses}`}
-                                      >
-                                        <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                                        {statusLabel}
-                                      </span>
-                                    )}
-                                  </span>
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                      {fileToggleDisabled && (
-                        <p className="mt-2 text-xs text-gray-500" role="status" aria-live="polite">
-                          No files available
-                        </p>
-                      )}
-                    </div>
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M5.23 7.21a.75.75 0 011.06.02L10 11.173l3.71-3.94a.75.75 0 011.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                                    clipRule="evenodd"
+                                  />
+                                </svg>
+                              </span>
+                            )}
+                          </button>
+                          {filesExpanded && (
+                            <ul id={`group-${group.id}-files`} className="mt-2 space-y-1" role="group">
+                              {files.map((file) => {
+                                const isFileSelected =
+                                  selectedNode?.type === "file" &&
+                                  normalizeId(selectedNode?.id) === normalizeId(file.id);
+                                const normalizedStatus =
+                                  typeof file.status === "string" ? file.status.toLowerCase() : "";
+                                const statusClasses =
+                                  FILE_STATUS_STYLES[normalizedStatus] || FILE_STATUS_STYLES.default;
+                                const statusLabel =
+                                  normalizedStatus === "uploaded" ? "Uploaded" : file.status;
 
-                    {files.length === 0 && batches.length === 0 && (
-                      <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500">
-                        No files or folders
-                      </div>
+                                return (
+                                  <li key={file.id}>
+                                    <button
+                                      type="button"
+                                      className={`w-full text-left p-2 rounded-md transition flex items-center gap-3 ${isFileSelected
+                                          ? "bg-indigo-600 text-white"
+                                          : "hover:bg-gray-100 dark:hover:bg-gray-800/60 text-gray-700 dark:text-gray-200"
+                                        }`}
+                                      onClick={() =>
+                                        void handleNodeClick(
+                                          {
+                                            type: "file",
+                                            id: file.id,
+                                            data: file,
+                                          },
+                                          { moveFocus: true }
+                                        )
+                                      }
+                                      aria-current={isFileSelected ? "true" : undefined}
+                                    >
+                                      <span
+                                        className={`flex-shrink-0 rounded-md p-1 ${isFileSelected ? "bg-white/20" : "bg-gray-200 dark:bg-gray-700"}`}
+                                      >
+                                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                          />
+                                        </svg>
+                                      </span>
+                                      <span className="flex-1 min-w-0">
+                                        <span className="block truncate text-sm font-medium">
+                                          {file.filename}
+                                        </span>
+                                        {file.status && (
+                                          <span
+                                            className={`mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClasses}`}
+                                          >
+                                            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                                            {statusLabel}
+                                          </span>
+                                        )}
+                                      </span>
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                          {fileToggleDisabled && (
+                            <p className="mt-2 text-xs text-gray-500" role="status" aria-live="polite">
+                              No files available
+                            </p>
+                          )}
+                        </div>
+
+                        {files.length === 0 && batches.length === 0 && (
+                          <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500">
+                            No files or folders
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
