@@ -1363,9 +1363,6 @@ def _delete_batch_with_files(batch_id: str) -> Dict[str, Any]:
         "SELECT id FROM scans WHERE batch_id = %s", (batch_id,), fetch=True
     ) or []
 
-    if not scans:
-        raise LookupError("No scans found for this batch")
-
     deleted_scans = 0
     deleted_files = 0
     affected_groups: Set[str] = set()
