@@ -25,6 +25,7 @@ export default function GroupTreeSidebar({
   const [sectionStates, setSectionStates] = useState({});
   const [statusMessage, setStatusMessage] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [newFolderNames, setNewFolderNames] = useState({});
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editingGroupName, setEditingGroupName] = useState("");
@@ -463,16 +464,40 @@ export default function GroupTreeSidebar({
     });
   };
 
-  const handleMockCreateProject = (event) => {
-    if (event) {
-      event.preventDefault();
-    }
-    if (!newProjectName.trim()) {
+  const handleCreateProject = async (event) => {
+    event?.preventDefault();
+
+    const trimmedName = newProjectName.trim();
+    if (!trimmedName) {
       setStatusMessage("Enter a project name first");
       return;
     }
-    setStatusMessage(`Creating "${newProjectName.trim()}" is coming soon`);
-    setNewProjectName("");
+
+    setIsCreatingProject(true);
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/groups`, {
+        name: trimmedName,
+      });
+
+      if (response?.data?.group) {
+        setStatusMessage(`Project "${trimmedName}" created`);
+        setNewProjectName("");
+        await fetchGroups();
+        return;
+      }
+
+      setStatusMessage("Project created");
+      setNewProjectName("");
+      await fetchGroups();
+    } catch (error) {
+      const errMessage =
+        error?.response?.data?.error ||
+        error?.message ||
+        "Failed to create project";
+      setStatusMessage(errMessage);
+    } finally {
+      setIsCreatingProject(false);
+    }
   };
 
   const ensureProjectView = () => {
@@ -965,7 +990,7 @@ export default function GroupTreeSidebar({
         </button>
       </div>
 
-      <form onSubmit={handleMockCreateProject} className="flex flex-col sm:flex-row gap-2">
+      <form onSubmit={handleCreateProject} className="flex flex-col sm:flex-row gap-2">
         <input
           type="text"
           value={newProjectName}
@@ -976,7 +1001,7 @@ export default function GroupTreeSidebar({
         />
         <button
           type="submit"
-          disabled={!newProjectName.trim()}
+          disabled={!newProjectName.trim() || isCreatingProject}
           className="flex items-center justify-center gap-2 bg-indigo-600 text-white font-semibold px-4 py-2 rounded-md hover:bg-indigo-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
         >
           <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
