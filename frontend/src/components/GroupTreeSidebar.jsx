@@ -1006,21 +1006,19 @@ export default function GroupTreeSidebar({
 
   return (
     <aside
-      className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex flex-col space-y-4"
+      className="w-full max-w-sm flex-shrink-0 rounded-[32px] border border-slate-200 bg-white p-6 text-slate-900 shadow-xl shadow-slate-200/60 flex flex-col space-y-6 dark:border-slate-800 dark:bg-gradient-to-b dark:from-slate-950 dark:via-[#0b1120] dark:to-[#070b16] dark:text-slate-100 dark:shadow-[0_35px_80px_-40px_rgba(15,23,42,0.95)]"
       aria-label="Group navigation"
     >
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-            Projects
-          </p>
-          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Project Library</h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{groups.length} projects</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">Projects</p>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Project Library</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{groups.length} total</p>
         </div>
         <button
           type="button"
           onClick={handleRefresh}
-          className="rounded-md border border-transparent bg-gray-100 dark:bg-gray-700 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+          className="rounded-xl border border-indigo-100 bg-indigo-50 p-2 text-indigo-600 transition hover:bg-indigo-100 hover:text-indigo-800 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20 dark:hover:text-white"
           title="Refresh"
         >
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1040,13 +1038,13 @@ export default function GroupTreeSidebar({
           value={newProjectName}
           onChange={(event) => setNewProjectName(event.target.value)}
           placeholder="New project name..."
-          className="flex-grow bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+          className="flex-grow rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-800/80 dark:bg-[#101735] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-500/70"
           aria-label="New project name"
         />
         <button
           type="submit"
           disabled={!newProjectName.trim() || isCreatingProject}
-          className="flex items-center justify-center gap-2 bg-indigo-600 text-white font-semibold px-4 py-2 rounded-md hover:bg-indigo-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
+          className="flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:disabled:bg-slate-600"
         >
           <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
             <path
@@ -1059,7 +1057,7 @@ export default function GroupTreeSidebar({
         </button>
       </form>
 
-      <div className="flex-1 overflow-y-auto space-y-1 pr-1 -mr-1">
+      <div className="space-y-3">
         {groups.length === 0 ? (
           <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
             <p>No groups yet. Create one to get started!</p>
@@ -1157,10 +1155,11 @@ export default function GroupTreeSidebar({
                     <>
                 <button
                   type="button"
-                  className={`w-full text-left p-2.5 rounded-md transition group flex items-center gap-3 ${isSelected
-                      ? "bg-gray-200 dark:bg-gray-700"
-                      : "hover:bg-gray-100 dark:hover:bg-gray-700/50"
-                    }`}
+                  className={`w-full text-left rounded-2xl border transition group flex items-center gap-3 p-3 ${
+                    isSelected
+                      ? "border-indigo-500/80 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
+                      : "border-transparent bg-slate-50 text-slate-800 hover:border-indigo-100 hover:bg-indigo-50 dark:bg-[#121b33] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#182248]"
+                  }`}
                   onClick={() => {
                     void handleGroupSelection(group);
                   }}
@@ -1169,8 +1168,8 @@ export default function GroupTreeSidebar({
                   aria-current={isSelected ? "true" : undefined}
                 >
                   <span
-                    className={`w-4 h-4 flex-shrink-0 transition-transform text-gray-400 ${
-                      isExpanded ? "rotate-90" : ""
+                    className={`w-4 h-4 flex-shrink-0 transition-transform ${
+                      isExpanded ? "rotate-90 text-indigo-400" : "text-slate-400"
                     }`}
                     aria-hidden="true"
                   >
@@ -1179,7 +1178,9 @@ export default function GroupTreeSidebar({
                     </svg>
                   </span>
                   <span
-                    className={`w-5 h-5 flex-shrink-0 ${isSelected ? "text-indigo-600" : "text-gray-400 group-hover:text-gray-500"}`}
+                    className={`w-5 h-5 flex-shrink-0 ${
+                      isSelected ? "text-white" : "text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200"
+                    }`}
                   >
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -1191,19 +1192,16 @@ export default function GroupTreeSidebar({
                     </svg>
                   </span>
                   <div className="flex-1 overflow-hidden">
-                    <h3 className={`text-sm font-semibold truncate ${isSelected ? "text-gray-900 dark:text-white" : "text-gray-800 dark:text-gray-200"}`}>
+                    <h3 className={`text-sm font-semibold truncate ${isSelected ? "text-white" : "text-slate-900 dark:text-slate-100"}`}>
                       {group.name}
                     </h3>
-                    {/* <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {group.fileCount || 0} files · {group.batchCount || 0} folders
-                    </p> */}
                   </div>
                 </button>
                       <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100">
                         <button
                           type="button"
                           onClick={() => startGroupEdit(group)}
-                          className="pointer-events-auto rounded-md bg-indigo-50 p-1 text-indigo-600 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60"
+                          className="pointer-events-auto rounded-lg border border-indigo-100 bg-indigo-50 p-1 text-indigo-600 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-200 dark:hover:bg-indigo-500/20 dark:hover:text-white"
                           title="Edit project"
                         >
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1218,7 +1216,7 @@ export default function GroupTreeSidebar({
                         <button
                           type="button"
                           onClick={() => requestGroupDelete(group)}
-                          className="pointer-events-auto rounded-md bg-rose-50 p-1 text-rose-500 shadow-sm hover:bg-rose-100 hover:text-rose-700 dark:bg-rose-950/40 dark:text-rose-200 dark:hover:bg-rose-950/60"
+                          className="pointer-events-auto rounded-lg border border-rose-100 bg-rose-50 p-1 text-rose-600 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20 dark:hover:text-white"
                           title="Delete project"
                         >
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1238,16 +1236,16 @@ export default function GroupTreeSidebar({
                 {isExpanded && (
                   <div
                     id={`group-${group.id}-panel`}
-                    className="pl-6 pt-1 pb-2 space-y-3"
+                    className="pl-4 pt-2 pb-3 space-y-3"
                   >
-                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-3">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-[#0f1a30]">
                       <button
                         type="button"
-                        className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm font-semibold transition ${batchToggleDisabled
-                            ? "cursor-not-allowed text-gray-400"
+                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-semibold transition ${batchToggleDisabled
+                            ? "cursor-not-allowed text-slate-400 dark:text-slate-600"
                             : batchesExpanded
-                              ? "bg-indigo-50 text-indigo-700"
-                              : "text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800/50"
+                              ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-white"
+                              : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-[#141f3c]"
                           }`}
                         onClick={() => {
                           if (batchToggleDisabled) {
@@ -1262,7 +1260,7 @@ export default function GroupTreeSidebar({
                         aria-label={batchAriaLabel}
                       >
                         <span className="flex items-center gap-2">
-                          <span className="rounded-md bg-indigo-100 text-indigo-700 p-1" aria-hidden="true">
+                          <span className="rounded-lg bg-indigo-100 text-indigo-600 p-1.5 dark:bg-indigo-500/20 dark:text-indigo-200" aria-hidden="true">
                             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path
                                 strokeLinecap="round"
@@ -1275,7 +1273,7 @@ export default function GroupTreeSidebar({
                           <span>Folders</span>
                         </span>
                         {!batchToggleDisabled && (
-                          <span className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+                          <span className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
                             {batchCount}
                             <svg
                               className={`h-3.5 w-3.5 transition-transform ${batchesExpanded ? "rotate-180" : ""}`}
@@ -1293,7 +1291,7 @@ export default function GroupTreeSidebar({
                         )}
                       </button>
                       {batchesExpanded && (
-                        <ul id={`group-${group.id}-batches`} className="mt-2 space-y-1" role="group">
+                        <ul id={`group-${group.id}-batches`} className="mt-3 space-y-2" role="group">
                           {batches.map((batch) => {
                             const normalizedBatchId = normalizeId(batch.batchId);
                             const isBatchSelected =
@@ -1310,19 +1308,19 @@ export default function GroupTreeSidebar({
                                 {isEditingBatch ? (
                                   <form
                                     onSubmit={saveBatchEdit}
-                                    className="flex items-center gap-2 rounded-md bg-blue-50 p-2 dark:bg-blue-900/40"
+                                    className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 p-2 dark:border-indigo-500/30 dark:bg-indigo-500/10"
                                   >
                                     <input
                                       type="text"
                                       value={editingBatchName}
                                       onChange={(event) => setEditingBatchName(event.target.value)}
-                                      className="flex-1 rounded-md border border-blue-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-blue-500/40 dark:bg-gray-950 dark:text-gray-100"
+                                      className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-indigo-500/30 dark:bg-[#0b1327] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-400"
                                       autoFocus
                                       aria-label="Edit folder name"
                                     />
                                     <button
                                       type="submit"
-                                      className="rounded-md bg-blue-600 p-1.5 text-white shadow-sm shadow-blue-200 hover:bg-blue-700"
+                                      className="rounded-lg bg-indigo-500/90 p-1.5 text-white shadow-sm shadow-indigo-500/30 hover:bg-indigo-400"
                                       title="Save folder name"
                                     >
                                       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1332,7 +1330,7 @@ export default function GroupTreeSidebar({
                                     <button
                                       type="button"
                                       onClick={cancelBatchEdit}
-                                      className="rounded-md bg-gray-200 p-1.5 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-100"
+                                      className="rounded-lg bg-slate-200 p-1.5 text-slate-700 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100"
                                       title="Cancel edit"
                                     >
                                       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1341,7 +1339,7 @@ export default function GroupTreeSidebar({
                                     </button>
                                   </form>
                                 ) : isDeletingBatch ? (
-                                  <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:bg-rose-950/40 dark:text-rose-100">
+                                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-100">
                                     <p className="mb-1">
                                       {batchDeleteInProgress ? "Deleting folder..." : "Delete this folder?"}
                                     </p>
@@ -1350,7 +1348,7 @@ export default function GroupTreeSidebar({
                                         type="button"
                                         onClick={confirmBatchDelete}
                                         disabled={batchDeleteInProgress}
-                                        className="flex-1 rounded-md bg-rose-600 px-2 py-1 text-white shadow-sm shadow-rose-200 hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                        className="flex-1 rounded-lg bg-rose-600 px-2 py-1 text-white shadow-sm shadow-rose-500/40 hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
                                       >
                                         {batchDeleteInProgress ? "Deleting..." : "Delete"}
                                       </button>
@@ -1358,7 +1356,7 @@ export default function GroupTreeSidebar({
                                         type="button"
                                         onClick={cancelBatchDelete}
                                         disabled={batchDeleteInProgress}
-                                        className="flex-1 rounded-md bg-gray-200 px-2 py-1 text-gray-700 hover:bg-gray-300 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-700 dark:text-gray-200"
+                                        className="flex-1 rounded-lg bg-slate-200 px-2 py-1 text-slate-700 hover:bg-slate-300 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-700"
                                       >
                                         Cancel
                                       </button>
@@ -1368,15 +1366,16 @@ export default function GroupTreeSidebar({
                                   <>
                                     <button
                                       type="button"
-                                      className={`w-full text-left p-2 rounded-md transition flex items-center gap-3 ${isBatchSelected
-                                          ? "bg-indigo-600 text-white"
-                                          : "hover:bg-gray-100 dark:hover:bg-gray-800/60 text-gray-700 dark:text-gray-200"
-                                        }`}
+                                      className={`w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 ${
+                                        isBatchSelected
+                                          ? "border-indigo-500/80 bg-indigo-600 text-white shadow-indigo-500/30 dark:bg-indigo-600/90"
+                                          : "border-transparent bg-white text-slate-800 hover:border-indigo-100 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
+                                      }`}
                                       onClick={() => handleFolderButtonClick(group, batch)}
                                       aria-current={isBatchSelected ? "true" : undefined}
                                     >
                                   <span
-                                    className={`flex-shrink-0 rounded-md p-1 ${isBatchSelected ? "bg-white/20" : "bg-gray-200 dark:bg-gray-700"}`}
+                                    className={`flex-shrink-0 rounded-lg p-1.5 ${isBatchSelected ? "bg-indigo-100 text-indigo-700 dark:bg-white/20 dark:text-white" : "bg-slate-100 text-indigo-500 dark:bg-slate-800/70 dark:text-indigo-200"}`}
                                   >
                                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path
@@ -1388,10 +1387,10 @@ export default function GroupTreeSidebar({
                                     </svg>
                                   </span>
                                   <span className="flex-1 min-w-0">
-                                    <span className="block truncate text-sm font-medium">
+                                    <span className="block truncate text-sm font-medium text-slate-800 dark:text-current">
                                       {batch.name || `Batch ${batch.batchId}`}
                                     </span>
-                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    <span className="text-xs text-slate-500 dark:text-slate-400">
                                       {batch.fileCount} files
                                     </span>
                                   </span>
@@ -1400,7 +1399,7 @@ export default function GroupTreeSidebar({
                                       <button
                                         type="button"
                                         onClick={() => startBatchEdit(batch, group.id)}
-                                        className="pointer-events-auto rounded-md bg-blue-50 p-1 text-blue-600 shadow-sm hover:bg-blue-100 hover:text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60"
+                                        className="pointer-events-auto rounded-lg border border-indigo-100 bg-indigo-50 p-1 text-indigo-600 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-200 dark:hover:bg-indigo-500/20 dark:hover:text-white"
                                         title="Edit folder"
                                       >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1415,7 +1414,7 @@ export default function GroupTreeSidebar({
                                       <button
                                         type="button"
                                         onClick={() => requestBatchDelete(batch, group.id)}
-                                        className="pointer-events-auto rounded-md bg-rose-50 p-1 text-rose-500 shadow-sm hover:bg-rose-100 hover:text-rose-700 dark:bg-rose-950/40 dark:text-rose-200 dark:hover:bg-rose-950/60"
+                                        className="pointer-events-auto rounded-lg border border-rose-100 bg-rose-50 p-1 text-rose-600 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20 dark:hover:text-white"
                                         title="Delete folder"
                                       >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1436,7 +1435,7 @@ export default function GroupTreeSidebar({
                         </ul>
                       )}
                       {batchToggleDisabled && (
-                        <p className="mt-2 text-xs text-gray-500" role="status" aria-live="polite">
+                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-500" role="status" aria-live="polite">
                           No folders available
                         </p>
                       )}
@@ -1444,20 +1443,20 @@ export default function GroupTreeSidebar({
 
                     <form
                       onSubmit={(event) => handleCreateFolder(event, group)}
-                      className="rounded-2xl border border-dashed border-gray-200 bg-white/70 px-3 py-3 text-sm flex items-center gap-2 shadow-sm dark:border-gray-700 dark:bg-gray-900/40"
+                      className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm flex items-center gap-3 shadow-inner shadow-slate-200 dark:border-slate-700/80 dark:bg-[#0b1327] dark:shadow-black/30"
                     >
                       <input
                         type="text"
                         value={newFolderNames[normalizedGroupId] || ""}
                         onChange={(event) => handleFolderNameChange(group.id, event.target.value)}
                         placeholder="New folder name..."
-                        className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-950 dark:text-gray-100"
+                        className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-slate-800 dark:bg-transparent dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/60"
                         aria-label={`New folder for ${group.name}`}
                       />
                       <button
                         type="submit"
                         disabled={!(newFolderNames[normalizedGroupId] || "").trim()}
-                        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm shadow-indigo-200 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                        className="rounded-xl bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:disabled:bg-slate-600"
                       >
                         + Add
                       </button>
