@@ -290,6 +290,8 @@ export default function UploadArea({
         onUploadDeferred?.({
           scanIds,
           groupId,
+          batchId: response.data?.batchId || response.data?.folderId,
+          folderName: response.data?.folderName,
         })
       } else {
         const payload = {

@@ -20,6 +20,8 @@ export default function GroupDashboard({
   onScanComplete = () => {},
   onUploadDeferred = () => {},
   scanHistory = [],
+  latestUploadContext = null,
+  onUploadContextAcknowledged = () => {},
 }) {
   const { showError, showSuccess } = useNotification()
 
@@ -469,6 +471,8 @@ export default function GroupDashboard({
         selectedNode={selectedNode}
         onRefresh={loadInitialData}
         initialGroupId={initialGroupId}
+        latestUploadContext={latestUploadContext}
+        onUploadContextAcknowledged={onUploadContextAcknowledged}
       />
 
       <div

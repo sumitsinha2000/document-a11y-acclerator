@@ -15,6 +15,8 @@ export default function GroupTreeSidebar({
   selectedNode,
   onRefresh,
   initialGroupId,
+  latestUploadContext = null,
+  onUploadContextAcknowledged = () => {},
 }) {
   const [groups, setGroups] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
@@ -570,6 +572,48 @@ export default function GroupTreeSidebar({
       { moveFocus: true }
     );
   };
+
+  useEffect(() => {
+    const uploadContext = latestUploadContext;
+    if (!uploadContext?.folderId || !activeFolderView) {
+      return;
+    }
+    const targetFolderId = normalizeId(uploadContext.folderId);
+    const activeFolderId = normalizeId(activeFolderView.folderId);
+    if (!targetFolderId || targetFolderId !== activeFolderId) {
+      return;
+    }
+    const targetGroupId = normalizeId(uploadContext.groupId);
+    if (!targetGroupId) {
+      return;
+    }
+    const targetGroup = groups.find((group) => normalizeId(group.id) === targetGroupId);
+    if (!targetGroup) {
+      return;
+    }
+    const folderName = uploadContext.folderName;
+    onUploadContextAcknowledged?.();
+
+    const refreshFolderData = async () => {
+      await fetchGroupData(targetGroup.id, groupBatches[targetGroupId] || null);
+      await openFolderView(targetGroup, {
+        batchId: uploadContext.folderId,
+        id: uploadContext.folderId,
+        name: folderName || activeFolderView.folderName,
+      });
+    };
+
+    void refreshFolderData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    latestUploadContext?.folderId,
+    latestUploadContext?.groupId,
+    latestUploadContext?.folderName,
+    activeFolderView?.folderId,
+    groups,
+    groupBatches,
+    onUploadContextAcknowledged,
+  ]);
 
   const handleFolderNameChange = (groupId, value) => {
     const key = normalizeId(groupId);

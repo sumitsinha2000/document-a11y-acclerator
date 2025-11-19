@@ -122,6 +122,7 @@ async def scan_pdf(
     file: UploadFile = File(...),
     group_id: Optional[str] = Form(None),
     scan_mode: Optional[str] = Form(None),
+    folder_id: Optional[str] = Form(None),
 ):
     if not file or not file.filename:
         return JSONResponse({"error": "No file provided"}, status_code=400)
@@ -129,6 +130,22 @@ async def scan_pdf(
         return JSONResponse({"error": "Only PDF files supported"}, status_code=400)
     if not group_id:
         return JSONResponse({"error": "Group ID is required"}, status_code=400)
+
+    if folder_id:
+        folder_rows = execute_query(
+            "SELECT id, name, group_id FROM batches WHERE id = %s",
+            (folder_id,),
+            fetch=True,
+        )
+        if not folder_rows:
+            return JSONResponse({"error": "Folder not found"}, status_code=404)
+        folder_record = dict(folder_rows[0])
+        folder_group_id = folder_record.get("group_id")
+        if folder_group_id and folder_group_id != group_id:
+            return JSONResponse(
+                {"error": "Folder does not belong to the selected project"},
+                status_code=400,
+            )
 
     scan_uid = f"scan_{uuid.uuid4().hex}"
     upload_dir = _temp_storage_root()
@@ -190,6 +207,7 @@ async def scan_pdf(
             scan_uid,
             file.filename,
             formatted_results,
+            batch_id=folder_id,
             group_id=group_id,
             file_path=storage_reference,
             total_issues=total_issues,
@@ -199,6 +217,14 @@ async def scan_pdf(
         logger.info(
             f"[Backend] ✓ Scan record saved as {saved_id} with {total_issues} issues in group {group_id}"
         )
+        if folder_id:
+            try:
+                update_batch_statistics(folder_id)
+            except Exception:
+                logger.exception(
+                    "[Backend] Failed to refresh statistics for batch %s after scan",
+                    folder_id,
+                )
         if group_id and NEON_DATABASE_URL:
             try:
                 update_group_file_count(group_id)
@@ -232,6 +258,7 @@ async def scan_batch(
     group_id: Optional[str] = Form(None),
     batch_name: Optional[str] = Form(None),
     scan_mode: Optional[str] = Form(None),
+    folder_id: Optional[str] = Form(None),
 ):
     try:
         if not files:
@@ -248,42 +275,60 @@ async def scan_batch(
                 status_code=400,
             )
 
-        batch_id = f"batch_{uuid.uuid4().hex}"
-        batch_title = batch_name or f"Batch {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        default_batch_title = batch_name or f"Batch {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         scan_now = should_scan_now(scan_mode, request)
         batch_status = "processing" if scan_now else "uploaded"
+        batch_id = folder_id or f"batch_{uuid.uuid4().hex}"
+        batch_title = default_batch_title
 
-        try:
-            execute_query(
-                """
-                INSERT INTO batches (
-                    id,
-                    name,
-                    group_id,
-                    created_at,
-                    status,
-                    total_files,
-                    total_issues,
-                    remaining_issues,
-                    fixed_issues,
-                    unprocessed_files
+        if folder_id:
+            folder_rows = execute_query(
+                "SELECT id, name, group_id FROM batches WHERE id = %s",
+                (folder_id,),
+                fetch=True,
+            )
+            if not folder_rows:
+                return JSONResponse({"error": "Folder not found"}, status_code=404)
+            folder_record = dict(folder_rows[0])
+            folder_group_id = folder_record.get("group_id")
+            if folder_group_id and folder_group_id != group_id:
+                return JSONResponse(
+                    {"error": "Folder does not belong to the selected project"},
+                    status_code=400,
                 )
-                VALUES (%s, %s, %s, NOW(), %s, %s, 0, 0, 0, %s)
-                """,
-                (
-                    batch_id,
-                    batch_title,
-                    group_id,
-                    batch_status,
-                    len(pdf_files),
-                    len(pdf_files),
-                ),
-            )
-        except Exception:
-            logger.exception("[Backend] Failed to create batch %s", batch_id)
-            return JSONResponse(
-                {"error": "Failed to create batch record"}, status_code=500
-            )
+            batch_title = folder_record.get("name") or default_batch_title
+        else:
+            try:
+                execute_query(
+                    """
+                    INSERT INTO batches (
+                        id,
+                        name,
+                        group_id,
+                        created_at,
+                        status,
+                        total_files,
+                        total_issues,
+                        remaining_issues,
+                        fixed_issues,
+                        unprocessed_files
+                    )
+                    VALUES (%s, %s, %s, NOW(), %s, %s, 0, 0, 0, %s)
+                    """,
+                    (
+                        batch_id,
+                        batch_title,
+                        group_id,
+                        batch_status,
+                        len(pdf_files),
+                        len(pdf_files),
+                    ),
+                )
+            except Exception:
+                logger.exception("[Backend] Failed to create batch %s", batch_id)
+                return JSONResponse(
+                    {"error": "Failed to create batch record"}, status_code=500
+                )
 
         _ensure_local_storage("Batch uploads")
         upload_dir = _uploads_root()

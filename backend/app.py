@@ -175,6 +175,7 @@ def upload_file(
     file: UploadFile = File(...),
     group_id: Optional[str] = Form(None),
     scan_mode: Optional[str] = Form(None),
+    folder_id: Optional[str] = Form(None),
 ):
     """
     Upload endpoint (synchronous):
@@ -210,6 +211,23 @@ def upload_file(
             bool(NEON_DATABASE_URL),
         )
 
+        folder_record = None
+        if folder_id:
+            folder_rows = execute_query(
+                "SELECT id, name, group_id FROM batches WHERE id = %s",
+                (folder_id,),
+                fetch=True,
+            )
+            if not folder_rows:
+                return JSONResponse({"error": "Folder not found"}, status_code=404)
+            folder_record = dict(folder_rows[0])
+            folder_group_id = folder_record.get("group_id")
+            if folder_group_id and group_id and folder_group_id != group_id:
+                return JSONResponse(
+                    {"error": "Folder does not belong to the selected project"},
+                    status_code=400,
+                )
+
         # When a group is provided, create a placeholder scan entry so dashboards
         # can track the upload even before analysis runs.
         if group_id and NEON_DATABASE_URL:
@@ -225,6 +243,7 @@ def upload_file(
                     scan_id,
                     file.filename,
                     placeholder,
+                    batch_id=folder_id,
                     group_id=group_id,
                     status="uploaded",
                     file_path=storage_reference,
@@ -239,6 +258,9 @@ def upload_file(
                         "scanDeferred": True,
                         "status": "uploaded",
                         "filePath": storage_reference,
+                        "batchId": folder_id,
+                        "folderId": folder_id,
+                        "folderName": folder_record.get("name") if folder_record else None,
                     }
                 )
                 response_payload["result"].update(
@@ -247,8 +269,17 @@ def upload_file(
                         "groupId": group_id,
                         "status": "uploaded",
                         "filePath": storage_reference,
+                        "batchId": folder_id,
+                        "folderId": folder_id,
                     }
                 )
+                try:
+                    if folder_id:
+                        update_batch_statistics(folder_id)
+                except Exception:
+                    logger.exception(
+                        "[API] Failed to refresh batch %s after upload", folder_id
+                    )
                 try:
                     update_group_file_count(group_id)
                 except Exception:

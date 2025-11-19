@@ -35,6 +35,7 @@ function AppContent() {
   const [loading, setLoading] = useState(false)
   const [selectedGroupId, setSelectedGroupId] = useState(null)
   const [isUploadPanelOpen, setUploadPanelOpen] = useState(false)
+  const [latestUploadContext, setLatestUploadContext] = useState(null)
   const transitionToView = useCallback(
     (view) => {
       startTransition(() => {
@@ -129,6 +130,16 @@ function AppContent() {
   const handleDashboardUploadDeferred = (details) => {
     handleUploadDeferred(details)
     setUploadPanelOpen(false)
+    const folderId = details?.batchId
+    if (folderId) {
+      setLatestUploadContext({
+        groupId: details?.groupId,
+        folderId,
+        folderName: details?.folderName,
+      })
+    } else {
+      setLatestUploadContext(null)
+    }
   }
 
   const handleViewHistory = () => {
@@ -331,6 +342,8 @@ function AppContent() {
               onUploadDeferred={handleDashboardUploadDeferred}
               initialGroupId={selectedGroupId}
               scanHistory={scanHistory}
+              latestUploadContext={latestUploadContext}
+              onUploadContextAcknowledged={() => setLatestUploadContext(null)}
             />
           )}
           {currentView === "history" && (
