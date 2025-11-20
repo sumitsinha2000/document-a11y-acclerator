@@ -12,7 +12,7 @@ import { useNotification } from "../contexts/NotificationContext"
 import { parseBackendDate } from "../utils/dates"
 import { resolveSummary, calculateComplianceSnapshot } from "../utils/compliance"
 
-export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
+export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpen = true }) {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -228,6 +228,9 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const parsedReportDate = parseBackendDate(reportData.uploadDate || reportData.timestamp || reportData.created_at)
 
   const breadcrumbItems = [{ label: "Home", onClick: onBack }, { label: "Report" }]
+  const folderIdentifier = reportData.batchId || reportData.folderId
+  const folderLabel = reportData.batchName || reportData.folderName || "folder"
+  const canReturnToFolder = Boolean(onBackToFolder && folderIdentifier)
 
   return (
     <div className="flex overflow-x-hidden bg-slate-50 dark:bg-slate-900">
@@ -367,8 +370,22 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         } bg-white dark:bg-slate-800 border-r border-b border-slate-200 dark:border-slate-700 flex flex-col`}
       >
         <div className="border-b-2 border-slate-200 dark:border-slate-700 px-8 py-8">
-          <div className="flex items-center justify-between mb-4">
-            <Breadcrumb items={breadcrumbItems} className="text-slate-600 dark:text-slate-300" />
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <Breadcrumb items={breadcrumbItems} className="text-slate-600 dark:text-slate-300" />
+              {canReturnToFolder && (
+                <button
+                  type="button"
+                  onClick={onBackToFolder}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 4L4 10l6 6" />
+                  </svg>
+                  <span>{`Back to ${folderLabel} files`}</span>
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={handleRefresh}

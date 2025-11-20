@@ -17,6 +17,7 @@ export default function GroupTreeSidebar({
   initialGroupId,
   latestUploadContext = null,
   onUploadContextAcknowledged = () => {},
+  folderNavigationContext = null,
 }) {
   const [groups, setGroups] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
@@ -613,6 +614,47 @@ export default function GroupTreeSidebar({
     groups,
     groupBatches,
     onUploadContextAcknowledged,
+  ]);
+
+  useEffect(() => {
+    const context = folderNavigationContext;
+    if (!context?.folderId || !context?.groupId) {
+      return;
+    }
+
+    const targetFolderId = normalizeId(context.folderId);
+    if (!targetFolderId) {
+      return;
+    }
+
+    const activeFolderId = normalizeId(activeFolderView?.folderId);
+    if (activeFolderId === targetFolderId) {
+      return;
+    }
+
+    if (groups.length === 0) {
+      return;
+    }
+
+    const targetGroup = groups.find(
+      (group) => normalizeId(group.id) === normalizeId(context.groupId),
+    );
+    if (!targetGroup) {
+      return;
+    }
+
+    const batchData = {
+      batchId: context.folderId,
+      id: context.folderId,
+      name: context.folderName || `Folder ${context.folderId}`,
+    };
+    void handleFolderButtonClick(targetGroup, batchData);
+  }, [
+    folderNavigationContext?.folderId,
+    folderNavigationContext?.groupId,
+    folderNavigationContext?.folderName,
+    groups,
+    activeFolderView?.folderId,
   ]);
 
   const handleFolderNameChange = (groupId, value) => {
@@ -1399,7 +1441,7 @@ export default function GroupTreeSidebar({
                         disabled={!(newFolderNames[normalizedGroupId] || "").trim()}
                         className="rounded-xl bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:disabled:bg-slate-600"
                       >
-                        + Add
+                        + 
                       </button>
                     </form>
 

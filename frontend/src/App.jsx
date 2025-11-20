@@ -36,6 +36,7 @@ function AppContent() {
   const [selectedGroupId, setSelectedGroupId] = useState(null)
   const [isUploadPanelOpen, setUploadPanelOpen] = useState(false)
   const [latestUploadContext, setLatestUploadContext] = useState(null)
+  const [folderNavigationContext, setFolderNavigationContext] = useState(null)
   const transitionToView = useCallback(
     (view) => {
       startTransition(() => {
@@ -170,7 +171,22 @@ function AppContent() {
     try {
       setLoading(true)
       const response = await axios.get(`${API_BASE_URL}/api/scan/${encodeURIComponent(scanIdentifier)}`)
-      setScanResults([response.data])
+      const scanData = response.data
+      setScanResults([scanData])
+      const folderId = scanData.batchId || scanData.folderId
+      if (folderId) {
+        setCurrentBatch((prevBatch) => {
+          if (prevBatch?.batchId === folderId) {
+            return prevBatch
+          }
+          return {
+            batchId: folderId,
+            scans: [],
+          }
+        })
+      } else {
+        setCurrentBatch(null)
+      }
       setCurrentView("report")
     } catch (error) {
       console.error("Error loading scan details:", error)
@@ -201,6 +217,26 @@ function AppContent() {
     setScanResults([])
     setCurrentBatch(null)
     handleOpenUploadPanel()
+  }
+
+  const handleReturnToBatchFromReport = () => {
+    const scan = scanResults[0]
+    const folderId = scan?.batchId || scan?.folderId || currentBatch?.batchId
+    const folderName = scan?.batchName || scan?.folderName
+    const groupId = scan?.groupId
+    if (folderId && groupId) {
+      setScanResults([])
+      setCurrentBatch(null)
+      setSelectedGroupId(groupId)
+      setFolderNavigationContext({
+        groupId,
+        folderId,
+        folderName,
+      })
+      transitionToView("dashboard")
+    } else {
+      handleBackToUpload()
+    }
   }
 
   const handleViewGenerator = () => {
@@ -344,6 +380,7 @@ function AppContent() {
               scanHistory={scanHistory}
               latestUploadContext={latestUploadContext}
               onUploadContextAcknowledged={() => setLatestUploadContext(null)}
+              folderNavigationContext={folderNavigationContext}
             />
           )}
           {currentView === "history" && (
@@ -367,7 +404,12 @@ function AppContent() {
             </Suspense>
           )}
           {currentView === "report" && scanResults.length > 0 && (
-            <ReportViewer scans={scanResults} onBack={handleBackToUpload} sidebarOpen={false} />
+            <ReportViewer
+              scans={scanResults}
+              onBack={handleBackToUpload}
+              onBackToFolder={handleReturnToBatchFromReport}
+              sidebarOpen={false}
+            />
           )}
         </div>
       </main>

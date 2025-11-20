@@ -825,17 +825,39 @@ async def get_scan(scan_id: str):
             + len(results_dict.get("pdfuaIssues", [])),
         }
 
+        batch_info = None
+        batch_id_value = scan.get("batch_id") or scan.get("batchId")
+        if batch_id_value:
+            batch_rows = execute_query(
+                """
+                SELECT id, name
+                FROM batches
+                WHERE id = %s
+                LIMIT 1
+                """,
+                (batch_id_value,),
+                fetch=True,
+            )
+            if batch_rows:
+                batch_info = batch_rows[0]
+
         response_data = {
             "scanId": scan.get("id"),
             "filename": scan.get("filename"),
             "status": scan.get("status", "completed"),
             "groupId": scan.get("group_id"),
+            "batchId": batch_id_value,
+            "folderId": batch_id_value,
             "uploadDate": scan.get("upload_date") or scan.get("created_at"),
             "summary": summary,
             "results": results_dict,
             "fixes": scan_results.get("fixes", []),
             "verapdfStatus": response_verapdf,
         }
+
+        if batch_info:
+            response_data["batchName"] = batch_info.get("name")
+            response_data["folderName"] = batch_info.get("name")
 
         if latest_version:
             response_data["latestVersion"] = latest_version.get("version")

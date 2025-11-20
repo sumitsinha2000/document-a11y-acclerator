@@ -22,6 +22,7 @@ export default function GroupDashboard({
   scanHistory = [],
   latestUploadContext = null,
   onUploadContextAcknowledged = () => {},
+  folderNavigationContext = null,
 }) {
   const { showError, showSuccess } = useNotification()
 
@@ -53,6 +54,25 @@ export default function GroupDashboard({
       onCloseUploadSection()
     }
   }, [isFolderSelected, uploadSectionOpen, onCloseUploadSection])
+
+  useEffect(() => {
+    if (!folderNavigationContext?.folderId || !folderNavigationContext?.groupId) {
+      return
+    }
+
+    const node = {
+      type: "batch",
+      id: folderNavigationContext.folderId,
+      data: {
+        batchId: folderNavigationContext.folderId,
+        name: folderNavigationContext.folderName || `Folder ${folderNavigationContext.folderId}`,
+        groupId: folderNavigationContext.groupId,
+      },
+    }
+
+    handleNodeSelect(node)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folderNavigationContext])
 
   const loadInitialData = async () => {
     try {
@@ -488,6 +508,7 @@ export default function GroupDashboard({
             initialGroupId={initialGroupId}
             latestUploadContext={latestUploadContext}
             onUploadContextAcknowledged={onUploadContextAcknowledged}
+            folderNavigationContext={folderNavigationContext}
           />
         </div>
 
