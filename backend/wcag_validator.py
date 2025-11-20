@@ -52,6 +52,12 @@ class WCAGValidator:
         'Reference', 'BibEntry', 'Code', 'Link', 'Annot', 'Ruby', 'RB', 'RT',
         'RP', 'Warichu', 'WT', 'WP', 'Figure', 'Formula', 'Form'
     }
+
+    def _normalize_structure_type(self, struct_type: Any) -> str:
+        """Normalize structure types by stripping leading slashes."""
+        if struct_type is None:
+            return ""
+        return str(struct_type).lstrip('/')
     
     def __init__(self, pdf_path: str):
         """Initialize validator with PDF file path."""
@@ -326,11 +332,12 @@ class WCAGValidator:
                 return
             
             # Rule 7.2-2: Check for RoleMap and validate mappings
-            if '/RoleMap' in struct_tree_root:
-                self._validate_role_map(struct_tree_root.RoleMap)
+            role_map = struct_tree_root.RoleMap if '/RoleMap' in struct_tree_root else None
+            if role_map:
+                self._validate_role_map(role_map)
             
-            # Validate structure element types and hierarchy
-            self._validate_structure_elements(struct_tree_root.K)
+            # Validate structure element types and hierarchy, passing RoleMap
+            self._validate_structure_elements(struct_tree_root.K, role_map=role_map)
             
             # Rule 7.3-1, 7.3-2: Validate artifacts are not inside tagged content
             self._validate_artifacts()
@@ -338,7 +345,7 @@ class WCAGValidator:
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating structure tree: {str(e)}")
     
-    def _validate_structure_elements(self, elements, depth=0):
+    def _validate_structure_elements(self, elements, depth=0, role_map=None):
         """Recursively validate structure elements."""
         if depth > 50:  # Prevent infinite recursion
             return
@@ -346,13 +353,18 @@ class WCAGValidator:
         try:
             if isinstance(elements, list):
                 for element in elements:
-                    self._validate_structure_elements(element, depth + 1)
+                    self._validate_structure_elements(element, depth + 1, role_map=role_map)
             elif isinstance(elements, pikepdf.Dictionary):
                 if '/S' in elements:
-                    struct_type = str(elements.S)
-                    if struct_type not in self.REQUIRED_STRUCTURE_TYPES:
+                    struct_type_raw = str(elements.S)
+                    normalized = self._normalize_structure_type(struct_type_raw)
+                    is_standard = normalized in self.REQUIRED_STRUCTURE_TYPES
+                    has_mapping = (
+                        bool(role_map) and self._maps_to_standard_type(struct_type_raw, role_map, set())
+                    )
+                    if not is_standard and not has_mapping:
                         self._add_pdfua_issue(
-                            f'Invalid structure type: {struct_type}',
+                            f'Invalid structure type: {struct_type_raw}',
                             'ISO 14289-1:7.2',
                             'medium',
                             f'Use a standard structure type from PDF/UA-1 specification'
@@ -360,7 +372,7 @@ class WCAGValidator:
                 
                 # Recursively check children
                 if '/K' in elements:
-                    self._validate_structure_elements(elements.K, depth + 1)
+                    self._validate_structure_elements(elements.K, depth + 1, role_map=role_map)
                     
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating structure element: {str(e)}")
@@ -583,6 +595,16 @@ class WCAGValidator:
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating annotations: {str(e)}")
     
+    def _find_role_map_value(self, struct_type, role_map):
+        """Return the mapped value for a structure type from the RoleMap."""
+        normalized = self._normalize_structure_type(struct_type)
+        if not normalized or not role_map:
+            return None
+        for key in role_map.keys():
+            if self._normalize_structure_type(key) == normalized:
+                return role_map[key]
+        return None
+
     def _validate_role_map(self, role_map):
         """
         Validate RoleMap dictionary for proper structure type mappings.
@@ -594,6 +616,7 @@ class WCAGValidator:
             for custom_type, mapped_type in role_map.items():
                 custom_type_str = str(custom_type)
                 mapped_type_str = str(mapped_type)
+                normalized_custom = self._normalize_structure_type(custom_type)
                 
                 # Rule 7.2-2: Check for circular mappings
                 if self._has_circular_mapping(custom_type_str, role_map, visited):
@@ -606,7 +629,7 @@ class WCAGValidator:
                     self.pdfua_compliance = False
                 
                 # Rule 7.2-3: Check that standard types are not remapped
-                if custom_type_str in self.REQUIRED_STRUCTURE_TYPES:
+                if normalized_custom in self.REQUIRED_STRUCTURE_TYPES:
                     self._add_pdfua_issue(
                         f'Standard structure type {custom_type_str} is remapped',
                         'ISO 14289-1:7.2',
@@ -616,7 +639,7 @@ class WCAGValidator:
                     self.pdfua_compliance = False
                 
                 # Rule 7.2-4: Check that non-standard types eventually map to standard types
-                if not self._maps_to_standard_type(custom_type_str, role_map, visited.copy()):
+                if not self._maps_to_standard_type(custom_type_str, role_map, set()):
                     self._add_pdfua_issue(
                         f'Non-standard structure type {custom_type_str} does not map to a standard type',
                         'ISO 14289-1:7.2',
@@ -629,29 +652,39 @@ class WCAGValidator:
     
     def _has_circular_mapping(self, struct_type: str, role_map, visited: set) -> bool:
         """Check if a structure type has circular mapping."""
-        if struct_type in visited:
+        normalized = self._normalize_structure_type(struct_type)
+        if not normalized or not role_map:
+            return False
+        if normalized in visited:
             return True
-        if struct_type in self.REQUIRED_STRUCTURE_TYPES:
+        if normalized in self.REQUIRED_STRUCTURE_TYPES:
             return False
-        if struct_type not in role_map:
+
+        mapped = self._find_role_map_value(struct_type, role_map)
+        if mapped is None:
             return False
-        
-        visited.add(struct_type)
-        mapped_type = str(role_map[struct_type])
-        return self._has_circular_mapping(mapped_type, role_map, visited)
+
+        visited.add(normalized)
+        mapped_norm = self._normalize_structure_type(mapped)
+        return self._has_circular_mapping(mapped_norm, role_map, visited)
     
     def _maps_to_standard_type(self, struct_type: str, role_map, visited: set) -> bool:
         """Check if a structure type eventually maps to a standard type."""
-        if struct_type in visited:
+        normalized = self._normalize_structure_type(struct_type)
+        if not normalized or not role_map:
             return False
-        if struct_type in self.REQUIRED_STRUCTURE_TYPES:
+        if normalized in visited:
+            return False
+        if normalized in self.REQUIRED_STRUCTURE_TYPES:
             return True
-        if struct_type not in role_map:
+
+        mapped = self._find_role_map_value(struct_type, role_map)
+        if mapped is None:
             return False
-        
-        visited.add(struct_type)
-        mapped_type = str(role_map[struct_type])
-        return self._maps_to_standard_type(mapped_type, role_map, visited)
+
+        visited.add(normalized)
+        mapped_norm = self._normalize_structure_type(mapped)
+        return self._maps_to_standard_type(mapped_norm, role_map, visited)
     
     def _validate_artifacts(self):
         """

@@ -124,7 +124,7 @@ export default function GroupDashboard({
               Upload documents to{" "}
               <span className="text-indigo-600 dark:text-indigo-400">{folderLabel}</span>
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Project: {projectLabel}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Folder: {projectLabel}</p>
           </div>
         </div>
 
