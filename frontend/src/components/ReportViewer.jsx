@@ -372,7 +372,10 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
         <div className="border-b-2 border-slate-200 dark:border-slate-700 px-8 py-8">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <div className="flex flex-wrap items-center gap-3">
-              <Breadcrumb items={breadcrumbItems} className="text-slate-600 dark:text-slate-300" />
+              <Breadcrumb
+                items={breadcrumbItems}
+                className="flex items-center text-slate-600 dark:text-slate-300"
+              />
               {canReturnToFolder && (
                 <button
                   type="button"

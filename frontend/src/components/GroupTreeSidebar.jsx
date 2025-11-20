@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id));
@@ -44,6 +44,7 @@ export default function GroupTreeSidebar({
   const [folderFiles, setFolderFiles] = useState([]);
   const [folderFilesLoading, setFolderFilesLoading] = useState(false);
   const [folderFilesError, setFolderFilesError] = useState(null);
+  const handledFolderNavigationRef = useRef(null);
 
   useEffect(() => {
     if (!statusMessage) {
@@ -619,16 +620,17 @@ export default function GroupTreeSidebar({
   useEffect(() => {
     const context = folderNavigationContext;
     if (!context?.folderId || !context?.groupId) {
+      handledFolderNavigationRef.current = null;
+      return;
+    }
+
+    if (handledFolderNavigationRef.current === context) {
       return;
     }
 
     const targetFolderId = normalizeId(context.folderId);
-    if (!targetFolderId) {
-      return;
-    }
-
-    const activeFolderId = normalizeId(activeFolderView?.folderId);
-    if (activeFolderId === targetFolderId) {
+    const targetGroupId = normalizeId(context.groupId);
+    if (!targetFolderId || !targetGroupId) {
       return;
     }
 
@@ -636,12 +638,12 @@ export default function GroupTreeSidebar({
       return;
     }
 
-    const targetGroup = groups.find(
-      (group) => normalizeId(group.id) === normalizeId(context.groupId),
-    );
+    const targetGroup = groups.find((group) => normalizeId(group.id) === targetGroupId);
     if (!targetGroup) {
       return;
     }
+
+    handledFolderNavigationRef.current = context;
 
     const batchData = {
       batchId: context.folderId,
@@ -649,13 +651,7 @@ export default function GroupTreeSidebar({
       name: context.folderName || `Folder ${context.folderId}`,
     };
     void handleFolderButtonClick(targetGroup, batchData);
-  }, [
-    folderNavigationContext?.folderId,
-    folderNavigationContext?.groupId,
-    folderNavigationContext?.folderName,
-    groups,
-    activeFolderView?.folderId,
-  ]);
+  }, [folderNavigationContext, groups]);
 
   const handleFolderNameChange = (groupId, value) => {
     const key = normalizeId(groupId);
