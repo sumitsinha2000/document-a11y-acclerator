@@ -9,6 +9,8 @@ import { parseBackendDate } from "../utils/dates"
 
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id))
 const getCacheKey = (node) => (node ? `${node.type}:${normalizeId(node.id)}` : "")
+const SCANNABLE_STATUSES = new Set(["uploaded", "unprocessed"])
+const isScannableStatus = (status) => SCANNABLE_STATUSES.has((status || "unprocessed").toLowerCase())
 
 export default function GroupDashboard({
   onSelectScan,
@@ -412,7 +414,7 @@ export default function GroupDashboard({
     }
 
     const scansToStart =
-      nodeData.scans?.filter((scan) => (scan.status || "").toLowerCase() === "uploaded") || []
+      nodeData.scans?.filter((scan) => isScannableStatus(scan.status)) || []
 
     if (scansToStart.length === 0) {
       showError("All files in this folder have already been sent for scanning.")
@@ -476,13 +478,13 @@ export default function GroupDashboard({
   const parsedFileDate = parseBackendDate(fileDateValue)
   const targetFileName =
     nodeData?.type === "file" ? nodeData.fileName || nodeData.filename || "selected file" : "selected file"
-  const folderHasUploadedFiles =
-    nodeData?.type === "batch" && nodeData?.scans?.some((scan) => (scan.status || "").toLowerCase() === "uploaded")
+  const folderHasScannableFiles =
+    nodeData?.type === "batch" && nodeData?.scans?.some((scan) => isScannableStatus(scan.status))
   const folderReadyToScan =
     nodeData?.type === "batch" &&
     ((nodeData?.scans?.length || 0) === 0 ||
-      nodeData?.scans?.every((scan) => (scan.status || "").toLowerCase() === "uploaded"))
-  const nodeUploadDate = parseBackendDate(nodeData?.uploadDate)
+      nodeData?.scans?.every((scan) => isScannableStatus(scan.status)))
+  const folderBatchId = nodeData?.type === "batch" ? nodeData.batchId || selectedNode?.id : null
   const activeDashboardName =
     nodeData?.type === "group"
       ? nodeData?.name || selectedNode?.data?.name || "Selected project"
@@ -559,7 +561,32 @@ export default function GroupDashboard({
                     </p>
                   </div>
                   {(nodeData?.type === "batch" || nodeData?.type === "file") && !uploadSectionOpen && (
-                    <div className="flex-shrink-0">
+                    <div className="flex-shrink-0 flex items-center gap-2">
+                      {nodeData?.type === "batch" && (
+                        <>
+                          {folderBatchId && (
+                            <button
+                              type="button"
+                              onClick={() => onSelectBatch(folderBatchId)}
+                              className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 transition hover:border-slate-300 hover:bg-indigo-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-indigo-500/30 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:border-indigo-400 dark:hover:bg-indigo-800/60"
+                            >
+                              View Full Report
+                            </button>
+                          )}
+                          {folderHasScannableFiles && (
+                            <button
+                              type="button"
+                              onClick={handleBeginFolderScan}
+                              disabled={startingFolderScan}
+                              aria-disabled={startingFolderScan}
+                              aria-busy={startingFolderScan}
+                              className="inline-flex items-center justify-center rounded-lg border border-transparent bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {scanFolderLabel}
+                            </button>
+                          )}
+                        </>
+                      )}
                       <button
                         type="button"
                         onClick={onUploadRequest}
@@ -573,16 +600,8 @@ export default function GroupDashboard({
                           viewBox="0 0 24 24"
                           aria-hidden="true"
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"
-                          />
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M12 16V6m0 0l-3 3m3-3 3 3"
-                          />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V6m0 0l-3 3m3-3 3 3" />
                         </svg>
                         Upload Files
                       </button>
@@ -743,55 +762,6 @@ export default function GroupDashboard({
               {nodeData.type === "batch" && (
                 <div className="space-y-6">
                   <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-[#111b36]">
-                    <div className="flex items-start justify-between mb-6">
-                      <div>
-                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-                          {nodeData.name || "Folder"}
-                        </h2>
-                        <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
-                          <span>
-                            Created on{" "}
-                            {nodeUploadDate ? nodeUploadDate.toLocaleDateString() : "Unknown"}
-                          </span>
-                          <span>{nodeData.fileCount || 0} files</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2" role="group" aria-label="Folder actions">
-                        {/* {!uploadSectionOpen && (
-                          <button
-                            type="button"
-                            onClick={onUploadRequest}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-lg shadow-sm transition-colors font-medium"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V6m0 0l-3 3m3-3 3 3" />
-                            </svg>
-                            Upload Files
-                          </button>
-                        )} */}
-                        <button
-                          type="button"
-                          onClick={() => onSelectBatch(nodeData.batchId)}
-                          className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors font-medium"
-                        >
-                          View Folder Report
-                        </button>
-                        {folderHasUploadedFiles && (
-                          <button
-                            type="button"
-                            onClick={handleBeginFolderScan}
-                            disabled={startingFolderScan}
-                            aria-disabled={startingFolderScan}
-                            aria-busy={startingFolderScan}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {startingFolderScan ? "Starting..." : "Begin Scan"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
                     <div className="grid grid-cols-4 gap-4">
                       <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
                         <div className="text-2xl font-bold text-slate-900 dark:text-white">
@@ -825,7 +795,7 @@ export default function GroupDashboard({
 
                     {folderReadyToScan && (
                       <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-slate-700 dark:border-indigo-500/30 dark:bg-[#131f3e] dark:text-slate-300">
-                        This folder is ready to scan. Use the "Begin Scan" button to generate accessibility results.
+                        This folder is ready to scan. Use the "Scan Folder" button to generate accessibility results.
                       </div>
                     )}
                   </div>
