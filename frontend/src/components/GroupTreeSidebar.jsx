@@ -603,6 +603,19 @@ export default function GroupTreeSidebar({
         id: uploadContext.folderId,
         name: folderName || activeFolderView.folderName,
       });
+      await handleNodeClick(
+        {
+          type: "batch",
+          id: uploadContext.folderId,
+          data: {
+            batchId: uploadContext.folderId,
+            name: folderName || activeFolderView.folderName,
+            groupId: targetGroup.id,
+            groupName: targetGroup.name,
+          },
+        },
+        { moveFocus: true }
+      );
     };
 
     void refreshFolderData();

@@ -34,6 +34,7 @@ export default function GroupDashboard({
   const [initialLoading, setInitialLoading] = useState(true)
   const [startingScan, setStartingScan] = useState(false)
   const [startingFolderScan, setStartingFolderScan] = useState(false)
+  const [remediatingFolder, setRemediatingFolder] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [uploadContext, setUploadContext] = useState({
     groupId: null,
@@ -461,6 +462,51 @@ export default function GroupDashboard({
     }
   }
 
+  const handleRemediateFolder = async () => {
+    if (!nodeData || nodeData.type !== "batch") {
+      return
+    }
+
+    const folderId = nodeData.batchId || selectedNode?.id
+    if (!folderId) {
+      showError("Unable to determine which folder to remediate.")
+      return
+    }
+
+    try {
+      setRemediatingFolder(true)
+      const response = await axios.post(`${API_BASE_URL}/api/batch/${folderId}/fix-all`)
+      const payload = response.data || {}
+      if (payload.success) {
+        const successCount = payload.successCount || 0
+        const total = payload.totalFiles || 0
+        showSuccess(
+          successCount > 0
+            ? `Started remediation on ${successCount} of ${total} file${total === 1 ? "" : "s"} in this folder.`
+            : "Remediation request accepted. Awaiting results."
+        )
+      } else {
+        showError(payload.error || "Failed to remediate the folder.")
+      }
+    } catch (error) {
+      console.error("[v0] Error starting folder remediation:", error)
+      const errorMsg = error.response?.data?.error || error.message || "Failed to remediate folder"
+      showError(errorMsg)
+    } finally {
+      setRemediatingFolder(false)
+    }
+
+    try {
+      const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${folderId}`)
+      setNodeData({
+        type: "batch",
+        ...refreshed.data,
+      })
+    } catch (refreshError) {
+      console.error("[v0] Error refreshing folder after remediation:", refreshError)
+    }
+  }
+
   if (initialLoading) {
     return (
       <div className="flex h-screen bg-slate-50 dark:bg-slate-900 items-center justify-center">
@@ -478,8 +524,6 @@ export default function GroupDashboard({
   const parsedFileDate = parseBackendDate(fileDateValue)
   const targetFileName =
     nodeData?.type === "file" ? nodeData.fileName || nodeData.filename || "selected file" : "selected file"
-  const folderHasScannableFiles =
-    nodeData?.type === "batch" && nodeData?.scans?.some((scan) => isScannableStatus(scan.status))
   const folderReadyToScan =
     nodeData?.type === "batch" &&
     ((nodeData?.scans?.length || 0) === 0 ||
@@ -495,9 +539,11 @@ export default function GroupDashboard({
           : selectedNode?.data?.name || "Project dashboard"
   const canUploadNew = isFolderSelected && !uploadSectionOpen
   const canScanFolder = nodeData?.type === "batch" && folderReadyToScan
-  const canRemediate = nodeData?.type === "file" && fileIsUploaded
+  const canRemediate = nodeData?.type === "file"
   const scanFolderLabel = startingFolderScan ? "Starting..." : "Scan Folder"
   const remediateLabel = startingScan ? "Starting..." : "Remediate"
+  const remediateFolderLabel = remediatingFolder ? "Remediating..." : "Remediate Folder"
+  const folderHasIssues = nodeData?.type === "batch" && (nodeData?.totalIssues || 0) > 0
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-gradient-to-br dark:from-[#040714] dark:via-[#080f24] dark:to-[#0d1a3a] dark:text-slate-100">
@@ -573,7 +619,7 @@ export default function GroupDashboard({
                               View Full Report
                             </button>
                           )}
-                          {folderHasScannableFiles && (
+                          {folderBatchId && (
                             <button
                               type="button"
                               onClick={handleBeginFolderScan}
@@ -583,6 +629,18 @@ export default function GroupDashboard({
                               className="inline-flex items-center justify-center rounded-lg border border-transparent bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                               {scanFolderLabel}
+                            </button>
+                          )}
+                          {folderHasIssues && (
+                            <button
+                              type="button"
+                              onClick={handleRemediateFolder}
+                              disabled={remediatingFolder}
+                              aria-disabled={remediatingFolder}
+                              aria-busy={remediatingFolder}
+                              className="inline-flex items-center justify-center rounded-lg border border-transparent bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {remediateFolderLabel}
                             </button>
                           )}
                         </>
