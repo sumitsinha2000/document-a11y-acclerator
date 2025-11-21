@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 import GroupTreeSidebar from "./GroupTreeSidebar"
-import { BatchInsightPanel, FileInsightPanel, GroupInsightPanel } from "./DashboardInsights"
+import { BatchInsightPanel, GroupInsightPanel } from "./DashboardInsights"
 import UploadArea from "./UploadArea"
+import ReportViewer from "./ReportViewer"
 import API_BASE_URL from "../config/api"
 import { parseBackendDate } from "../utils/dates"
 
@@ -32,7 +33,6 @@ export default function GroupDashboard({
   const [nodeData, setNodeData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
-  const [startingScan, setStartingScan] = useState(false)
   const [startingFolderScan, setStartingFolderScan] = useState(false)
   const [remediatingFolder, setRemediatingFolder] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -373,36 +373,6 @@ export default function GroupDashboard({
     }
   }
 
-  const handleBeginScan = async () => {
-    if (!nodeData || nodeData.type !== "file") {
-      return
-    }
-
-    const scanId = nodeData.scanId || nodeData.id || selectedNode?.id
-    if (!scanId) {
-      showError("Unable to determine which file to scan.")
-      return
-    }
-
-    try {
-      setStartingScan(true)
-      await axios.post(`${API_BASE_URL}/api/scan/${scanId}/start`)
-      showSuccess(`Started scanning ${nodeData.fileName || nodeData.filename}.`)
-
-      const refreshed = await axios.get(`${API_BASE_URL}/api/scan/${scanId}`)
-      setNodeData({
-        type: "file",
-        ...refreshed.data,
-      })
-    } catch (error) {
-      console.error("[v0] Error starting deferred scan from dashboard:", error)
-      const errorMsg = error.response?.data?.error || error.message || "Failed to start scan"
-      showError(errorMsg)
-    } finally {
-      setStartingScan(false)
-    }
-  }
-
   const handleBeginFolderScan = async () => {
     if (!nodeData || nodeData.type !== "batch") {
       return
@@ -518,12 +488,14 @@ export default function GroupDashboard({
     )
   }
 
-  const fileIsUploaded = nodeData?.type === "file" && nodeData?.status === "uploaded"
-  const fileScanDateLabel = fileIsUploaded ? "Uploaded on" : "Scanned on"
-  const fileDateValue = nodeData?.type === "file" ? nodeData?.uploadDate || nodeData?.created_at || nodeData?.timestamp : null
-  const parsedFileDate = parseBackendDate(fileDateValue)
   const targetFileName =
     nodeData?.type === "file" ? nodeData.fileName || nodeData.filename || "selected file" : "selected file"
+  const targetScanId = nodeData?.scanId || nodeData?.id || selectedNode?.id
+  const fileFixes =
+    nodeData?.fixes ??
+    (nodeData?.results && nodeData.results.fixes) ??
+    nodeData?.results?.fixSuggestions ??
+    nodeData?.fixSuggestions
   const folderReadyToScan =
     nodeData?.type === "batch" &&
     ((nodeData?.scans?.length || 0) === 0 ||
@@ -538,10 +510,10 @@ export default function GroupDashboard({
           ? targetFileName
           : selectedNode?.data?.name || "Project dashboard"
   const canUploadNew = isFolderSelected && !uploadSectionOpen
+  const shouldShowDashboardActions = nodeData?.type === "batch" && !uploadSectionOpen
+  const canShowUploadButton = canUploadNew && nodeData?.type === "batch"
   const canScanFolder = nodeData?.type === "batch" && folderReadyToScan
-  const canRemediate = nodeData?.type === "file"
   const scanFolderLabel = startingFolderScan ? "Starting..." : "Scan Folder"
-  const remediateLabel = startingScan ? "Starting..." : "Remediate"
   const remediateFolderLabel = remediatingFolder ? "Remediating..." : "Remediate Folder"
   const folderHasIssues = nodeData?.type === "batch" && (nodeData?.totalIssues || 0) > 0
 
@@ -606,7 +578,7 @@ export default function GroupDashboard({
                         : "Select a project to start exploring accessibility insights."}
                     </p>
                   </div>
-                  {(nodeData?.type === "batch" || nodeData?.type === "file") && !uploadSectionOpen && (
+                  {shouldShowDashboardActions && (
                     <div className="flex-shrink-0 flex items-center gap-2">
                       {nodeData?.type === "batch" && (
                         <>
@@ -645,24 +617,26 @@ export default function GroupDashboard({
                           )}
                         </>
                       )}
-                      <button
-                        type="button"
-                        onClick={onUploadRequest}
-                        className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
-                      >
-                        <svg
-                          className="h-4 w-4"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
+                      {canShowUploadButton && (
+                        <button
+                          type="button"
+                          onClick={onUploadRequest}
+                          className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
                         >
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V6m0 0l-3 3m3-3 3 3" />
-                        </svg>
-                        Upload Files
-                      </button>
+                          <svg
+                            className="h-4 w-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V6m0 0l-3 3m3-3 3 3" />
+                          </svg>
+                          Upload Files
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -723,98 +697,33 @@ export default function GroupDashboard({
               )}
 
               {nodeData.type === "file" && (
-                <div className="space-y-6">
-                  <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 dark:border-slate-800 dark:bg-[#111b36]">
-                    <div className="flex items-start justify-between mb-6">
-                      <div>
-                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-                          {nodeData.fileName || nodeData.filename}
-                        </h2>
-                        <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
-                          <span>
-                            {fileScanDateLabel}{" "}
-                            {parsedFileDate ? parsedFileDate.toLocaleDateString() : "N/A"}
-                          </span>
-                          {nodeData.status && (
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                nodeData.status === "fixed"
-                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                                  : nodeData.status === "processed"
-                                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                    : nodeData.status === "uploaded"
-                                      ? "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200"
-                                      : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                              }`}
-                            >
-                              {nodeData.status === "uploaded" ? "Uploaded" : nodeData.status}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => onSelectScan(nodeData)}
-                          disabled={fileIsUploaded}
-                          className={`px-4 py-2 rounded-lg transition-colors font-medium ${
-                            fileIsUploaded
-                              ? "bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400 cursor-not-allowed"
-                              : "bg-violet-600 hover:bg-violet-700 text-white"
-                          }`}
-                        >
-                          View Full Report
-                        </button>
-                        {fileIsUploaded && (
-                          <button
-                            onClick={handleBeginScan}
-                            disabled={startingScan}
-                            aria-label={
-                              startingScan
-                                ? `Starting scan for ${targetFileName}`
-                                : `Begin scan for ${targetFileName}`
-                            }
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {startingScan ? "Starting..." : "Begin Scan"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
-                        <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                          {fileIsUploaded ? "0" : `${(nodeData.summary?.complianceScore ?? 0).toLocaleString()}%`}
-                        </div>
-                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Compliance Score</div>
-                      </div>
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
-                        <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                          {fileIsUploaded ? "0" : (nodeData.summary?.totalIssues ?? 0)}
-                        </div>
-                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Issues</div>
-                      </div>
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
-                        <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">
-                          {fileIsUploaded ? "0" : (nodeData.summary?.highSeverity ?? 0)}
-                        </div>
-                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">High Severity</div>
-                      </div>
-                    </div>
-
-                    {!fileIsUploaded && (
-                      <div className="mt-6">
-                        <FileInsightPanel results={nodeData.results} summary={nodeData.summary} />
-                      </div>
-                    )}
-
-                    {fileIsUploaded && (
-                      <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-slate-700 dark:border-indigo-500/30 dark:bg-[#131f3e] dark:text-slate-300">
-                        This file is ready to scan. Use the "Begin Scan" button to generate accessibility results.
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <ReportViewer
+                  scans={[
+                    {
+                      ...nodeData,
+                      scanId: targetScanId,
+                      fileName: targetFileName,
+                      fixes: fileFixes,
+                    },
+                  ]}
+                  onBack={() => handleNodeSelect(null)}
+                  onBackToFolder={
+                    nodeData.batchId || selectedNode?.data?.batchId
+                      ? () => {
+                          const batchId = nodeData.batchId || selectedNode?.data?.batchId
+                          handleNodeSelect({
+                            type: "batch",
+                            id: batchId,
+                            data: {
+                              batchId,
+                              name: nodeData.batchName || nodeData.folderName || selectedNode?.data?.name,
+                            },
+                          })
+                        }
+                      : undefined
+                  }
+                  sidebarOpen={false}
+                />
               )}
 
               {nodeData.type === "batch" && (
