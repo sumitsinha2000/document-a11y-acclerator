@@ -205,9 +205,9 @@ async def get_batch_details(batch_id: str):
         elif not isinstance(scan_results, dict):
             scan_results = {}
 
-        initial_summary = (
-            scan_results.get("summary", {}) if isinstance(scan_results, dict) else {}
-        )
+        initial_summary = {}
+        if isinstance(scan_results, dict):
+            initial_summary = scan_results.get("summary") or {}
         results = scan_results.get("results", scan_results) or {}
 
         if scan.get("fix_id"):
