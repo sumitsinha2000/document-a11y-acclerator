@@ -13,7 +13,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 from psycopg2.extras import RealDictCursor
@@ -1378,20 +1378,31 @@ async def get_history():
 
 # === Apply Fixes Endpoint (wrapper around auto_fix_engine) ===
 @router.post("/apply-fixes/{scan_id}")
-async def apply_fixes(scan_id: str, background_tasks: BackgroundTasks):
-    """Trigger the automated fix workflow for a scan."""
+async def apply_fixes(scan_id: str):
+    """Trigger the automated fix workflow for a scan and return its result."""
 
-    # Ensure progress tracker exists immediately so the frontend can poll without a 404
-    create_progress_tracker(scan_id)
+    # Ensure progress tracker exists immediately (even though we now await completion)
+    tracker = get_progress_tracker(scan_id) or create_progress_tracker(scan_id)
 
-    if asyncio.iscoroutinefunction(_perform_automated_fix):
-        background_tasks.add_task(_perform_automated_fix, scan_id, {}, None)
-    else:
-        background_tasks.add_task(
-            asyncio.to_thread, _perform_automated_fix, scan_id, {}, None
+    try:
+        status, payload = await asyncio.to_thread(
+            _perform_automated_fix, scan_id, {}, None
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("[Backend] apply_fixes crashed for %s", scan_id)
+        if tracker:
+            tracker.fail_all(str(exc))
+        return JSONResponse(
+            {"success": False, "error": str(exc) or "Automated fix failed"},
+            status_code=500,
         )
 
-    return JSONResponse({"scan_id": scan_id, "status": "started"})
+    # _perform_automated_fix already marks the tracker as completed/failed,
+    # but ensure failures bubble up to the HTTP response.
+    if status >= 400 and tracker and tracker.status != "failed":
+        tracker.fail_all(payload.get("error", "Automated fix failed"))
+
+    return JSONResponse(payload, status_code=status)
 
 
 # === Fix history endpoint ===
