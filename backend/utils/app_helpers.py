@@ -884,6 +884,9 @@ def _resolve_scan_file_path(
     """
     Try common filename patterns to find the uploaded PDF on disk.
     """
+    if not scan_record and NEON_DATABASE_URL:
+        scan_record = _fetch_scan_record(scan_id)
+
     upload_dir = _uploads_root()
     candidates: List[Path] = [
         upload_dir / f"{scan_id}.pdf",
@@ -896,26 +899,37 @@ def _resolve_scan_file_path(
         if filename:
             candidates.append(upload_dir / filename)
 
-        stored_path = scan_record.get("path") or scan_record.get("file_path")
-        if not stored_path:
-            parsed_results = _parse_scan_results_json(
-                scan_record.get("scan_results")
-            )
-            if isinstance(parsed_results, dict):
-                stored_path = (
-                    parsed_results.get("filePath")
-                    or parsed_results.get("file_path")
-                )
-        if stored_path:
-            stored_str = str(stored_path)
-            if stored_str.lower().startswith(("http://", "https://")):
-                remote_references.append(stored_str)
-            else:
-                path_obj = Path(stored_str)
-                candidates.append(path_obj)
-                # If the stored path does not currently exist locally, treat it as remote key
-                if not path_obj.exists():
-                    remote_references.append(stored_str)
+        stored_values: List[str] = []
+        file_path_value = scan_record.get("file_path")
+        if file_path_value:
+            stored_values.append(str(file_path_value))
+        legacy_path = scan_record.get("path")
+        if legacy_path:
+            stored_values.append(str(legacy_path))
+        parsed_results = _parse_scan_results_json(scan_record.get("scan_results"))
+        if isinstance(parsed_results, dict):
+            for candidate_key in ("filePath", "file_path", "path"):
+                candidate_value = parsed_results.get(candidate_key)
+                if candidate_value:
+                    stored_values.append(str(candidate_value))
+
+        seen_values: Set[str] = set()
+
+        def _process_stored_reference(reference: str):
+            cleaned = reference.strip()
+            if not cleaned or cleaned in seen_values:
+                return
+            seen_values.add(cleaned)
+            if cleaned.lower().startswith(("http://", "https://")):
+                remote_references.append(cleaned)
+                return
+            path_obj = Path(cleaned)
+            candidates.append(path_obj)
+            if not path_obj.exists():
+                remote_references.append(cleaned)
+
+        for stored_value in stored_values:
+            _process_stored_reference(stored_value)
 
     seen = set()
     for candidate in candidates:

@@ -269,6 +269,7 @@ class PDFAccessibilityAnalyzer:
                 pages_with_images = []
                 pages_with_tables = []
                 total_form_fields = 0
+                missing_alt_issues = []
                 
                 for page_num, page in enumerate(pdf.pages, start=1):
                     # Check for images
@@ -276,6 +277,22 @@ class PDFAccessibilityAnalyzer:
                     if images and len(images) > 0:
                         total_images += len(images)
                         pages_with_images.append(page_num)
+                        for img_index, image in enumerate(images, start=1):
+                            missing_alt_issues.append({
+                                "severity": "high",
+                                "description": f"Image {img_index} on page {page_num} may lack alternative text",
+                                "page": page_num,
+                                "pages": [page_num],
+                                "imageIndex": img_index,
+                                "location": {
+                                    "page": page_num,
+                                    "imageIndex": img_index,
+                                    "bbox": image.get("bbox"),
+                                    "width": image.get("width"),
+                                    "height": image.get("height"),
+                                },
+                                "recommendation": "Add descriptive alt text to this image using a PDF editor.",
+                            })
                     
                     # Check for tables
                     tables = page.find_tables()
@@ -287,14 +304,8 @@ class PDFAccessibilityAnalyzer:
                     if hasattr(page, 'annots') and page.annots:
                         total_form_fields += len(page.annots)
                 
-                if not self.issues["missingAltText"] and total_images > 0:
-                    self.issues["missingAltText"].append({
-                        "severity": "high",
-                        "description": f"Found {total_images} image(s) that may lack alternative text descriptions",
-                        "count": total_images,
-                        "pages": pages_with_images[:10],
-                        "recommendation": "Add descriptive alt text to all images using a PDF editor.",
-                    })
+                if not self.issues["missingAltText"] and missing_alt_issues:
+                    self.issues["missingAltText"].extend(missing_alt_issues)
                 
                 if not self.issues["tableIssues"] and total_tables > 0 and not tables_reviewed:
                     self.issues["tableIssues"].append({
