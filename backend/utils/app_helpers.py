@@ -793,6 +793,77 @@ def get_versioned_files(scan_id: str):
     entries.sort(key=lambda e: e["version"])
     return entries
 
+
+def lookup_remote_fixed_entry(
+    scan_id: str, target_relative: Optional[str] = None, version: Optional[int] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Inspect fix history for remote storage references when local fixed files are unavailable.
+    """
+    try:
+        rows = execute_query(
+            """
+            SELECT fixed_filename, fix_metadata
+            FROM fix_history
+            WHERE scan_id = %s
+            ORDER BY applied_at DESC
+            LIMIT 50
+            """,
+            (scan_id,),
+            fetch=True,
+        )
+    except Exception:
+        logger.exception("[Backend] lookup_remote_fixed_entry failed for %s", scan_id)
+        return None
+
+    if not rows:
+        return None
+
+    normalized_target = None
+    target_filename = None
+    if target_relative:
+        normalized_target = str(Path(target_relative).as_posix())
+        target_filename = Path(target_relative).name
+
+    for row in rows:
+        metadata_raw = row.get("fix_metadata")
+        metadata = {}
+        if isinstance(metadata_raw, str):
+            try:
+                metadata = json.loads(metadata_raw)
+            except Exception:
+                metadata = {}
+        elif isinstance(metadata_raw, dict):
+            metadata = metadata_raw
+
+        relative_path = metadata.get("relativePath")
+        remote_path = metadata.get("remotePath")
+        entry_version = metadata.get("version")
+        filename = (
+            Path(relative_path).name
+            if relative_path
+            else row.get("fixed_filename")
+        )
+
+        if version is not None and entry_version != version:
+            continue
+        if normalized_target and relative_path:
+            if relative_path != normalized_target:
+                continue
+        elif target_filename and filename:
+            if filename != target_filename:
+                continue
+
+        if remote_path or relative_path:
+            return {
+                "remote_path": remote_path,
+                "relative_path": relative_path,
+                "filename": filename,
+                "version": entry_version,
+            }
+
+    return None
+
 def _uploads_root() -> Path:
     return UPLOAD_FOLDER_PATH
 
@@ -818,11 +889,18 @@ def _mirror_file_to_remote(local_path: Path, folder: str) -> Optional[str]:
     if not local_path or not local_path.exists():
         return None
     try:
-        result = upload_file_with_fallback(str(local_path), local_path.name, folder=folder)
-        remote_path = result.get("url")
-        if remote_path:
-            return remote_path
-        return result.get("path")
+        result = upload_file_with_fallback(
+            str(local_path), local_path.name, folder=folder
+        )
+        storage_type = result.get("storage")
+        remote_identifier = (
+            result.get("key") or result.get("path") or result.get("url")
+        )
+        if storage_type == "local" or not remote_identifier:
+            raise RuntimeError(
+                "Remote storage upload failed or is not configured properly"
+            )
+        return remote_identifier
     except Exception:
         logger.exception(
             "[Storage] Failed to mirror %s to remote folder '%s'",
@@ -1044,6 +1122,14 @@ def _resolve_scan_file_path(
             if downloaded and downloaded.exists():
                 return downloaded
 
+    remote_history_entry = lookup_remote_fixed_entry(scan_id)
+    if remote_history_entry:
+        remote_reference = remote_history_entry.get("remote_path")
+        if remote_reference:
+            downloaded = _download_remote_to_temp(remote_reference, scan_id)
+            if downloaded and downloaded.exists():
+                return downloaded
+
     upload_dir = _uploads_root()
     candidates: List[Path] = [
         upload_dir / f"{scan_id}.pdf",
@@ -1166,9 +1252,9 @@ def archive_fixed_pdf_version(
         return None
 
     remote_path = _mirror_file_to_remote(dest_path, folder=f"fixed/{scan_id}")
-    metadata = {}
-    if remote_path:
-        metadata["remote_path"] = remote_path
+    if not remote_path:
+        raise RuntimeError("Remote storage reference missing for fixed PDF")
+    metadata = {"remote_path": remote_path}
     _write_fixed_metadata(dest_path, metadata)
 
     relative_path = dest_path.relative_to(_fixed_root())
@@ -1333,11 +1419,23 @@ def _perform_automated_fix(
         if temp_fixed_path:
             temp_path_obj = Path(temp_fixed_path)
             if temp_path_obj.exists():
-                archive_info = archive_fixed_pdf_version(
-                    scan_id=scan_id,
-                    original_filename=scan_row.get("filename"),
-                    source_path=temp_path_obj,
-                )
+                try:
+                    archive_info = archive_fixed_pdf_version(
+                        scan_id=scan_id,
+                        original_filename=scan_row.get("filename"),
+                        source_path=temp_path_obj,
+                    )
+                except Exception as archive_exc:
+                    logger.exception(
+                        "[Backend] Failed to archive fixed PDF for %s", scan_id
+                    )
+                    if tracker:
+                        tracker.fail_all(str(archive_exc))
+                    return 500, {
+                        "success": False,
+                        "error": str(archive_exc),
+                        "scanId": scan_id,
+                    }
                 if archive_info:
                     result["fixedFile"] = archive_info.get("relative_path")
                     result["fixedFileRemote"] = archive_info.get("remote_path")
@@ -1676,6 +1774,7 @@ __all__ = [
     "scan_results_changed",
     "archive_fixed_pdf_version",
     "get_fixed_version",
+    "lookup_remote_fixed_entry",
     "prune_fixed_versions",
     "_delete_scan_with_files",
     "_delete_batch_with_files",
