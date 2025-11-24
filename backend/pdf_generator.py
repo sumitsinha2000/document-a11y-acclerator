@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw
 from pikepdf import Array, Dictionary, Name, Stream, String
 from werkzeug.utils import secure_filename
 
-from backend.pdfa_fix_engine import SRGB_ICC_PROFILE_BASE64
+# from backend.pdfa_fix_engine import SRGB_ICC_PROFILE_BASE64  # PDF/A fix engine utilities disabled
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -23,7 +23,7 @@ class PDFGenerator:
     - Embedded Unicode fonts
     - Language and metadata populated
     - Tag tree & MarkInfo set
-    - OutputIntent/XMP metadata for PDF/A conformance
+    - PDF/UA identifiers embedded into XMP metadata
     """
 
     FONT_CANDIDATES: Dict[str, Tuple[str, ...]] = {
@@ -270,7 +270,7 @@ class PDFGenerator:
 
     def _register_accessible_fonts(self, pdf: FPDF) -> bool:
         """
-        Register Unicode fonts so text is embedded for PDF/A compliance.
+        Register Unicode fonts so text remains embedded for accessibility checks.
         """
         success = True
         for style in ("regular", "bold"):
@@ -287,7 +287,7 @@ class PDFGenerator:
         if not success:
             print(
                 "[PDFGenerator] Warning: Falling back to core Helvetica fonts; "
-                "PDF/A compliance may fail due to non-embedded fonts."
+                "embedded fonts keep WCAG and PDF/UA scoring accurate."
             )
         return success
 
@@ -349,7 +349,6 @@ class PDFGenerator:
             f"High Severity: {summary.get('highSeverity', 'N/A')}",
             f"WCAG Compliance: {summary.get('wcagCompliance', 'N/A')}",
             f"PDF/UA Compliance: {summary.get('pdfuaCompliance', 'N/A')}",
-            f"PDF/A Compliance: {summary.get('pdfaCompliance', 'N/A')}",
             f"Overall Score: {summary.get('complianceScore', 'N/A')}",
         ]
         pdf.multi_cell(0, 6, "\n".join(summary_lines))
@@ -421,7 +420,7 @@ class PDFGenerator:
         subject = "Automated accessibility assessment results"
         description = (
             "Detailed PDF accessibility compliance report containing aggregated "
-            "WCAG, PDF/UA, and PDF/A findings for the analyzed document."
+            "WCAG and PDF/UA findings for the analyzed document."
         )
 
         self._post_process_accessibility(
@@ -447,7 +446,7 @@ class PDFGenerator:
     ) -> None:
         """
         Use pikepdf to add accessibility metadata, structure tags, language,
-        and PDF/A compliance markers so the analyzer recognizes the document
+        and PDF/UA identifiers so the analyzer recognizes the document
         as accessible.
         """
         try:
@@ -474,8 +473,7 @@ class PDFGenerator:
 
                 self._ensure_struct_tree(pdf)
                 self._synchronize_metadata(pdf, title, author, description)
-                if fonts_embedded:
-                    self._ensure_pdfa_requirements(pdf)
+                # PDF/A-specific adjustments skipped; only PDF/UA annotations remain active.
 
                 pdf.save(pdf_path, linearize=True)
         except Exception as exc:
@@ -603,38 +601,8 @@ class PDFGenerator:
         pdf.Root.Metadata = pdf.make_indirect(metadata_stream)
 
     def _ensure_pdfa_requirements(self, pdf: pikepdf.Pdf) -> None:
-        """
-        Embed sRGB output intent and ensure PDF/A identifiers are present.
-        Only runs if fonts are embedded so the document can satisfy PDF/A checks.
-        """
-        if "/OutputIntents" not in pdf.Root or len(pdf.Root.OutputIntents) == 0:
-            try:
-                icc_bytes = base64.b64decode(SRGB_ICC_PROFILE_BASE64)
-                icc_stream = Stream(pdf, icc_bytes)
-                icc_stream.stream_dict = Dictionary(
-                    N=3,
-                    Alternate=Name("/DeviceRGB"),
-                )
-                icc_stream_ref = pdf.make_indirect(icc_stream)
-                output_intent = pdf.make_indirect(
-                    Dictionary(
-                        Type=Name("/OutputIntent"),
-                        S=Name("/GTS_PDFA1"),
-                        OutputConditionIdentifier="sRGB IEC61966-2.1",
-                        RegistryName="http://www.color.org",
-                        Info="sRGB IEC61966-2.1",
-                        DestOutputProfile=icc_stream_ref,
-                    )
-                )
-                pdf.Root.OutputIntents = Array([output_intent])
-            except Exception as exc:
-                print(f"[PDFGenerator] Warning: Unable to embed OutputIntent: {exc}")
-
-        with pdf.open_metadata(set_pikepdf_as_editor=False) as meta:
-            meta["{http://www.aiim.org/pdfa/ns/id/}part"] = "1"
-            meta["{http://www.aiim.org/pdfa/ns/id/}conformance"] = "A"
-            meta["pdfaid:part"] = "1"
-            meta["pdfaid:conformance"] = "A"
+        """PDF/A-specific adjustments are disabled in the WCAG/PDF/UA workflow."""
+        print("[PDFGenerator] PDF/A metadata generation skipped.")
 
     def _build_xmp_metadata_packet(
         self,
@@ -657,7 +625,6 @@ class PDFGenerator:
     xmlns:dc="http://purl.org/dc/elements/1.1/"
     xmlns:xmp="http://ns.adobe.com/xap/1.0/"
     xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
-    xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"
     xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">
     <dc:format>application/pdf</dc:format>
     <dc:title>
@@ -684,8 +651,6 @@ class PDFGenerator:
     <xmp:CreateDate>{timestamp}</xmp:CreateDate>
     <xmp:ModifyDate>{timestamp}</xmp:ModifyDate>
     <xmp:MetadataDate>{timestamp}</xmp:MetadataDate>
-    <pdfaid:part>1</pdfaid:part>
-    <pdfaid:conformance>A</pdfaid:conformance>
     <pdfuaid:part>1</pdfuaid:part>
     <pdfuaid:conformance>PDF/UA-1</pdfuaid:conformance>
   </rdf:Description>

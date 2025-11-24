@@ -795,11 +795,10 @@ async def get_scan(scan_id: str):
         if isinstance(summary, dict) and verapdf_status:
             summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
             summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
-            summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+            # PDF/A compliance tracking disabled so we only average WCAG and PDF/UA scores.
             combined_score = _combine_compliance_scores(
                 summary.get("wcagCompliance"),
                 summary.get("pdfuaCompliance"),
-                summary.get("pdfaCompliance"),
             )
             if combined_score is not None:
                 summary["complianceScore"] = combined_score
@@ -836,9 +835,7 @@ async def get_scan(scan_id: str):
             "isActive": False,
             "wcagCompliance": None,
             "pdfuaCompliance": None,
-            "pdfaCompliance": None,
             "totalVeraPDFIssues": len(results_dict.get("wcagIssues", []))
-            + len(results_dict.get("pdfaIssues", []))
             + len(results_dict.get("pdfuaIssues", [])),
         }
 

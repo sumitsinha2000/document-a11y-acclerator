@@ -439,11 +439,10 @@ def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(summary, dict) and verapdf_status:
         summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
         summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
-        summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+        # PDF/A compliance is intentionally omitted; we aggregate only WCAG and PDF/UA scores now.
         combined_score = _combine_compliance_scores(
             summary.get("wcagCompliance"),
             summary.get("pdfuaCompliance"),
-            summary.get("pdfaCompliance"),
         )
         if combined_score is not None:
             summary["complianceScore"] = combined_score
@@ -881,11 +880,9 @@ def build_placeholder_scan_payload(filename: Optional[str] = None) -> Dict[str, 
         "lowSeverity": 0,
         "wcagCompliance": base_status.get("wcagCompliance"),
         "pdfuaCompliance": base_status.get("pdfuaCompliance"),
-        "pdfaCompliance": base_status.get("pdfaCompliance"),
         "complianceScore": _combine_compliance_scores(
             base_status.get("wcagCompliance"),
             base_status.get("pdfuaCompliance"),
-            base_status.get("pdfaCompliance"),
         )
         or 0,
         "status": "queued",

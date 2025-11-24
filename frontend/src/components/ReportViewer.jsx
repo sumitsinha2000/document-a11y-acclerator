@@ -267,7 +267,6 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
       isActive: false,
       wcagCompliance: null,
       pdfuaCompliance: null,
-      pdfaCompliance: null,
       totalVeraPDFIssues: 0,
     },
   )
@@ -644,25 +643,6 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                             </svg>
                             <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
                               PDF/UA {verapdfStatus.pdfuaCompliance}%
-                            </span>
-                          </div>
-                        )}
-                        {typeof verapdfStatus.pdfaCompliance === "number" && (
-                          <div className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-full border border-emerald-200 dark:border-emerald-800">
-                            <svg
-                              className="w-4 h-4 text-emerald-600 dark:text-emerald-400"
-                              fill="currentColor"
-                              viewBox="0 0 20 20"
-                            >
-                              <path d="M4 3a2 2 0 012-2h6.586A2 2 0 0114 1.586L18.414 6A2 2 0 0120 7.414V17a2 2 0 01-2 2H6a2 2 0 01-2-2V3z" />
-                              <path
-                                fillRule="evenodd"
-                                d="M8 11a1 1 0 011-1h6a1 1 0 110 2H9a1 1 0 01-1-1z"
-                                clipRule="evenodd"
-                              />
-                            </svg>
-                            <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                              PDF/A {verapdfStatus.pdfaCompliance}%
                             </span>
                           </div>
                         )}

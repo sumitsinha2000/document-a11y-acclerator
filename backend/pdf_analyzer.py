@@ -25,13 +25,7 @@ except ImportError:
     WCAG_VALIDATOR_AVAILABLE = False
     print("[Analyzer] WCAG validator not available")
 
-try:
-    from backend.pdfa_validator import validate_pdfa
-    import pikepdf
-    PDFA_VALIDATOR_AVAILABLE = True
-except ImportError:
-    PDFA_VALIDATOR_AVAILABLE = False
-    print("[Analyzer] PDF/A validator not available")
+# PDF/A validation is intentionally disabled; the analyzer now focuses on WCAG 2.1 and PDF/UA-1.
 
 
 logger = logging.getLogger("pdf-accessibility-analyzer")
@@ -107,9 +101,7 @@ class PDFAccessibilityAnalyzer:
                 print("[Analyzer] Running built-in WCAG 2.1 and PDF/UA-1 validation")
                 self._analyze_with_wcag_validator(pdf_path)
             
-            if PDFA_VALIDATOR_AVAILABLE:
-                print("[Analyzer] Running PDF/A validation")
-                self._analyze_with_pdfa_validator(pdf_path)
+            # PDF/A validation is disabled to keep analytics focused on WCAG 2.1 and PDF/UA checks.
             
             total_issues = sum(len(v) for v in self.issues.values())
             print(f"[Analyzer] Analysis complete, found {total_issues} issues")
@@ -537,41 +529,5 @@ class PDFAccessibilityAnalyzer:
             print("[Analyzer] ==========================================")
 
     def _analyze_with_pdfa_validator(self, pdf_path: str):
-        """Analyze PDF using PDF/A validator based on veraPDF library approach"""
-        try:
-            print("[Analyzer] ========== PDF/A VALIDATOR ANALYSIS ==========")
-            print(f"[Analyzer] Analyzing: {pdf_path}")
-            
-            with pikepdf.open(pdf_path) as pdf:
-                validation_results = validate_pdfa(pdf)
-            
-            print("[Analyzer] PDF/A validation complete")
-            print(f"[Analyzer] Conformance Level: {validation_results.get('conformanceLevel', 'None')}")
-            print(f"[Analyzer] Valid: {validation_results.get('isValid', False)}")
-            
-            # Merge PDF/A issues
-            if validation_results.get("issues"):
-                pdfa_count = len(validation_results["issues"])
-                self.issues["pdfaIssues"].extend(validation_results["issues"])
-                print(f"[Analyzer] ✓ PDF/A Validator found {pdfa_count} issues")
-                
-                # Show summary by severity
-                summary = validation_results.get('summary', {})
-                print(f"[Analyzer]   Critical: {summary.get('critical', 0)}")
-                print(f"[Analyzer]   Error: {summary.get('error', 0)}")
-                print(f"[Analyzer]   Warning: {summary.get('warning', 0)}")
-                
-                # Show first few issues
-                for i, issue in enumerate(validation_results["issues"][:3]):
-                    severity = issue.get('severity', 'unknown')
-                    message = issue.get('message', 'N/A')
-                    print(f"[Analyzer]   Issue {i+1} [{severity.upper()}]: {message[:80]}")
-            
-            print("[Analyzer] ==========================================")
-            
-        except Exception as e:
-            print("[Analyzer] ========== ERROR IN PDF/A VALIDATION ==========")
-            print(f"[Analyzer] Error: {e}")
-            import traceback
-            traceback.print_exc()
-            print("[Analyzer] ============================================")
+        """PDF/A validation is disabled while focusing on WCAG 2.1 and PDF/UA-1 checking."""
+        print("[Analyzer] PDF/A validation skipped (WCAG/PDF/UA focus).")

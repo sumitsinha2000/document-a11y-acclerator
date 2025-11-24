@@ -12,8 +12,10 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
   }
 
   const categories = Object.keys(results || {})
+  const filteredCategories = categories.filter((category) => category !== "pdfaIssues")
+  const activeCategory = filteredCategories.includes(selectedCategory) ? selectedCategory : null
 
-  if (categories.length === 0) {
+  if (filteredCategories.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
         <p className="text-gray-500 dark:text-gray-400">No accessibility issues found</p>
@@ -34,7 +36,6 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
       structureIssues: "Structure Issues",
       readingOrderIssues: "Reading Order Issues",
       pdfuaIssues: "PDF/UA Issues",
-      pdfaIssues: "PDF/A Issues",
     }
     return labels[key] || key
   }
@@ -55,7 +56,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
-        {categories.map((category) => {
+        {filteredCategories.map((category) => {
           const issues = results[category] || []
           const count = issues.length
 
@@ -84,10 +85,10 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
         })}
       </div>
 
-      {selectedCategory && results[selectedCategory] && (
+      {activeCategory && results[activeCategory] && (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
           <div className="flex items-center justify-between mb-4">
-            <h4 className="text-xl font-bold text-gray-900 dark:text-white">{getCategoryLabel(selectedCategory)}</h4>
+            <h4 className="text-xl font-bold text-gray-900 dark:text-white">{getCategoryLabel(activeCategory)}</h4>
             <button
               className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none"
               onClick={() => onSelectCategory(null)}
@@ -97,7 +98,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
           </div>
 
           <div className="space-y-4">
-            {results[selectedCategory].map((issue, idx) => {
+            {results[activeCategory].map((issue, idx) => {
               const description =
                 issue.description ||
                 issue.message ||
