@@ -12,14 +12,22 @@
 @layer base {
   html {
     @apply text-sm antialiased;
+    height: 100%;
     font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
       sans-serif;
   }
 
   body {
     @apply bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-200;
+    margin: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
     font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
       sans-serif;
+  }
+
+  #root {
+    min-height: 100vh;
   }
 
   /* Headings */
