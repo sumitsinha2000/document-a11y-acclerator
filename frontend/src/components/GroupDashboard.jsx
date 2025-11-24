@@ -129,7 +129,6 @@ export default function GroupDashboard({
         </div>
 
         <UploadArea
-          onScanComplete={onScanComplete}
           onUploadDeferred={onUploadDeferred}
           autoSelectGroupId={uploadContext.groupId}
           autoSelectFolderId={uploadContext.folderId}

@@ -6,7 +6,6 @@ import UploadProgressToast from "./UploadProgressToast"
 import { API_ENDPOINTS } from "../config/api";
 
 export default function UploadArea({
-  onScanComplete,
   onUploadDeferred,
   autoSelectGroupId = null,
   autoSelectFolderId = null,
@@ -19,8 +18,6 @@ export default function UploadArea({
   const fileInputRef = useRef(null)
   const uploadAreaRef = useRef(null)
   const [selectedFiles, setSelectedFiles] = useState([])
-  const [scanMode, setScanMode] = useState("scan-now")
-
   useEffect(() => {
     if (uploadProgress.length > 0) {
       const completed = uploadProgress.filter((p) => p.status === "completed").length
@@ -36,15 +33,6 @@ export default function UploadArea({
       }
     }
   }, [uploadProgress])
-
-  const handleScanModeChange = (mode) => {
-    setScanMode(mode)
-    setSrAnnouncement(
-      mode === "upload-only"
-        ? "Uploads will complete without scanning. You can begin scanning later from the dashboard."
-        : "Uploads will be scanned immediately after they finish uploading.",
-    )
-  }
 
   const handleDragOver = (e) => {
     e.preventDefault()
@@ -132,14 +120,11 @@ export default function UploadArea({
     setError(null)
     setIsScanning(true)
 
-    const isDeferred = scanMode === 'upload-only'
     const isBatch = files.length > 1
     const groupId = resolveGroupId()
     const folderId = autoSelectFolderId
     setSrAnnouncement(
-      isDeferred
-        ? `Uploading ${files.length} PDF file${files.length === 1 ? '' : 's'} without scanning`
-        : `Uploading and scanning ${files.length} PDF file${files.length === 1 ? '' : 's'}`,
+      `Uploading ${files.length} PDF file${files.length === 1 ? '' : 's'} without scanning`,
     )
 
     const initialProgress = files.map((file, index) => ({
@@ -179,13 +164,13 @@ export default function UploadArea({
         if (folderId) {
           formData.append('folder_id', folderId)
         }
-        formData.append('scan_mode', isDeferred ? 'upload_only' : 'scan_now')
+        formData.append('scan_mode', 'upload_only')
 
         setUploadProgress((prev) =>
           prev.map((item) => ({
             ...item,
-            status: isDeferred ? 'uploading' : 'processing',
-            progress: isDeferred ? 80 : 50,
+            status: 'uploading',
+            progress: 80,
           })),
         )
 
@@ -204,22 +189,16 @@ export default function UploadArea({
         const scans = Array.isArray(response.data?.scans) ? response.data.scans : []
         const scanIds = scans.map((scan) => scan.scanId || scan.id).filter(Boolean)
 
-        if (response.data?.scanDeferred) {
-          const uploadedCount = scanIds.length
-          setError(null)
-          setSrAnnouncement(
-            `Uploaded ${uploadedCount} file${uploadedCount === 1 ? '' : 's'}. Start scanning later from the dashboard.`,
-          )
-          onUploadDeferred?.({
-            batchId: response.data.batchId,
-            scanIds,
-            groupId,
-          })
-        } else {
-          setError(null)
-          setSrAnnouncement(`Processed ${scans.length} file${scans.length === 1 ? '' : 's'}.`)
-          onScanComplete(scans)
-        }
+        const uploadedCount = scanIds.length || files.length
+        setError(null)
+        setSrAnnouncement(
+          `Uploaded ${uploadedCount} file${uploadedCount === 1 ? '' : 's'}. Start scanning later from the dashboard.`,
+        )
+        onUploadDeferred?.({
+          batchId: response.data.batchId,
+          scanIds,
+          groupId,
+        })
       } catch (err) {
         const errorMsg = err.response?.data?.error || err.message || 'Folder upload failed'
         console.error('[UploadArea] Folder upload error:', err)
@@ -231,8 +210,8 @@ export default function UploadArea({
     }
 
     const file = files[0]
-    const endpoint = isDeferred ? API_ENDPOINTS.upload : API_ENDPOINTS.scan
-    const timeout = isDeferred ? 120000 : 60000
+    const endpoint = API_ENDPOINTS.upload
+    const timeout = 120000
 
     try {
       const formData = new FormData()
@@ -243,17 +222,15 @@ export default function UploadArea({
       if (folderId) {
         formData.append('folder_id', folderId)
       }
-      if (!isDeferred) {
-        formData.append('scan_mode', 'scan_now')
-      }
+      formData.append('scan_mode', 'upload_only')
 
       setUploadProgress((prev) =>
         prev.map((item, idx) =>
           idx === 0
             ? {
                 ...item,
-                status: isDeferred ? 'uploading' : 'processing',
-                progress: isDeferred ? 80 : 50,
+                status: 'uploading',
+                progress: 80,
               }
             : item,
         ),
@@ -282,27 +259,16 @@ export default function UploadArea({
         ),
       )
 
-      if (isDeferred) {
-        const deferredId = response.data?.scanId || response.data?.result?.scanId
-        const scanIds = deferredId ? [deferredId] : []
-        setError(null)
-        setSrAnnouncement(`Uploaded ${scanIds.length || 1} file${scanIds.length === 1 ? '' : 's'} successfully.`)
-        onUploadDeferred?.({
-          scanIds,
-          groupId,
-          batchId: response.data?.batchId || response.data?.folderId,
-          folderName: response.data?.folderName,
-        })
-      } else {
-        const payload = {
-          ...response.data,
-          fileName: response.data?.filename || file.name,
-          groupId,
-        }
-        setError(null)
-        setSrAnnouncement(`${file.name} scanned successfully.`)
-        onScanComplete([payload])
-      }
+      const deferredId = response.data?.scanId || response.data?.result?.scanId
+      const scanIds = deferredId ? [deferredId] : []
+      setError(null)
+      setSrAnnouncement(`Uploaded ${scanIds.length || 1} file${scanIds.length === 1 ? '' : 's'} successfully.`)
+      onUploadDeferred?.({
+        scanIds,
+        groupId,
+        batchId: response.data?.batchId || response.data?.folderId,
+        folderName: response.data?.folderName,
+      })
     } catch (err) {
       const errorMsg = err.response?.data?.error || err.message || 'Upload failed'
       console.error('[UploadArea] File upload error:', err)
@@ -343,7 +309,7 @@ export default function UploadArea({
                   handleClick()
                 }
               }}
-              aria-label="Upload PDF documents for accessibility scanning. Drag and drop files here or press Enter or Space to browse files. Multiple files can be selected."
+              aria-label="Upload PDF documents. Drag and drop files here or press Enter or Space to browse files. Multiple files can be selected."
               aria-busy={isScanning}
               aria-disabled={isScanning}
               aria-describedby="upload-instructions"
@@ -353,10 +319,10 @@ export default function UploadArea({
                   <div
                     className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent"
                     role="status"
-                    aria-label="Scanning in progress"
+                    aria-label="Uploading in progress"
                   ></div>
                   <p className="text-base font-medium text-gray-700 dark:text-gray-300">
-                    Scanning {selectedFiles.length} PDF file(s)...
+                    Uploading {selectedFiles.length} PDF file(s)...
                   </p>
                 </div>
               ) : (
@@ -419,66 +385,6 @@ export default function UploadArea({
                   ))}
                 </ul>
               </div>
-
-              <fieldset className="bg-white dark:bg-gray-900/30 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <legend className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                  Scanning preference
-                </legend>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                  Choose whether to scan your uploads right away or start the scan later.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3" role="radiogroup" aria-label="Scanning preference">
-                  <label
-                    className={`flex-1 relative flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors ${
-                      scanMode === "scan-now"
-                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30"
-                        : "border-gray-300 dark:border-gray-600 hover:border-indigo-400 dark:hover:border-indigo-500"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="scan-mode"
-                      value="scan-now"
-                      checked={scanMode === "scan-now"}
-                      onChange={() => handleScanModeChange("scan-now")}
-                      className="mt-1 h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
-                    />
-                    <div className="text-left">
-                      <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
-                        Upload and scan now
-                      </span>
-                      <span className="block text-xs text-gray-600 dark:text-gray-400">
-                        Recommended for quick accessibility insights.
-                      </span>
-                    </div>
-                  </label>
-
-                  <label
-                    className={`flex-1 relative flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors ${
-                      scanMode === "upload-only"
-                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30"
-                        : "border-gray-300 dark:border-gray-600 hover:border-indigo-400 dark:hover:border-indigo-500"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="scan-mode"
-                      value="upload-only"
-                      checked={scanMode === "upload-only"}
-                      onChange={() => handleScanModeChange("upload-only")}
-                      className="mt-1 h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
-                    />
-                    <div className="text-left">
-                      <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
-                        Upload only
-                      </span>
-                      <span className="block text-xs text-gray-600 dark:text-gray-400">
-                        Files will be available in your dashboard with an option to begin scanning later.
-                      </span>
-                    </div>
-                  </label>
-                </div>
-              </fieldset>
 
               <div className="text-center">
                 <button
