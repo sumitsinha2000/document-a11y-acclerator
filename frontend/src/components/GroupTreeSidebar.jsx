@@ -11,6 +11,19 @@ const FILE_STATUS_STYLES = {
   error: "bg-rose-100 text-rose-800",
   default: "bg-slate-100 text-slate-600",
 };
+const STATUS_BADGE_STYLES = {
+  uploaded:
+    "border-slate-100 bg-slate-50 text-slate-900 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-100",
+  scanned:
+    "border-indigo-100 bg-indigo-50 text-indigo-900 dark:border-indigo-700/60 dark:bg-indigo-900/20 dark:text-indigo-100",
+  partially_fixed:
+    "border-purple-100 bg-purple-50 text-purple-900 dark:border-purple-700/60 dark:bg-purple-900/20 dark:text-purple-100",
+  fixed:
+    "border-emerald-100 bg-emerald-50 text-emerald-900 dark:border-emerald-700/60 dark:bg-emerald-900/20 dark:text-emerald-100",
+  error:
+    "border-rose-100 bg-rose-50 text-rose-900 dark:border-rose-700/60 dark:bg-rose-900/20 dark:text-rose-100",
+};
+const SELECTED_STATUS_BADGE_CLASSES = "border-white bg-white/30 text-white";
 
 export default function GroupTreeSidebar({
   onNodeSelect,
@@ -1065,6 +1078,9 @@ export default function GroupTreeSidebar({
             folderFiles.map((file) => {
               const fileId = file.scanId || file.id || file.fileId;
               const selected = isFileSelected(fileId);
+              const statusInfo = resolveEntityStatus(file);
+              const badgeColorClasses =
+                STATUS_BADGE_STYLES[statusInfo.code] || STATUS_BADGE_STYLES.uploaded;
               return (
                 <button
                   key={fileId || file.filename}
@@ -1098,13 +1114,13 @@ export default function GroupTreeSidebar({
                   >
                     {file.filename || file.fileName || "Untitled file"}
                   </p>
-                  <p
-                    className={`text-xs uppercase tracking-wide mt-1 ${
-                      selected ? "text-indigo-100 dark:text-indigo-100" : "text-gray-500 dark:text-gray-400"
-                    } group-focus-within:text-white dark:group-focus-within:text-white`}
+                  <span
+                    className={`mt-2 inline-flex rounded-full border px-3 py-0.5 text-[11px] font-semibold uppercase tracking-wide transition ${
+                      selected ? SELECTED_STATUS_BADGE_CLASSES : badgeColorClasses
+                    }`}
                   >
-                    {resolveEntityStatus(file).label.toUpperCase()}
-                  </p>
+                    {statusInfo.label.toUpperCase()}
+                  </span>
                 </button>
               );
             })
