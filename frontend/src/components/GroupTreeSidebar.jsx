@@ -1018,10 +1018,10 @@ export default function GroupTreeSidebar({
                 <button
                   key={fileId || file.filename}
                   type="button"
-                  className={`group w-full rounded-xl border px-4 py-3 text-left transition focus-visible:border-indigo-500 focus-visible:bg-indigo-600 focus-visible:text-white focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
+                  className={`group w-full rounded-2xl border px-4 py-4 text-left transition focus-visible:border-indigo-500 focus-visible:bg-indigo-600 focus-visible:text-white focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
                     selected
-                      ? "border-indigo-500 bg-indigo-50 text-white dark:border-indigo-500/60 dark:bg-indigo-900/30 dark:text-white"
-                      : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                      ? "border-indigo-500 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:border-indigo-500/60 dark:bg-indigo-600/90 dark:text-white"
+                      : "border-indigo-100 bg-white text-gray-800 hover:border-indigo-200 hover:bg-indigo-50 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-200"
                   }`}
                   onClick={() => {
                     if (!fileId) {
@@ -1048,9 +1048,9 @@ export default function GroupTreeSidebar({
                     {file.filename || file.fileName || "Untitled file"}
                   </p>
                   <p
-                    className={`text-sm text-gray-500 dark:text-gray-400 mt-1 ${
-                      selected ? "text-slate-200 dark:text-slate-200" : ""
-                    } group-focus-within:text-slate-200 dark:group-focus-within:text-slate-200`}
+                    className={`text-xs uppercase tracking-wide mt-1 ${
+                      selected ? "text-indigo-100 dark:text-indigo-100" : "text-gray-500 dark:text-gray-400"
+                    } group-focus-within:text-white dark:group-focus-within:text-white`}
                   >
                     {(file.status || "uploaded").toUpperCase()}
                   </p>
@@ -1379,11 +1379,11 @@ export default function GroupTreeSidebar({
                                   <>
                                   <button
                                     type="button"
-                                    className={`group w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 ${
-                                      isBatchSelected
-                                        ? "border-indigo-500/80 bg-indigo-600 text-white shadow-indigo-500/30 dark:bg-indigo-600/90"
-                                        : "border-transparent bg-white text-slate-800 hover:border-indigo-100 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
-                                    }`}
+                                  className={`group w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 ${
+                                    isBatchSelected
+                                      ? "border-indigo-500/80 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
+                                      : "border-transparent bg-white text-slate-800 hover:border-indigo-100 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
+                                  }`}
                                       onClick={() => handleFolderButtonClick(group, batch)}
                                       aria-current={isBatchSelected ? "true" : undefined}
                                     >
