@@ -478,7 +478,7 @@ export default function GroupDashboard({
   const folderHasIssues = nodeData?.type === "batch" && (nodeData?.totalIssues || 0) > 0
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-gradient-to-br dark:from-[#040714] dark:via-[#080f24] dark:to-[#0d1a3a] dark:text-slate-100">
+    <div className="bg-slate-50 text-slate-900 dark:bg-gradient-to-br dark:from-[#040714] dark:via-[#080f24] dark:to-[#0d1a3a] dark:text-slate-100">
       <div className="w-full flex h-full flex-col gap-6 px-4 py-6 lg:flex-row lg:items-start">
         <div className="w-full lg:max-w-sm flex-shrink-0">
           <GroupTreeSidebar
