@@ -12,7 +12,7 @@ import { useNotification } from "../contexts/NotificationContext"
 import { parseBackendDate } from "../utils/dates"
 import { resolveSummary, calculateComplianceSnapshot } from "../utils/compliance"
 
-export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpen = true }) {
+export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpen = true, onScanComplete }) {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -28,6 +28,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isScanningFile, setIsScanningFile] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   const { showSuccess, showError, showWarning, showInfo } = useNotification()
@@ -155,6 +156,51 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
       showError("Failed to refresh report")
     } finally {
       setIsRefreshing(false)
+    }
+  }
+
+  const handleScanFile = async () => {
+    const targetScanId = reportData?.scanId || reportData?.id
+    if (!targetScanId) {
+      showWarning("Unable to start a scan for this file at the moment.")
+      return
+    }
+
+    setIsScanningFile(true)
+    try {
+      const response = await axios.post(API_ENDPOINTS.startScan(targetScanId))
+      const payload = response?.data
+
+        if (payload) {
+          setReportData((prev) => {
+            if (!prev) {
+              return payload
+            }
+            return {
+              ...prev,
+              ...payload,
+              scanId: payload.scanId || prev.scanId,
+              filename: payload.filename || prev.filename,
+              fileName: payload.fileName || prev.fileName,
+              groupName: payload.groupName || prev.groupName,
+              summary: payload.summary || prev.summary,
+              results: payload.results || prev.results,
+              verapdfStatus: payload.verapdfStatus || prev.verapdfStatus,
+              fixes: payload.fixes || prev.fixes,
+              status: payload.status || prev.status,
+            }
+          })
+          setRefreshKey((prev) => prev + 1)
+          showSuccess("Scan completed for this file.")
+          if (onScanComplete) {
+            onScanComplete({ scanId: targetScanId, payload })
+          }
+        }
+    } catch (error) {
+      console.error("[v0] ReportViewer - Failed to scan file:", error)
+      showError("Failed to scan this file. Please try again.")
+    } finally {
+      setIsScanningFile(false)
     }
   }
 
@@ -385,23 +431,45 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-2 ml-auto">
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={handleRefresh}
+              className="px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-1 font-semibold text-sm border border-slate-200 dark:border-slate-600"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              <span>Refresh</span>
+            </button>
+            {isUploaded && (
               <button
-                onClick={handleRefresh}
-                className="px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-1 font-semibold text-sm border border-slate-200 dark:border-slate-600"
+                type="button"
+                onClick={handleScanFile}
+                disabled={isScanningFile}
+                className={`px-3 py-2 rounded-lg border border-violet-500 flex items-center gap-2 text-sm font-semibold transition ${
+                  isScanningFile
+                    ? "bg-violet-100 text-violet-600 cursor-wait"
+                    : "bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:from-violet-500 hover:to-purple-500"
+                }`}
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    d="M4 7h16M4 12h10M4 17h14"
                   />
                 </svg>
-                <span>Refresh</span>
+                <span>{isScanningFile ? "Scanning…" : "Scan file"}</span>
               </button>
-              <ExportDropdown scanId={reportData.scanId} filename={reportData.fileName || reportData.filename} />
-            </div>
+            )}
+            <ExportDropdown scanId={reportData.scanId} filename={reportData.fileName || reportData.filename} />
+          </div>
           </div>
 
           <div className="flex items-start justify-between">

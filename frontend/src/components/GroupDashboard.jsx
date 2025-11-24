@@ -373,6 +373,16 @@ export default function GroupDashboard({
     }
   }
 
+  const refreshSelectedNodeData = async () => {
+    if (!selectedNode) {
+      return
+    }
+
+    const cacheKey = getCacheKey(selectedNode)
+    cacheRef.current.delete(cacheKey)
+    await handleNodeSelect(selectedNode)
+  }
+
   const handleBeginFolderScan = async () => {
     if (!nodeData || nodeData.type !== "batch") {
       return
@@ -723,6 +733,7 @@ export default function GroupDashboard({
                       : undefined
                   }
                   sidebarOpen={false}
+                  onScanComplete={refreshSelectedNodeData}
                 />
               )}
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useId } from "react"
+import { useState, useEffect, useRef, useCallback, useId } from "react"
 import axios from "axios"
 import ReportViewer from "./ReportViewer"
 import { ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Info } from "lucide-react"
@@ -49,26 +49,28 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   const searchInputId = useId()
   const itemsPerPageId = useId()
 
-  useEffect(() => {
-    const fetchBatchData = async () => {
-      try {
-        console.log("[v0] Fetching folder details:", batchId)
-        const response = await axios.get(`${API_BASE_URL}/api/batch/${batchId}`)
-        setBatchData(response.data)
-        setScansState(normalizeScans(response.data.scans))
-        console.log("[v0] Folder data loaded:", response.data)
-      } catch (error) {
-        console.error("[v0] Error fetching folder data:", error)
-        showError(`Failed to load folder details: ${error.message}`)
-      }
+  const loadBatchData = useCallback(async () => {
+    if (!batchId) {
+      return
     }
 
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/batch/${batchId}`)
+      setBatchData(response.data)
+      setScansState(normalizeScans(response.data.scans))
+    } catch (error) {
+      console.error("[v0] Error fetching folder data:", error)
+      showError(`Failed to load folder details: ${error.message || error}`)
+    }
+  }, [batchId, showError])
+
+  useEffect(() => {
     if (batchId && (!scans || scans.length === 0)) {
-      fetchBatchData()
+      loadBatchData()
     } else if (scans && scans.length > 0) {
       setScansState(normalizeScans(scans))
     }
-  }, [batchId, scans])
+  }, [batchId, scans, loadBatchData])
 
   useEffect(() => {
     if (scans && scans.length > 0) {
@@ -475,7 +477,12 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
         </div>
 
         <div className="flex-1">
-          <ReportViewer scans={[selectedScan]} onBack={() => setSelectedScan(null)} sidebarOpen={false} />
+          <ReportViewer
+            scans={[selectedScan]}
+            onBack={() => setSelectedScan(null)}
+            sidebarOpen={false}
+            onScanComplete={loadBatchData}
+          />
         </div>
       </div>
     )
