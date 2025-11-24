@@ -28,8 +28,10 @@ export default function GroupTreeSidebar({
   const [sectionStates, setSectionStates] = useState({});
   const [statusMessage, setStatusMessage] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectError, setNewProjectError] = useState("");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [newFolderNames, setNewFolderNames] = useState({});
+  const [folderErrors, setFolderErrors] = useState({});
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editingGroupName, setEditingGroupName] = useState("");
   const [deletingGroupId, setDeletingGroupId] = useState(null);
@@ -477,6 +479,15 @@ export default function GroupTreeSidebar({
       return;
     }
 
+    const normalizedName = trimmedName.toLowerCase();
+    const duplicate = groups.some(
+      (group) => (group.name || "").toLowerCase() === normalizedName
+    );
+    if (duplicate) {
+      setNewProjectError(`Project "${trimmedName}" already exists`);
+      return;
+    }
+
     setIsCreatingProject(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/api/groups`, {
@@ -485,12 +496,14 @@ export default function GroupTreeSidebar({
 
       if (response?.data?.group) {
         setStatusMessage(`Project "${trimmedName}" created`);
+        setNewProjectError("");
         setNewProjectName("");
         await fetchGroups();
         return;
       }
 
       setStatusMessage("Project created");
+      setNewProjectError("");
       setNewProjectName("");
       await fetchGroups();
     } catch (error) {
@@ -499,6 +512,7 @@ export default function GroupTreeSidebar({
         error?.message ||
         "Failed to create project";
       setStatusMessage(errMessage);
+      setNewProjectError(errMessage);
     } finally {
       setIsCreatingProject(false);
     }
@@ -672,6 +686,14 @@ export default function GroupTreeSidebar({
       ...prev,
       [key]: value,
     }));
+    setFolderErrors((prev) => {
+      if (!prev[key]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   };
 
   const handleCreateFolder = async (event, group) => {
@@ -685,6 +707,21 @@ export default function GroupTreeSidebar({
     const folderName = (newFolderNames[key] || "").trim();
     if (!folderName) {
       setStatusMessage("Enter a folder name first");
+      return;
+    }
+    const normalizedNewFolderName = folderName.toLowerCase();
+    const existingFolders = groupBatches[key] || [];
+    const folderExists = existingFolders.some((folder) => {
+      const name = (folder.name || folder.batchName || "").toLowerCase().trim();
+      return name && name === normalizedNewFolderName;
+    });
+    if (folderExists) {
+      const message = `Folder "${folderName}" already exists`;
+      setFolderErrors((prev) => ({
+        ...prev,
+        [key]: message,
+      }));
+      setStatusMessage(message);
       return;
     }
     try {
@@ -720,6 +757,14 @@ export default function GroupTreeSidebar({
         )
       );
       setStatusMessage(`${folderName} folder created`);
+      setFolderErrors((prev) => {
+        if (!prev[key]) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
       setNewFolderNames((prev) => ({
         ...prev,
         [key]: "",
@@ -727,6 +772,10 @@ export default function GroupTreeSidebar({
     } catch (folderError) {
       console.error("[GroupTreeSidebar] Failed to create folder:", folderError);
       setStatusMessage(folderError?.response?.data?.error || "Failed to create folder");
+      setFolderErrors((prev) => ({
+        ...prev,
+        [key]: folderError?.response?.data?.error || "Failed to create folder",
+      }));
     }
   };
 
@@ -1041,7 +1090,7 @@ export default function GroupTreeSidebar({
                   }}
                 >
                   <p
-                    className={`text-base font-semibold truncate ${
+                    className={`text-lg font-semibold truncate ${
                       selected ? "text-white" : "text-gray-800 dark:text-gray-100"
                     } group-focus-within:text-white`}
                   >
@@ -1095,15 +1144,25 @@ export default function GroupTreeSidebar({
       </div>
 
       <form onSubmit={handleCreateProject} className="flex flex-col sm:flex-row gap-2">
-        <input
-          type="text"
-          value={newProjectName}
-          onChange={(event) => setNewProjectName(event.target.value)}
-          placeholder="New project name..."
-          className="flex-grow rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-800/80 dark:bg-[#101735] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-500/70"
-          aria-label="New project name"
-          autoComplete="off"
-        />
+          <div className="flex-1">
+            <input
+              type="text"
+              value={newProjectName}
+              onChange={(event) => {
+                setNewProjectName(event.target.value);
+                if (newProjectError) {
+                  setNewProjectError("");
+                }
+              }}
+              placeholder="New project name..."
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-800/80 dark:bg-[#101735] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-500/70"
+              aria-label="New project name"
+              autoComplete="off"
+            />
+            {newProjectError && (
+              <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{newProjectError}</p>
+            )}
+          </div>
         <button
           type="submit"
           disabled={!newProjectName.trim() || isCreatingProject}
@@ -1250,7 +1309,7 @@ export default function GroupTreeSidebar({
                   </span>
                   <div className="flex-1 overflow-hidden">
                     <h3
-                      className={`text-base font-semibold truncate ${isSelected ? "text-white" : "text-slate-900 dark:text-slate-100"}`}
+                      className={`text-lg font-semibold truncate ${isSelected ? "text-white" : "text-slate-900 dark:text-slate-100"}`}
                     >
                       {group.name}
                     </h3>
@@ -1400,8 +1459,8 @@ export default function GroupTreeSidebar({
                                     </svg>
                                   </span>
                                       <span className="flex-1 min-w-0">
-                                      <span
-                                        className={`block truncate text-base font-medium ${
+                                        <span
+                                        className={`block truncate text-lg font-medium ${
                                           isBatchSelected ? "text-white" : "text-slate-800 dark:text-current"
                                         } group-focus-within:text-white dark:group-focus-within:text-white`}
                                       >
@@ -1470,14 +1529,19 @@ export default function GroupTreeSidebar({
                         aria-label={`New folder for ${group.name}`}
                         autoComplete="off"
                       />
-                      <button
-                        type="submit"
-                        disabled={!(newFolderNames[normalizedGroupId] || "").trim()}
-                        className="rounded-xl bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:disabled:bg-slate-600"
-                      >
-                        + 
-                      </button>
-                    </form>
+                    <button
+                      type="submit"
+                      disabled={!(newFolderNames[normalizedGroupId] || "").trim()}
+                      className="rounded-xl bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:disabled:bg-slate-600"
+                    >
+                      + 
+                    </button>
+                  </form>
+                  {folderErrors[normalizedGroupId] && (
+                    <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+                      {folderErrors[normalizedGroupId]}
+                    </p>
+                  )}
 
                     {false && (
                       <>
