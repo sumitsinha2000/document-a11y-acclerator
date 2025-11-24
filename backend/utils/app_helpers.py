@@ -732,6 +732,38 @@ def _extract_version_from_path(path_obj: Path):
             return None
     return None
 
+def _fixed_metadata_path(pdf_path: Path) -> Path:
+    return pdf_path.with_suffix(pdf_path.suffix + ".json")
+
+
+def _write_fixed_metadata(pdf_path: Path, metadata: Dict[str, Any]):
+    meta_path = _fixed_metadata_path(pdf_path)
+    if not metadata:
+        if meta_path.exists():
+            try:
+                meta_path.unlink()
+            except Exception:
+                logger.warning("[Backend] Failed to remove metadata for %s", pdf_path)
+        return
+    try:
+        with meta_path.open("w", encoding="utf-8") as meta_file:
+            json.dump(metadata, meta_file)
+    except Exception:
+        logger.warning("[Backend] Failed to record metadata for %s", pdf_path)
+
+
+def _read_fixed_metadata(pdf_path: Path) -> Dict[str, Any]:
+    meta_path = _fixed_metadata_path(pdf_path)
+    if not meta_path.exists():
+        return {}
+    try:
+        with meta_path.open("r", encoding="utf-8") as meta_file:
+            return json.load(meta_file)
+    except Exception:
+        logger.warning("[Backend] Failed to read metadata for %s", pdf_path)
+        return {}
+
+
 def get_versioned_files(scan_id: str):
     scan_dir = _fixed_scan_dir(scan_id, ensure_exists=False)
     if not scan_dir.exists():
@@ -746,6 +778,7 @@ def get_versioned_files(scan_id: str):
             stat = path.stat()
         except FileNotFoundError:
             continue
+        metadata = _read_fixed_metadata(path)
         entries.append(
             {
                 "version": version_number,
@@ -754,6 +787,7 @@ def get_versioned_files(scan_id: str):
                 "filename": path.name,
                 "size": stat.st_size,
                 "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "remote_path": metadata.get("remote_path"),
             }
         )
     # sort by version asc
@@ -1000,6 +1034,19 @@ def _resolve_scan_file_path(
     if not scan_record and NEON_DATABASE_URL:
         scan_record = _fetch_scan_record(scan_id)
 
+    latest_fixed = get_fixed_version(scan_id)
+    if latest_fixed:
+        fixed_path = latest_fixed.get("absolute_path")
+        if fixed_path:
+            path_obj = Path(fixed_path)
+            if path_obj.exists():
+                return path_obj
+        remote_reference = latest_fixed.get("remote_path")
+        if remote_reference:
+            downloaded = _download_remote_to_temp(remote_reference, scan_id)
+            if downloaded and downloaded.exists():
+                return downloaded
+
     upload_dir = _uploads_root()
     candidates: List[Path] = [
         upload_dir / f"{scan_id}.pdf",
@@ -1121,6 +1168,12 @@ def archive_fixed_pdf_version(
     except FileNotFoundError:
         return None
 
+    remote_path = _mirror_file_to_remote(dest_path, folder=f"fixed/{scan_id}")
+    metadata = {}
+    if remote_path:
+        metadata["remote_path"] = remote_path
+    _write_fixed_metadata(dest_path, metadata)
+
     relative_path = dest_path.relative_to(_fixed_root())
     return {
         "version": next_version,
@@ -1129,6 +1182,7 @@ def archive_fixed_pdf_version(
         "relative_path": str(relative_path),
         "size": stat.st_size,
         "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        "remote_path": remote_path,
     }
 
 def get_fixed_version(scan_id: str, version: Optional[int] = None) -> Optional[Dict[str, Any]]:
@@ -1142,6 +1196,7 @@ def get_fixed_version(scan_id: str, version: Optional[int] = None) -> Optional[D
                 "filename": latest.get("filename"),
                 "absolute_path": latest.get("absolute_path"),
                 "relative_path": latest.get("relative_path"),
+                "remote_path": latest.get("remote_path"),
             }
         match = next((entry for entry in version_entries if entry.get("version") == version), None)
         if match:
@@ -1150,6 +1205,7 @@ def get_fixed_version(scan_id: str, version: Optional[int] = None) -> Optional[D
                 "filename": match.get("filename"),
                 "absolute_path": match.get("absolute_path"),
                 "relative_path": match.get("relative_path"),
+                "remote_path": match.get("remote_path"),
             }
 
     fixed_dir = _fixed_root()
@@ -1157,11 +1213,13 @@ def get_fixed_version(scan_id: str, version: Optional[int] = None) -> Optional[D
         candidate = fixed_dir / f"{scan_id}{ext}"
         if candidate.exists():
             relative = candidate.relative_to(fixed_dir)
+            metadata = _read_fixed_metadata(candidate)
             return {
                 "version": 1,
                 "filename": candidate.name,
                 "absolute_path": str(candidate),
                 "relative_path": str(relative),
+                "remote_path": metadata.get("remote_path"),
             }
     return None
 
@@ -1182,16 +1240,20 @@ def prune_fixed_versions(scan_id: str, keep_latest: bool = True) -> Dict[str, An
 
     to_remove = entries[: len(entries) - to_keep]
     for entry in to_remove:
-        path = entry.get("absolute_path")
-        if not path:
+        path_value = entry.get("absolute_path")
+        if not path_value:
             continue
         try:
-            os.remove(path)
-            removed_files.append(entry.get("filename", os.path.basename(path)))
+            path_obj = Path(path_value)
+            os.remove(path_obj)
+            meta_path = _fixed_metadata_path(path_obj)
+            if meta_path.exists():
+                meta_path.unlink()
+            removed_files.append(entry.get("filename", os.path.basename(path_value)))
         except FileNotFoundError:
             continue
         except Exception:
-            logger.exception("[Backend] Failed to remove fixed version %s", path)
+            logger.exception("[Backend] Failed to remove fixed version %s", path_value)
 
     remaining = get_versioned_files(scan_id)
     return {
@@ -1269,6 +1331,33 @@ def _perform_automated_fix(
                 "scanId": scan_id,
             }
 
+        archive_info = None
+        temp_fixed_path = result.get("fixedTempPath")
+        if temp_fixed_path:
+            temp_path_obj = Path(temp_fixed_path)
+            if temp_path_obj.exists():
+                archive_info = archive_fixed_pdf_version(
+                    scan_id=scan_id,
+                    original_filename=scan_row.get("filename"),
+                    source_path=temp_path_obj,
+                )
+                if archive_info:
+                    result["fixedFile"] = archive_info.get("relative_path")
+                    result["fixedFileRemote"] = archive_info.get("remote_path")
+                    result["fixedVersion"] = archive_info.get("version")
+                    try:
+                        temp_path_obj.unlink(missing_ok=True)
+                    except Exception:
+                        logger.warning("[Backend] Could not remove temp fixed file %s", temp_path_obj)
+                else:
+                    logger.warning(
+                        "[Backend] Failed to archive fixed PDF for %s; leaving temp file at %s",
+                        scan_id,
+                        temp_path_obj,
+                    )
+
+        result.pop("fixedTempPath", None)
+
         if tracker:
             tracker.complete_all()
 
@@ -1305,6 +1394,18 @@ def _perform_automated_fix(
         )
 
         fixes_applied = result.get("fixesApplied", [])
+        fix_metadata = {"automated": True}
+        if archive_info:
+            fix_metadata.update(
+                {
+                    "version": archive_info.get("version"),
+                    "versionLabel": f"V{archive_info.get('version')}",
+                    "relativePath": archive_info.get("relative_path"),
+                    "storedFilename": archive_info.get("filename"),
+                    "fileSize": archive_info.get("size"),
+                    "remotePath": archive_info.get("remote_path"),
+                }
+            )
         try:
             save_fix_history(
                 scan_id=scan_id,
@@ -1319,7 +1420,7 @@ def _perform_automated_fix(
                 compliance_before=initial_summary.get("complianceScore"),
                 compliance_after=summary.get("complianceScore"),
                 fix_suggestions=scan_results_payload.get("fixes"),
-                fix_metadata={"automated": True},
+                fix_metadata=fix_metadata,
                 batch_id=scan_row.get("batch_id"),
                 group_id=scan_row.get("group_id"),
                 total_issues_before=total_issues_before,
@@ -1346,6 +1447,8 @@ def _perform_automated_fix(
             "verapdfStatus": scan_results_payload.get("verapdfStatus"),
             "fixesApplied": fixes_applied,
             "fixedFile": result.get("fixedFile"),
+            "fixedFileRemote": result.get("fixedFileRemote"),
+            "fixedVersion": result.get("fixedVersion"),
             "successCount": result.get("successCount", len(fixes_applied)),
             "message": result.get("message", "Automated fixes applied"),
         }
@@ -1419,6 +1522,10 @@ def _delete_scan_with_files(scan_id: str) -> Dict[str, Any]:
             if path.exists():
                 if path.is_file():
                     path.unlink()
+                    if path.suffix.lower() == ".pdf":
+                        meta_path = _fixed_metadata_path(path)
+                        if meta_path.exists():
+                            meta_path.unlink()
                 elif path.is_dir():
                     shutil.rmtree(path, ignore_errors=True)
                 return True

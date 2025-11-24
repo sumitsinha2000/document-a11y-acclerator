@@ -1060,6 +1060,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
         total_issues_after = summary_after.get("totalIssues", total_issues_before)
         high_severity_after = summary_after.get("highSeverity", high_severity_before)
         fixed_filename = result.get("fixedFile")
+        fixed_file_remote = result.get("fixedFileRemote")
 
         changes_detected = scan_results_changed(
             issues_before=issues_before,
@@ -1105,6 +1106,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
             )
             if archive_info:
                 fixed_filename = archive_info.get("relative_path")
+                fixed_file_remote = archive_info.get("remote_path") or fixed_file_remote
 
         save_success = False
         if changes_detected:
@@ -1120,6 +1122,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
                         "relativePath": archive_info.get("relative_path"),
                         "storedFilename": archive_info.get("filename"),
                         "fileSize": archive_info.get("size"),
+                        "remotePath": archive_info.get("remote_path"),
                     }
                 )
             try:
@@ -1158,6 +1161,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
             "status": "success",
             "fixedFile": fixed_filename,
             "fixedFilePath": fixed_filename,
+            "fixedFileRemote": fixed_file_remote,
             "scanResults": scan_results_after,
             "summary": summary_after,
             "fixesApplied": fixes_applied,
@@ -1171,6 +1175,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
                     "versionLabel": f"V{archive_info.get('version')}",
                     "fixedFile": archive_info.get("relative_path"),
                     "fixedFilePath": archive_info.get("relative_path"),
+                    "fixedFileRemote": archive_info.get("remote_path") or fixed_file_remote,
                 }
             )
 
@@ -1222,6 +1227,7 @@ async def download_fixed_file(filename: str, request: Request):
         scan_id_param = request.query_params.get("scanId")
 
         file_path: Optional[Path] = None
+        remote_identifier: Optional[str] = None
         selected_version: Optional[Dict[str, Any]] = None
         scan_id_for_version = scan_id_param
 
@@ -1303,7 +1309,12 @@ async def download_fixed_file(filename: str, request: Request):
                         )
                     selected_version = match
 
-                file_path = Path(selected_version["absolute_path"])
+                remote_identifier = selected_version.get("remote_path")
+                absolute_candidate = selected_version.get("absolute_path")
+                if absolute_candidate:
+                    candidate_path = Path(absolute_candidate)
+                    if candidate_path.exists():
+                        file_path = candidate_path
                 scan_id_for_version = target_scan_id
             else:
                 for folder in (fixed_dir, uploads_dir):
@@ -1315,7 +1326,10 @@ async def download_fixed_file(filename: str, request: Request):
                     if file_path:
                         break
 
-        if not file_path:
+        if selected_version and not remote_identifier:
+            remote_identifier = selected_version.get("remote_path")
+
+        if not file_path and not remote_identifier:
             return JSONResponse({"error": "File not found"}, status_code=404)
 
         original_filename = None
@@ -1329,15 +1343,31 @@ async def download_fixed_file(filename: str, request: Request):
                 f"{Path(original_filename).stem}_V{selected_version['version']}.pdf"
             )
         elif selected_version:
-            download_name = selected_version.get("filename") or file_path.name
+            download_name = selected_version.get("filename") or (file_path.name if file_path else filename)
         else:
-            download_name = file_path.name
+            download_name = file_path.name if file_path else filename
         if not download_name.lower().endswith(".pdf"):
             download_name = f"{Path(download_name).stem}.pdf"
+        if remote_identifier:
+            try:
+                remote_stream = stream_remote_file(remote_identifier)
+                headers = {"Content-Disposition": f'attachment; filename="{download_name}"'}
+                return StreamingResponse(
+                    remote_stream,
+                    media_type="application/pdf",
+                    headers=headers,
+                )
+            except FileNotFoundError:
+                remote_identifier = None
+            except Exception:
+                logger.exception("[Backend] Remote download failed for %s", remote_identifier)
 
-        return FileResponse(
-            file_path, media_type="application/pdf", filename=download_name
-        )
+        if file_path:
+            return FileResponse(
+                file_path, media_type="application/pdf", filename=download_name
+            )
+
+        return JSONResponse({"error": "File not found"}, status_code=404)
     except Exception as exc:
         logger.exception("[Backend] Error downloading fixed file %s", filename)
         return JSONResponse({"error": str(exc)}, status_code=500)

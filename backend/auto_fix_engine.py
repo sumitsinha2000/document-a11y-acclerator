@@ -883,19 +883,15 @@ class AutoFixEngine:
                 stream_decode_level=pikepdf.StreamDecodeLevel.none
             )
             
-            print(f"[AutoFixEngine] ✓ PDF saved to temp file")
-            print(f"[AutoFixEngine] Temp file size: {os.path.getsize(temp_path)} bytes")
+            temp_size = os.path.getsize(temp_path)
+            print(f"[AutoFixEngine] Temp file size: {temp_size} bytes")
             
             pdf.close()
             pdf = None
             
-            print(f"[AutoFixEngine] Replacing original file with fixed version...")
-            shutil.move(temp_path, pdf_path)
-            print(f"[AutoFixEngine] ✓ Original file replaced")
-            print(f"[AutoFixEngine] Final file size: {os.path.getsize(pdf_path)} bytes")
-            
+            fixed_output_path = Path(temp_path)
             if tracker:
-                tracker.complete_step(step_id, f"PDF saved ({os.path.getsize(pdf_path)} bytes)")
+                tracker.complete_step(step_id, f"PDF saved ({temp_size} bytes)")
 
             rescan_data = {}
             rescan_step_id = None
@@ -908,8 +904,8 @@ class AutoFixEngine:
                 tracker.start_step(rescan_step_id)
 
             try:
-                rescan_data = self._analyze_fixed_pdf(pdf_path)
-                rescan_data["fixedFile"] = os.path.basename(pdf_path)
+                rescan_data = self._analyze_fixed_pdf(fixed_output_path)
+                rescan_data["fixedFile"] = fixed_output_path.name
                 if tracker and rescan_step_id:
                     tracker.complete_step(
                         rescan_step_id,
@@ -927,7 +923,8 @@ class AutoFixEngine:
             
             return {
                 'success': True,
-                'fixedFile': os.path.basename(pdf_path),
+                'fixedFile': fixed_output_path.name,
+                'fixedTempPath': str(fixed_output_path),
                 'fixesApplied': fixes_applied,
                 'successCount': len(fixes_applied),
                 'message': f'Successfully applied {len(fixes_applied)} automated fixes',
