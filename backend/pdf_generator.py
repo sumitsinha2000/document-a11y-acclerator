@@ -355,34 +355,35 @@ class PDFGenerator:
         pdf.multi_cell(0, 6, "\n".join(summary_lines))
         pdf.ln(4)
 
-        category_names = [
-            "missingMetadata",
-            "missingLanguage",
-            "missingAltText",
-            "poorContrast",
-            "structureIssues",
-            "readingOrderIssues",
-            "tableIssues",
-            "formIssues",
-            "untaggedContent",
-            "pdfuaIssues",
-            "pdfaIssues",
-            "wcagIssues",
-        ]
+        def _pretty_category_name(name: str) -> str:
+            if not name:
+                return "Other Issues"
+            pretty = name.replace("Issues", " Issues").replace("pdf", "PDF ")
+            pretty = pretty.replace("_", " ").strip()
+            return pretty.title()
 
-        for category in category_names:
-            issues = results.get(category)
+        for category, issues in sorted(results.items()):
             if not issues:
                 continue
 
-            pretty_name = category.replace("Issues", " Issues").replace("pdf", "PDF ").title()
+            if isinstance(issues, dict):
+                issue_list = [issues]
+            elif isinstance(issues, list):
+                issue_list = [issue for issue in issues if issue]
+            else:
+                issue_list = [issues]
+
+            if not issue_list:
+                continue
+
+            pretty_name = _pretty_category_name(category)
             pdf.set_font(font_family, "B", 14)
             pdf.set_text_color(30, 30, 30)
             pdf.cell(0, 9, pretty_name, ln=True)
             pdf.set_font(font_family, "", 11)
             pdf.set_text_color(60, 60, 60)
 
-            for idx, issue in enumerate(issues, start=1):
+            for idx, issue in enumerate(issue_list, start=1):
                 severity = str(issue.get("severity", "medium")).capitalize()
                 description = (
                     issue.get("description")
