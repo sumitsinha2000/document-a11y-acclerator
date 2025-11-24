@@ -423,7 +423,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                   onClick={onBackToFolder}
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
                 >
-                  <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor">
+                  <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 4L4 10l6 6" />
                   </svg>
                   <span>{`Back to ${folderLabel} files`}</span>
@@ -435,7 +435,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
               onClick={handleRefresh}
               className="px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-1 font-semibold text-sm border border-slate-200 dark:border-slate-600"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -600,6 +600,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
                         >
                           <path
                             strokeLinecap="round"
@@ -615,7 +616,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                       <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
                         {typeof verapdfStatus.wcagCompliance === "number" && (
                           <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
-                            <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                            <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                               <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
                               <path
                                 fillRule="evenodd"
@@ -634,6 +635,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                               className="w-4 h-4 text-purple-600 dark:text-purple-400"
                               fill="currentColor"
                               viewBox="0 0 20 20"
+                              aria-hidden="true"
                             >
                               <path
                                 fillRule="evenodd"
@@ -664,6 +666,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
                         >
                           <path
                             strokeLinecap="round"
@@ -690,6 +693,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
                         >
                           <path
                             strokeLinecap="round"

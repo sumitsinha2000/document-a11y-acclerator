@@ -179,7 +179,7 @@ export default function FixHistory({ scanId, onRefresh }) {
       <div className="p-7">
         <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Fix History</h3>
         <div className="flex items-center gap-3 text-slate-600 dark:text-slate-400">
-          <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -283,6 +283,7 @@ export default function FixHistory({ scanId, onRefresh }) {
                       className="w-5 h-5 text-emerald-600 dark:text-emerald-400"
                       fill="currentColor"
                       viewBox="0 0 20 20"
+                      aria-hidden="true"
                     >
                       <path
                         fillRule="evenodd"
@@ -302,7 +303,7 @@ export default function FixHistory({ scanId, onRefresh }) {
                       onClick={() => handlePreview(item)}
                       className="flex items-center gap-2 px-4 py-2.5 text-base font-semibold text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 rounded-lg transition-colors"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -318,7 +319,7 @@ export default function FixHistory({ scanId, onRefresh }) {
                         onClick={() => handleDownload(item.fixedFile)}
                         className="flex items-center gap-2 px-4 py-2.5 text-base font-semibold text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-lg transition-colors"
                       >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
