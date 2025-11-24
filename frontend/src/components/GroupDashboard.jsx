@@ -7,11 +7,14 @@ import UploadArea from "./UploadArea"
 import ReportViewer from "./ReportViewer"
 import API_BASE_URL from "../config/api"
 import { parseBackendDate } from "../utils/dates"
+import { resolveEntityStatus } from "../utils/statuses"
 
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id))
 const getCacheKey = (node) => (node ? `${node.type}:${normalizeId(node.id)}` : "")
-const SCANNABLE_STATUSES = new Set(["uploaded", "unprocessed"])
-const isScannableStatus = (status) => SCANNABLE_STATUSES.has((status || "unprocessed").toLowerCase())
+const SCANNABLE_STATUSES = new Set(["uploaded", "scanned"])
+const getStatusCode = (value) =>
+  resolveEntityStatus(typeof value === "object" ? value : { status: value }).code
+const isScannableStatus = (entity) => SCANNABLE_STATUSES.has(getStatusCode(entity))
 
 export default function GroupDashboard({
   onSelectScan,
@@ -169,7 +172,7 @@ export default function GroupDashboard({
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-600 bg-indigo-50 rounded-full dark:text-indigo-300 dark:bg-indigo-900/30">
-                        {scan.status || "Uploaded"}
+                        {resolveEntityStatus(scan).label}
                       </span>
                       <button
                         onClick={() => onSelectScan(scan)}
@@ -394,7 +397,7 @@ export default function GroupDashboard({
     }
 
     const scansToStart =
-      nodeData.scans?.filter((scan) => isScannableStatus(scan.status)) || []
+      nodeData.scans?.filter((scan) => isScannableStatus(scan)) || []
 
     if (scansToStart.length === 0) {
       showError("All files in this folder have already been sent for scanning.")
@@ -508,7 +511,7 @@ export default function GroupDashboard({
   const folderReadyToScan =
     nodeData?.type === "batch" &&
     ((nodeData?.scans?.length || 0) === 0 ||
-      nodeData?.scans?.every((scan) => isScannableStatus(scan.status)))
+      nodeData?.scans?.every((scan) => isScannableStatus(scan)))
   const folderBatchId = nodeData?.type === "batch" ? nodeData.batchId || selectedNode?.id : null
   const activeDashboardName =
     nodeData?.type === "group"

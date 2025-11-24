@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
+import { resolveEntityStatus } from "../utils/statuses";
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id));
 const FILE_STATUS_STYLES = {
-  fixed: "bg-emerald-100 text-emerald-800",
-  processed: "bg-indigo-100 text-indigo-800",
-  compliant: "bg-green-100 text-green-700",
   uploaded: "bg-gray-100 text-gray-700",
-  default: "bg-amber-100 text-amber-800",
+  scanned: "bg-blue-100 text-blue-800",
+  partially_fixed: "bg-amber-100 text-amber-800",
+  fixed: "bg-emerald-100 text-emerald-800",
+  error: "bg-rose-100 text-rose-800",
+  default: "bg-slate-100 text-slate-600",
 };
 
 export default function GroupTreeSidebar({
@@ -1101,7 +1103,7 @@ export default function GroupTreeSidebar({
                       selected ? "text-indigo-100 dark:text-indigo-100" : "text-gray-500 dark:text-gray-400"
                     } group-focus-within:text-white dark:group-focus-within:text-white`}
                   >
-                    {(file.status || "uploaded").toUpperCase()}
+                    {resolveEntityStatus(file).label.toUpperCase()}
                   </p>
                 </button>
               );
@@ -1602,12 +1604,9 @@ export default function GroupTreeSidebar({
                                 const isFileSelected =
                                   selectedNode?.type === "file" &&
                                   normalizeId(selectedNode?.id) === normalizeId(file.id);
-                                const normalizedStatus =
-                                  typeof file.status === "string" ? file.status.toLowerCase() : "";
+                                const statusInfo = resolveEntityStatus(file);
                                 const statusClasses =
-                                  FILE_STATUS_STYLES[normalizedStatus] || FILE_STATUS_STYLES.default;
-                                const statusLabel =
-                                  normalizedStatus === "uploaded" ? "Uploaded" : file.status;
+                                  FILE_STATUS_STYLES[statusInfo.code] || FILE_STATUS_STYLES.default;
 
                                 return (
                                   <li key={file.id}>
@@ -1645,13 +1644,13 @@ export default function GroupTreeSidebar({
                                         <span className="block truncate text-sm font-medium">
                                           {file.filename}
                                         </span>
-                                        {file.status && (
-                                          <span
-                                            className={`mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClasses}`}
-                                          >
-                                            <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                                            {statusLabel}
-                                          </span>
+                                        {statusInfo.label && (
+                                            <span
+                                                className={`mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClasses}`}
+                                            >
+                                                <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                                                {statusInfo.label}
+                                            </span>
                                         )}
                                       </span>
                                     </button>

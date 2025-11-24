@@ -26,9 +26,11 @@ from backend.utils.app_helpers import (
     FIXED_FOLDER,
     NEON_DATABASE_URL,
     UPLOAD_FOLDER,
+    FILE_STATUS_LABELS,
     SafeJSONResponse,
     archive_fixed_pdf_version,
     create_progress_tracker,
+    derive_file_status,
     execute_query,
     get_db_connection,
     get_fixed_version,
@@ -210,7 +212,8 @@ async def get_batch_details(batch_id: str):
             initial_summary = scan_results.get("summary") or {}
         results = scan_results.get("results", scan_results) or {}
 
-        if scan.get("fix_id"):
+        has_fix_history = bool(scan.get("fix_id"))
+        if has_fix_history:
             fixes_applied = scan.get("fixes_applied")
             if isinstance(fixes_applied, str):
                 try:
@@ -236,7 +239,6 @@ async def get_batch_details(batch_id: str):
             current_high = scan.get("high_severity_after")
             if current_high is None:
                 current_high = initial_summary.get("highSeverity", 0)
-            current_status = "fixed"
         else:
             fixes_applied = []
             current_issues = scan.get("issues_remaining") or initial_summary.get(
@@ -244,7 +246,12 @@ async def get_batch_details(batch_id: str):
             )
             current_compliance = initial_summary.get("complianceScore", 0)
             current_high = initial_summary.get("highSeverity", 0)
-            current_status = scan.get("status") or "scanned"
+        status_code, status_label = derive_file_status(
+            scan.get("status"),
+            has_fix_history=has_fix_history,
+            issues_remaining=current_issues,
+            summary_status=initial_summary.get("status"),
+        )
 
         current_issues = current_issues or 0
         current_compliance = current_compliance or 0
@@ -280,7 +287,8 @@ async def get_batch_details(batch_id: str):
             {
                 "scanId": scan["id"],
                 "filename": scan["filename"],
-                "status": current_status,
+                "status": status_label,
+                "statusCode": status_code,
                 "uploadDate": scan.get("upload_date"),
                 "groupId": scan.get("group_id"),
                 "fixedFilename": scan.get("fixed_filename"),
@@ -347,8 +355,7 @@ async def get_batch_details(batch_id: str):
         else sum(
             1
             for scan in processed_scans
-            if (scan.get("status") or "").lower()
-            in {"uploaded", "unprocessed", "processing"}
+            if (scan.get("statusCode") or "uploaded") == "uploaded"
         ),
         "highSeverity": total_high,
         "avgCompliance": avg_compliance,
@@ -1320,6 +1327,7 @@ async def get_history():
                     print(f"[Backend] Warning: Failed to parse scan_results JSON: {e}")
                     scan_results = {}
 
+            summary = scan_results.get("summary", {}) if isinstance(scan_results, dict) else {}
             results = scan_results.get("results", scan_results)
             total_issues = scan_dict.get("totalIssues", 0)
 
@@ -1329,15 +1337,22 @@ async def get_history():
                     len(v) if isinstance(v, list) else 0 for v in results.values()
                 )
 
-            # Default status fallback
-            status = scan_dict.get("status") or "unprocessed"
+            issues_remaining = scan_dict.get("issuesRemaining") or summary.get(
+                "issuesRemaining", summary.get("remainingIssues")
+            )
+            status_code, status_label = derive_file_status(
+                scan_dict.get("status"),
+                issues_remaining=issues_remaining,
+                summary_status=summary.get("status"),
+            )
 
             formatted_scans.append(
                 {
                     "id": scan_dict["id"],
                     "filename": scan_dict["filename"],
                     "uploadDate": scan_dict.get("uploadDate"),
-                    "status": status,
+                    "status": status_label,
+                    "statusCode": status_code,
                     "groupId": scan_dict.get("groupId"),
                     "groupName": scan_dict.get("groupName"),
                     "totalIssues": total_issues,

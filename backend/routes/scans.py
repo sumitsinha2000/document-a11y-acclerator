@@ -17,8 +17,10 @@ from backend.utils.wcag_mapping import annotate_wcag_mappings
 from backend.utils.app_helpers import (
     SafeJSONResponse,
     NEON_DATABASE_URL,
+    FILE_STATUS_LABELS,
     build_placeholder_scan_payload,
     build_verapdf_status,
+    derive_file_status,
     execute_query,
     get_fixed_version,
     get_versioned_files,
@@ -82,6 +84,16 @@ async def get_scans():
             results = parsed_payload.get("results", parsed_payload) or {}
 
             scan_identifier = row_dict.get("id")
+            issues_remaining = (
+                row_dict.get("issues_remaining")
+                or summary.get("issuesRemaining")
+                or summary.get("remainingIssues")
+            )
+            status_code, status_label = derive_file_status(
+                row_dict.get("status"),
+                issues_remaining=issues_remaining,
+                summary_status=summary.get("status"),
+            )
 
             scans.append(
                 {
@@ -90,7 +102,8 @@ async def get_scans():
                     "filename": row_dict.get("filename"),
                     "groupId": row_dict.get("group_id"),
                     "batchId": row_dict.get("batch_id"),
-                    "status": row_dict.get("status", "unprocessed"),
+                    "status": status_label,
+                    "statusCode": status_code,
                     "uploadDate": row_dict.get("upload_date")
                     or row_dict.get("created_at"),
                     "filePath": row_dict.get("file_path"),
@@ -361,7 +374,8 @@ async def scan_batch(
                         "filename": upload.filename,
                         "batchId": batch_id,
                         "groupId": group_id,
-                        "status": "error",
+                        "status": "Error",
+                        "statusCode": "error",
                         "error": str(write_err),
                     }
                 )
@@ -423,7 +437,7 @@ async def scan_batch(
                         record_payload,
                         batch_id=batch_id,
                         group_id=group_id,
-                        status="completed",
+                        status="scanned",
                         total_issues=total_issues_file,
                         issues_fixed=0,
                         issues_remaining=remaining_issues,
@@ -431,7 +445,7 @@ async def scan_batch(
                     )
                     successful_scans += 1
                     total_batch_issues += total_issues_file
-                    status_value = "completed"
+                    status_code = "scanned"
                 else:
                     record_payload = build_placeholder_scan_payload(upload.filename)
                     saved_id = save_scan_to_db(
@@ -446,7 +460,7 @@ async def scan_batch(
                         issues_remaining=0,
                         file_path=storage_reference,
                     )
-                    status_value = "uploaded"
+                    status_code = "uploaded"
 
                 processed_files += 1
                 scan_results_response.append(
@@ -456,7 +470,8 @@ async def scan_batch(
                         "filename": upload.filename,
                         "batchId": batch_id,
                         "groupId": group_id,
-                        "status": status_value,
+                        "status": FILE_STATUS_LABELS.get(status_code, status_code.title()),
+                        "statusCode": status_code,
                         "summary": record_payload.get("summary", {}),
                         "results": record_payload.get("results", {}),
                         "fixes": record_payload.get("fixes", []),
@@ -477,7 +492,8 @@ async def scan_batch(
                         "filename": upload.filename,
                         "batchId": batch_id,
                         "groupId": group_id,
-                        "status": "error",
+                        "status": "Error",
+                        "statusCode": "error",
                         "error": str(processing_err),
                     }
                 )
@@ -591,7 +607,7 @@ async def start_deferred_scan(scan_id: str):
             """,
             (
                 _serialize_scan_results(formatted_results),
-                "unprocessed",
+                "scanned",
                 total_issues,
                 total_issues,
                 0,
@@ -626,7 +642,8 @@ async def start_deferred_scan(scan_id: str):
             "results": scan_results,
             "fixes": fix_suggestions,
             "verapdfStatus": verapdf_status,
-            "status": "unprocessed",
+            "status": FILE_STATUS_LABELS.get("scanned", "Scanned"),
+            "statusCode": "scanned",
             "timestamp": datetime.now().isoformat(),
         }
     )
@@ -841,10 +858,22 @@ async def get_scan(scan_id: str):
             if batch_rows:
                 batch_info = batch_rows[0]
 
+        remaining_issues = (
+            scan.get("issues_remaining")
+            or summary.get("issuesRemaining")
+            or summary.get("remainingIssues")
+        )
+        status_code, status_label = derive_file_status(
+            scan.get("status"),
+            issues_remaining=remaining_issues,
+            summary_status=summary.get("status"),
+        )
+
         response_data = {
             "scanId": scan.get("id"),
             "filename": scan.get("filename"),
-            "status": scan.get("status", "completed"),
+            "status": status_label,
+            "statusCode": status_code,
             "groupId": scan.get("group_id"),
             "batchId": batch_id_value,
             "folderId": batch_id_value,
@@ -951,9 +980,15 @@ async def get_scan_current_state(scan_id: str):
                     fix_suggestions = json.loads(fix_suggestions)
                 except json.JSONDecodeError:
                     fix_suggestions = []
-
+            remaining_after = latest_fix.get("total_issues_after")
+            status_code, status_label = derive_file_status(
+                "fixed",
+                has_fix_history=True,
+                issues_remaining=remaining_after,
+            )
             response["currentState"] = {
-                "status": "fixed",
+                "status": status_label,
+                "statusCode": status_code,
                 "fixedFilename": latest_fix.get("fixed_filename"),
                 "lastFixApplied": latest_fix.get("applied_at"),
                 "fixType": latest_fix.get("fix_type"),
@@ -973,8 +1008,17 @@ async def get_scan_current_state(scan_id: str):
                     "relative_path"
                 )
         else:
+            remaining_initial = scan.get("issues_remaining") or initial_summary.get(
+                "issuesRemaining", initial_summary.get("remainingIssues")
+            )
+            status_code, status_label = derive_file_status(
+                scan.get("status"),
+                issues_remaining=remaining_initial,
+                summary_status=initial_summary.get("status"),
+            )
             response["currentState"] = {
-                "status": scan.get("status", "scanned"),
+                "status": status_label,
+                "statusCode": status_code,
                 "remainingIssues": initial_results,
                 "complianceScore": initial_summary.get("complianceScore", 0),
                 "totalIssues": scan.get("total_issues", 0),

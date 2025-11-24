@@ -16,12 +16,14 @@ from pydantic import BaseModel, Field
 from psycopg2.extras import RealDictCursor
 
 from backend.utils.app_helpers import (
+    FILE_STATUS_LABELS,
     SafeJSONResponse,
     _build_scan_export_payload,
     _delete_batch_with_files,
     _fixed_root,
     _perform_automated_fix,
     _uploads_root,
+    derive_file_status,
     execute_query,
     get_db_connection,
     get_fixed_version,
@@ -194,7 +196,8 @@ async def get_folder(folder_id: str):
         initial_summary = scan_results.get("summary", {}) if isinstance(scan_results, dict) else {}
         results = scan_results.get("results", scan_results) or {}
 
-        if scan.get("fix_id"):
+        has_fix_history = bool(scan.get("fix_id"))
+        if has_fix_history:
             fixes_applied = scan.get("fixes_applied")
             if isinstance(fixes_applied, str):
                 try:
@@ -218,13 +221,17 @@ async def get_folder(folder_id: str):
             current_high = scan.get("high_severity_after")
             if current_high is None:
                 current_high = initial_summary.get("highSeverity", 0)
-            current_status = "fixed"
         else:
             fixes_applied = []
             current_issues = scan.get("issues_remaining") or initial_summary.get("totalIssues", 0)
             current_compliance = initial_summary.get("complianceScore", 0)
             current_high = initial_summary.get("highSeverity", 0)
-            current_status = scan.get("status") or "scanned"
+        status_code, status_label = derive_file_status(
+            scan.get("status"),
+            has_fix_history=has_fix_history,
+            issues_remaining=current_issues,
+            summary_status=initial_summary.get("status"),
+        )
 
         current_issues = current_issues or 0
         current_compliance = current_compliance or 0
@@ -260,7 +267,8 @@ async def get_folder(folder_id: str):
             {
                 "scanId": scan["id"],
                 "filename": scan["filename"],
-                "status": current_status,
+                "status": status_label,
+                "statusCode": status_code,
                 "uploadDate": scan.get("upload_date"),
                 "groupId": scan.get("group_id"),
                 "fixedFilename": scan.get("fixed_filename"),
@@ -306,7 +314,13 @@ async def get_folder(folder_id: str):
         "remainingIssues": batch.get("remaining_issues")
         if batch.get("remaining_issues") is not None
         else max(total_issues - (batch.get("fixed_issues") or 0), 0),
-        "unprocessedFiles": batch.get("unprocessed_files"),
+        "unprocessedFiles": batch.get("unprocessed_files")
+        if batch.get("unprocessed_files") is not None
+        else sum(
+            1
+            for scan in processed_scans
+            if (scan.get("statusCode") or "uploaded") == "uploaded"
+        ),
         "avgCompliance": avg_compliance,
         "highSeverity": total_high,
         "scans": processed_scans,

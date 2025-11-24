@@ -11,6 +11,16 @@ import API_BASE_URL, { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
 import { parseBackendDate } from "../utils/dates"
 import { resolveSummary, calculateComplianceSnapshot } from "../utils/compliance"
+import { resolveEntityStatus } from "../utils/statuses"
+
+const STATUS_BADGE_STYLES = {
+  uploaded: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200",
+  scanned: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  partially_fixed: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  fixed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  error: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
+  default: "bg-gray-100 text-gray-700 dark:bg-gray-800/60 dark:text-gray-200",
+}
 
 export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpen = true, onScanComplete }) {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
@@ -268,7 +278,8 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
     verapdfStatus,
   })
 
-  const scanStatus = (reportData.status || "").toLowerCase()
+  const scanStatusInfo = resolveEntityStatus(reportData)
+  const scanStatus = scanStatusInfo.code
   const isUploaded = scanStatus === "uploaded"
   const scanDateLabel = isUploaded ? "Uploaded on" : "Scanned on"
   const parsedReportDate = parseBackendDate(reportData.uploadDate || reportData.timestamp || reportData.created_at)
@@ -298,7 +309,12 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
 
             {/* Files List */}
             <div className="flex-1 overflow-y-auto p-2">
-              {scans.map((scan, index) => (
+              {scans.map((scan, index) => {
+                const statusInfo = resolveEntityStatus(scan)
+                const showSummary =
+                  scan.summary && statusInfo.code !== "uploaded" && typeof scan.summary.complianceScore === "number"
+
+                return (
                 <button
                   key={index}
                   onClick={() => setSelectedFileIndex(index)}
@@ -336,7 +352,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                       >
                         {scan.fileName || scan.filename}
                       </p>
-                      {scan.summary && scan.status !== "uploaded" && typeof scan.summary.complianceScore === "number" && (
+                      {showSummary && (
                         <div className="flex items-center gap-2 mt-1">
                           <span
                             className={`text-xs font-semibold ${
@@ -353,35 +369,19 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                         </div>
                       )}
                       {/* Status badge */}
-                      {scan.status && (
+                      {statusInfo.label && (
                         <span
                           className={`inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full ${
-                            scan.status === "fixed"
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                              : scan.status === "processed"
-                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                : scan.status === "compliant"
-                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                  : scan.status === "uploaded"
-                                    ? "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200"
-                                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                            STATUS_BADGE_STYLES[statusInfo.code] || STATUS_BADGE_STYLES.default
                           }`}
                         >
-                          {scan.status === "fixed"
-                            ? "Fixed"
-                            : scan.status === "processed"
-                              ? "Processed"
-                              : scan.status === "compliant"
-                                ? "Compliant"
-                                : scan.status === "uploaded"
-                                  ? "Uploaded"
-                                  : "Unprocessed"}
+                          {statusInfo.label}
                         </span>
                       )}
                     </div>
                   </div>
                 </button>
-              ))}
+              )})}
             </div>
           </div>
         </div>
@@ -547,7 +547,12 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
       <div className="pt-4 px-8 pb-8 space-y-6">
           {scans.length > 1 && (
             <div className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
-              {scans.map((scan, index) => (
+              {scans.map((scan, index) => {
+                const statusInfo = resolveEntityStatus(scan)
+                const showCompliance =
+                  scan.summary && statusInfo.code !== "uploaded" && typeof scan.summary.complianceScore === "number"
+
+                return (
                 <button
                   key={index}
                   ref={(el) => (tabRefs.current[index] = el)}
@@ -560,7 +565,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                 >
                   <span>📄</span>
                   <span>{scan.fileName || scan.filename}</span>
-                  {scan.summary && scan.status !== "uploaded" && typeof scan.summary.complianceScore === "number" && (
+                  {showCompliance && (
                     <span
                       className={`px-2 py-0.5 rounded-full text-xs font-bold ${
                         scan.summary.complianceScore >= 70
@@ -572,7 +577,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                     </span>
                   )}
                 </button>
-              ))}
+              )})}
             </div>
           )}
 

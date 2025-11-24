@@ -1,3 +1,5 @@
+import { FILE_STATUS_LABELS_MAP, normalizeStatusCode, resolveEntityStatus } from "../utils/statuses"
+
 const CATEGORY_LABELS = {
   missingMetadata: "Metadata",
   untaggedContent: "Tagging",
@@ -9,12 +11,7 @@ const CATEGORY_LABELS = {
 }
 
 const STATUS_LABELS = {
-  uploaded: "Waiting",
-  unprocessed: "Unprocessed",
-  processing: "Processing",
-  processed: "Processed",
-  completed: "Completed",
-  fixed: "Fixed",
+  ...FILE_STATUS_LABELS_MAP,
   failed: "Failed",
 }
 
@@ -163,9 +160,8 @@ export function BatchInsightPanel({ scans }) {
   const issuesByFile = []
 
   scans.forEach((scan) => {
-    const rawStatus = (scan?.status || "unknown").toLowerCase()
-    const normalizedStatus = STATUS_LABELS[rawStatus] ? rawStatus : "unknown"
-    statusTotals.set(normalizedStatus, (statusTotals.get(normalizedStatus) || 0) + 1)
+    const { code } = resolveEntityStatus(scan)
+    statusTotals.set(code, (statusTotals.get(code) || 0) + 1)
 
     const totalIssues = scan?.summary?.totalIssues ?? scan?.initialSummary?.totalIssues ?? 0
     issuesByFile.push({
@@ -247,7 +243,13 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
   }))
   const topCategories = categoryEntries.sort((a, b) => b.count - a.count).slice(0, 3)
 
-  const statusEntries = Object.entries(statusCounts || {}).map(([key, count]) => ({
+  const aggregatedStatusCounts = Object.entries(statusCounts || {}).reduce((acc, [key, count]) => {
+    const code = normalizeStatusCode(key)
+    acc[code] = (acc[code] || 0) + count
+    return acc
+  }, {})
+
+  const statusEntries = Object.entries(aggregatedStatusCounts).map(([key, count]) => ({
     key,
     label: STATUS_LABELS[key] || key.replace(/([A-Z])/g, " $1").trim(),
     count,

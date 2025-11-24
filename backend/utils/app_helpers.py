@@ -35,6 +35,36 @@ load_dotenv()
 
 logger = logging.getLogger('doca11y-backend')
 
+FILE_STATUS_LABELS: Dict[str, str] = {
+    "uploaded": "Uploaded",
+    "scanned": "Scanned",
+    "partially_fixed": "Partially Fixed",
+    "fixed": "Fixed",
+    "error": "Error",
+}
+
+LEGACY_STATUS_CODE_MAP: Dict[str, str] = {
+    "": "uploaded",
+    "uploaded": "uploaded",
+    "uploading": "uploaded",
+    "unprocessed": "uploaded",
+    "processing": "uploaded",
+    "queued": "uploaded",
+    "pending": "uploaded",
+    "scanned": "scanned",
+    "completed": "scanned",
+    "finished": "scanned",
+    "processed": "partially_fixed",
+    "partially_fixed": "partially_fixed",
+    "ai_fix_started": "partially_fixed",
+    "fixing": "partially_fixed",
+    "fixed": "fixed",
+    "compliant": "fixed",
+    "error": "error",
+}
+
+SUMMARY_PENDING_STATUSES = {"queued", "pending", "uploading", "processing"}
+
 NEON_DATABASE_URL = os.getenv('NEON_DATABASE_URL')
 DB_SCHEMA = os.getenv('DB_SCHEMA', 'public')
 
@@ -74,6 +104,89 @@ class SafeJSONResponse(JSONResponse):
     def render(self, content: any) -> bytes:
         safe = to_json_safe(content)
         return json.dumps(safe, ensure_ascii=False).encode("utf-8")
+
+def _coerce_int(value: Any) -> Optional[int]:
+    """Best-effort conversion to int."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float, Decimal)):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return int(float(stripped))
+        except ValueError:
+            return None
+    return None
+
+def normalize_file_status(raw_status: Optional[str]) -> str:
+    """Map legacy status strings into the canonical status code."""
+    if raw_status is None:
+        return "uploaded"
+    normalized = raw_status.strip().lower()
+    return LEGACY_STATUS_CODE_MAP.get(normalized, normalized or "uploaded")
+
+def derive_file_status(
+    raw_status: Optional[str],
+    *,
+    has_fix_history: bool = False,
+    issues_remaining: Optional[int] = None,
+    summary_status: Optional[str] = None,
+) -> Tuple[str, str]:
+    """
+    Determine the canonical status code + label for a scan based on legacy
+    status fields, fix history, and remaining issue counts.
+    """
+    normalized = normalize_file_status(raw_status)
+    remaining = _coerce_int(issues_remaining)
+    summary_normalized = (
+        normalize_file_status(summary_status)
+        if summary_status is not None
+        else None
+    )
+
+    if has_fix_history:
+        normalized = "fixed" if (remaining is not None and remaining <= 0) else "partially_fixed"
+    elif normalized not in FILE_STATUS_LABELS or normalized == "uploaded":
+        if (
+            summary_normalized
+            and summary_normalized not in SUMMARY_PENDING_STATUSES
+            and summary_normalized in {"scanned", "partially_fixed", "fixed"}
+        ):
+            normalized = "scanned"
+
+    if remaining is not None and remaining <= 0 and normalized != "uploaded":
+        normalized = "fixed"
+
+    if normalized not in FILE_STATUS_LABELS:
+        normalized = "uploaded"
+
+    return normalized, FILE_STATUS_LABELS[normalized]
+
+def remap_status_counts(raw_counts: Optional[Dict[str, int]]) -> Dict[str, int]:
+    """Normalize aggregated status counts into the canonical buckets."""
+    normalized_counts: Dict[str, int] = {
+        "uploaded": 0,
+        "scanned": 0,
+        "partially_fixed": 0,
+        "fixed": 0,
+    }
+    if not raw_counts:
+        return normalized_counts
+
+    for status_key, count in raw_counts.items():
+        if not count:
+            continue
+        code = normalize_file_status(status_key)
+        if code not in normalized_counts:
+            continue
+        normalized_counts[code] += count
+
+    return normalized_counts
 
 def _init_storage_dir(env_value: Optional[str], default_suffix: str) -> Path:
     """
@@ -1464,4 +1577,8 @@ __all__ = [
     "_delete_batch_with_files",
     "_perform_automated_fix",
     "_write_uploadfile_to_disk",
+    "FILE_STATUS_LABELS",
+    "normalize_file_status",
+    "derive_file_status",
+    "remap_status_counts",
 ]

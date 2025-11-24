@@ -7,6 +7,7 @@ import { ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Info } from "luc
 import { useNotification } from "../contexts/NotificationContext"
 import API_BASE_URL from "../config/api"
 import { resolveSummary, calculateComplianceSnapshot } from "../utils/compliance"
+import { resolveEntityStatus } from "../utils/statuses"
 
 const normalizeScanSummary = (scan) => {
   if (!scan || typeof scan !== "object") {
@@ -85,7 +86,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       const scanId = scan.scanId || scan.id
       if (!scanId) return false
       if (fetchedScanIdsRef.current.has(scanId)) return false
-      if (scan.status === "uploaded") return false
+      if (resolveEntityStatus(scan).code === "uploaded") return false
       const issues = scan.results || {}
       return !issues || Object.keys(issues).length === 0
     })
@@ -402,8 +403,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   }, 0)
 
   const complianceScores = scansState.reduce((scores, scan) => {
-    const status = (scan.status || "").toLowerCase()
-    if (status === "uploaded") {
+    const { code } = resolveEntityStatus(scan)
+    if (code === "uploaded") {
       return scores
     }
     const score = scan.summary?.complianceScore
@@ -807,8 +808,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                       highSeverity: 0,
                     }
                     const fixResult = fixResults?.results?.find((r) => r.scanId === (scan.scanId || scan.id))
-                    const statusValue = (scan.status || "").toLowerCase()
-                    const isUploaded = statusValue === "uploaded"
+                    const statusInfo = resolveEntityStatus(scan)
+                    const isUploaded = statusInfo.code === "uploaded"
                     const complianceScore =
                       typeof summary.complianceScore === "number" ? summary.complianceScore : 0
                     const totalIssues =

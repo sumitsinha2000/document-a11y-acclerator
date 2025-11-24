@@ -1,4 +1,5 @@
 import { parseBackendDate } from "../utils/dates"
+import { resolveEntityStatus } from "../utils/statuses"
 
 export default function ScanHistory({ scans, onSelectScan, onBack }) {
   if (scans.length === 0) {
@@ -48,41 +49,47 @@ export default function ScanHistory({ scans, onSelectScan, onBack }) {
         <div className="space-y-3">
           {scans.map((scan) => {
             const scanDate = parseBackendDate(scan.uploadDate || scan.timestamp || scan.created_at)
-            return (
-              <div
-              key={scan.id}
-              className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer transition-colors"
-              onClick={() => onSelectScan(scan)}
-            >
-              <div className="flex-1">
-                <h3 className="font-semibold text-gray-900 dark:text-white">{scan.filename}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  {scanDate
-                    ? `${scanDate.toLocaleDateString()} at ${scanDate.toLocaleTimeString()}`
-                    : "Date unavailable"}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                {scan.complianceScore !== undefined && (
-                  <div className="text-right mr-4">
-                    <div className="text-lg font-bold text-gray-900 dark:text-white">{scan.complianceScore}%</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Score</div>
-                  </div>
-                )}
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    scan.status === "completed"
-                      ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+            const statusInfo = resolveEntityStatus(scan)
+            const statusClass =
+              statusInfo.code === "fixed"
+                ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                : statusInfo.code === "partially_fixed"
+                  ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                  : statusInfo.code === "scanned"
+                    ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                    : statusInfo.code === "uploaded"
+                      ? "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200"
                       : scan.status === "failed"
                         ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                        : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-                  }`}
-                >
-                  {scan.status}
-                </span>
+                        : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            return (
+              <div
+                key={scan.id}
+                className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer transition-colors"
+                onClick={() => onSelectScan(scan)}
+              >
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 dark:text-white">{scan.filename}</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    {scanDate
+                      ? `${scanDate.toLocaleDateString()} at ${scanDate.toLocaleTimeString()}`
+                      : "Date unavailable"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {scan.complianceScore !== undefined && (
+                    <div className="text-right mr-4">
+                      <div className="text-lg font-bold text-gray-900 dark:text-white">{scan.complianceScore}%</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Score</div>
+                    </div>
+                  )}
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusClass}`}>
+                    {statusInfo.label || scan.status}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </div>

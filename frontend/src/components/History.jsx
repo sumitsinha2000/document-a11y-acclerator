@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
 import { parseBackendDate } from "../utils/dates"
+import { FILE_STATUS_LABELS_MAP, normalizeStatusCode, resolveEntityStatus } from "../utils/statuses"
 
 export default function History({ onSelectScan, onSelectBatch, onBack }) {
   const [batches, setBatches] = useState([])
@@ -136,43 +137,50 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
     }
   }
 
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      compliant: {
-        bg: "bg-green-100 dark:bg-green-900/30",
-        text: "text-green-800 dark:text-green-400",
-        label: "Compliant",
-      },
-      fixed: {
-        bg: "bg-purple-100 dark:bg-purple-900/30",
-        text: "text-purple-800 dark:text-purple-400",
-        label: "Fixed",
-      },
-      processing: {
-        bg: "bg-yellow-100 dark:bg-yellow-900/30",
-        text: "text-yellow-800 dark:text-yellow-400",
-        label: "Processing",
-      },
-      unprocessed: {
-        bg: "bg-gray-100 dark:bg-gray-700",
-        text: "text-gray-800 dark:text-gray-300",
-        label: "Unprocessed",
-      },
-      uploaded: {
-        bg: "bg-slate-100 dark:bg-slate-800/60",
-        text: "text-slate-800 dark:text-slate-200",
-        label: "Uploaded",
-      },
-      completed: {
-        bg: "bg-blue-100 dark:bg-blue-900/30",
-        text: "text-blue-800 dark:text-blue-400",
-        label: "Scanned",
-      },
-    }
+  const statusStyles = {
+    uploaded: {
+      bg: "bg-slate-100 dark:bg-slate-800/60",
+      text: "text-slate-800 dark:text-slate-200",
+    },
+    scanned: {
+      bg: "bg-blue-100 dark:bg-blue-900/30",
+      text: "text-blue-800 dark:text-blue-400",
+    },
+    partially_fixed: {
+      bg: "bg-amber-100 dark:bg-amber-900/30",
+      text: "text-amber-800 dark:text-amber-400",
+    },
+    fixed: {
+      bg: "bg-purple-100 dark:bg-purple-900/30",
+      text: "text-purple-800 dark:text-purple-400",
+    },
+    error: {
+      bg: "bg-rose-100 dark:bg-rose-900/30",
+      text: "text-rose-800 dark:text-rose-400",
+    },
+    default: {
+      bg: "bg-gray-100 dark:bg-gray-700",
+      text: "text-gray-800 dark:text-gray-300",
+    },
+  }
 
-    const config = statusConfig[status] || statusConfig.unprocessed
+  const getStatusBadge = (statusInput) => {
+    const resolved =
+      statusInput && typeof statusInput === "object"
+        ? resolveEntityStatus(statusInput)
+        : (() => {
+            const code = normalizeStatusCode(statusInput)
+            return {
+              code,
+              label: FILE_STATUS_LABELS_MAP[code] || (statusInput || "Unknown"),
+            }
+          })()
+
+    const config = statusStyles[resolved.code] || statusStyles.default
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>{config.label}</span>
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+        {resolved.label}
+      </span>
     )
   }
 
@@ -501,7 +509,8 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
               const totalIssues = scan.totalIssues || 0
               const issuesFixed = scan.issuesFixed || 0
               const issuesRemaining = scan.issuesRemaining || totalIssues
-              const isUploaded = scan.status === "uploaded"
+              const scanStatus = resolveEntityStatus(scan)
+              const isUploaded = scanStatus.code === "uploaded"
               const scanDateValue = scan.uploadDate || scan.timestamp || scan.created_at
               const scanDate = parseBackendDate(scanDateValue)
 
@@ -569,7 +578,7 @@ export default function History({ onSelectScan, onSelectBatch, onBack }) {
                   </p>
 
                   {/* Status Badge */}
-                  <div className="mb-3">{getStatusBadge(scan.status)}</div>
+                  <div className="mb-3">{getStatusBadge(scan)}</div>
 
                   {/* Issue Statistics */}
                   <div className="space-y-2 mb-3">
