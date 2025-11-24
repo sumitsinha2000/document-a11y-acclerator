@@ -3,7 +3,15 @@
 import { useState, useRef, useEffect } from "react"
 import axios from "axios"
 import UploadProgressToast from "./UploadProgressToast"
-import { API_ENDPOINTS } from "../config/api";
+import { API_ENDPOINTS } from "../config/api"
+
+const formatFileSize = (bytes) => {
+  if (bytes === 0) return "0 Bytes"
+  const k = 1024
+  const sizes = ["Bytes", "KB", "MB", "GB"]
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+}
 
 export default function UploadArea({
   onUploadDeferred,
@@ -18,6 +26,15 @@ export default function UploadArea({
   const fileInputRef = useRef(null)
   const uploadAreaRef = useRef(null)
   const [selectedFiles, setSelectedFiles] = useState([])
+  const [previewFile, setPreviewFile] = useState(null)
+  const [previewUrl, setPreviewUrl] = useState(null)
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl)
+      }
+    }
+  }, [previewUrl])
   useEffect(() => {
     if (uploadProgress.length > 0) {
       const completed = uploadProgress.filter((p) => p.status === "completed").length
@@ -86,6 +103,39 @@ export default function UploadArea({
     setSrAnnouncement(
       `${pdfFiles.length} PDF ${pdfFiles.length === 1 ? "file" : "files"} selected. Please select a folder from the dashboard before uploading.`,
     )
+  }
+
+  const handleRemoveSelectedFile = (index) => {
+    setSelectedFiles((prev) => {
+      const updated = prev.filter((_, idx) => idx !== index)
+      setSrAnnouncement(
+        `${updated.length} PDF ${updated.length === 1 ? "file" : "files"} selected after removing a file.`,
+      )
+      if (!updated.length) {
+        handleClosePreview()
+      } else if (previewFile && updated.every((file) => file !== previewFile)) {
+        handleClosePreview()
+      }
+      return updated
+    })
+  }
+
+  const handleOpenPreview = (file) => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl)
+    }
+    const url = URL.createObjectURL(file)
+    setPreviewFile(file)
+    setPreviewUrl(url)
+    setSrAnnouncement(`Previewing ${file.name}`)
+  }
+
+  const handleClosePreview = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl)
+    }
+    setPreviewFile(null)
+    setPreviewUrl(null)
   }
 
   const resolveGroupId = () => {
@@ -374,16 +424,39 @@ export default function UploadArea({
                       clipRule="evenodd"
                     />
                   </svg>
-                  {selectedFiles.length} file{selectedFiles.length > 1 ? "s" : ""} selected
+                  {selectedFiles.length} file{selectedFiles.length > 1 ? "s" : ""} ready for upload
                 </p>
-                <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-1.5 max-h-40 overflow-y-auto">
+                <div className="space-y-3">
                   {selectedFiles.map((file, idx) => (
-                    <li key={idx} className="truncate flex items-center gap-2">
-                      <span className="w-1 h-1 bg-blue-600 dark:bg-blue-400 rounded-full flex-shrink-0"></span>
-                      {file.name}
-                    </li>
+                    <div
+                      key={`${file.name}-${file.size}-${file.lastModified}-${idx}`}
+                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-3 py-2 rounded-lg border border-blue-100 bg-white/70 dark:bg-slate-900/60 dark:border-slate-700"
+                    >
+                      <div className="truncate">
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{file.name}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {formatFileSize(file.size)}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPreview(file)}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-full border border-indigo-500 text-indigo-600 hover:bg-indigo-500 hover:text-white transition"
+                        >
+                          Preview
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSelectedFile(idx)}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-full border border-red-400 text-red-600 hover:bg-red-500 hover:text-white transition"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </div>
 
               <div className="text-center">
@@ -461,6 +534,45 @@ export default function UploadArea({
           )}
         </div>
       </div>
+      {previewFile && previewUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="preview-dialog-title"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation()
+              handleClosePreview()
+            }
+          }}
+        >
+          <div className="relative w-full max-w-4xl rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-200 dark:border-slate-800">
+              <div>
+                <p id="preview-dialog-title" className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                  Previewing {previewFile.name}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{formatFileSize(previewFile.size)}</p>
+              </div>
+              <button
+                type="button"
+                className="text-sm font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+                onClick={handleClosePreview}
+              >
+                Close
+              </button>
+            </div>
+            <div className="relative h-[60vh] min-h-[300px]">
+              <iframe
+                src={previewUrl}
+                className="h-full w-full border-none"
+                title={`Preview of ${previewFile.name}`}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       <UploadProgressToast uploads={uploadProgress} onRemove={handleRemoveUpload} />
     </>
   )
