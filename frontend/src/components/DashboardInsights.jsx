@@ -28,17 +28,20 @@ function ProgressItem({ label, value, total, colorClass, srLabel }) {
     <div className="space-y-1">
       <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-400">
         <span>{label}</span>
-        <span aria-hidden="true">{value}</span>
+        <span>{value}</span>
       </div>
-      <div className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative">
+      <div
+        className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative"
+        role="progressbar"
+        aria-label={srLabel || `${label}: ${value} of ${total} (${percent}%)`}
+        aria-valuemin={0}
+        aria-valuemax={total || 0}
+        aria-valuenow={value}
+      >
         <span className="sr-only">
           {srLabel || `${label}: ${value} of ${total} (${percent}%)`}
         </span>
-        <div
-          className={`h-full ${colorClass}`}
-          style={{ width: `${percent}%` }}
-          aria-hidden="true"
-        ></div>
+        <div className={`h-full ${colorClass}`} style={{ width: `${percent}%` }}></div>
       </div>
     </div>
   )
