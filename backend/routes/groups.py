@@ -78,7 +78,7 @@ async def get_group_details(group_id: str):
         scans = (
             execute_query(
                 """
-            SELECT scan_results, status
+            SELECT scan_results, status, COALESCE(issues_fixed, 0) AS issues_fixed
             FROM scans
             WHERE group_id = %s
             """,
@@ -115,6 +115,14 @@ async def get_group_details(group_id: str):
             )
             status_counts[status_code] = status_counts.get(status_code, 0) + 1
 
+            scan_issues_fixed = scan.get("issues_fixed")
+            if scan_issues_fixed is None:
+                scan_issues_fixed = summary.get("issuesFixed")
+            if scan_issues_fixed is None and issues_remaining is not None:
+                total_for_scan = summary.get("totalIssues", 0) or 0
+                scan_issues_fixed = max(total_for_scan - (issues_remaining or 0), 0)
+            issues_fixed += scan_issues_fixed or 0
+
             if isinstance(results, dict):
                 for category, issues in results.items():
                     if not isinstance(issues, list):
@@ -131,7 +139,6 @@ async def get_group_details(group_id: str):
 
             if status_code == "fixed":
                 fixed_count += 1
-                issues_fixed += summary.get("totalIssues", 0)
 
         avg_compliance = (
             round(total_compliance / total_files, 2) if total_files > 0 else 0
