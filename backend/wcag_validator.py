@@ -7,12 +7,181 @@ without requiring external dependencies like veraPDF CLI.
 """
 
 import pikepdf
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 import logging
 from collections import defaultdict
 import re
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_pdf_object(value):
+    """Return the underlying direct object if value is an indirect reference."""
+    if value is None:
+        return None
+    try:
+        return value.get_object()
+    except AttributeError:
+        return value
+
+
+def _object_key(obj: Any) -> Optional[str]:
+    """Produce a stable key for comparing pikepdf objects when possible."""
+    if obj is None:
+        return None
+
+    resolved = getattr(obj, 'obj', obj)
+    resolved = _resolve_pdf_object(resolved)
+
+    for attr in ('objgen', 'reference'):
+        ref = getattr(resolved, attr, None)
+        if ref:
+            try:
+                return f"{int(ref[0])}:{int(ref[1])}"
+            except Exception:
+                continue
+
+    return None
+
+
+def _element_has_alt_text(element: Any) -> bool:
+    """Determine if a structure element exposes alt text."""
+    if not isinstance(element, pikepdf.Dictionary):
+        return False
+
+    for attr in ('/Alt', '/ActualText'):
+        value = element.get(attr)
+        if value and str(value).strip():
+            return True
+    return False
+
+
+def _extract_structure_refs(entry: Any) -> Tuple[List[int], List[Any]]:
+    """Collect MCIDs and object references within a structure element's /K tree."""
+    mcids: List[int] = []
+    obj_refs: List[Any] = []
+
+    def _walk(value: Any):
+        value = _resolve_pdf_object(value)
+        if value is None:
+            return
+
+        if isinstance(value, int):
+            mcids.append(int(value))
+            return
+
+        if isinstance(value, pikepdf.Dictionary):
+            value_type = str(value.get('/Type', ''))
+            if value_type == '/MCR' and '/MCID' in value:
+                try:
+                    mcids.append(int(value.MCID))
+                except Exception:
+                    pass
+            elif value_type == '/OBJR' and '/Obj' in value:
+                obj_refs.append(value.Obj)
+
+            if '/K' in value:
+                _walk(value.K)
+            return
+
+        if isinstance(value, (list, pikepdf.Array)):
+            for item in value:
+                _walk(item)
+
+    _walk(entry)
+    return mcids, obj_refs
+
+
+def _iter_structure_children(entry: Any) -> List[Any]:
+    """Yield child structure elements contained within /K."""
+    entry = _resolve_pdf_object(entry)
+    if entry is None:
+        return []
+
+    if isinstance(entry, (list, pikepdf.Array)):
+        return list(entry)
+
+    if isinstance(entry, pikepdf.Dictionary):
+        # Only dictionaries with structure semantics should be traversed as children.
+        if '/S' in entry or '/K' in entry:
+            return [entry]
+
+    return []
+
+
+def _build_figure_alt_lookup(pdf) -> Dict[str, Any]:
+    """Construct lookup data for Figure elements that expose alt text."""
+    lookup = {
+        'xobject_keys': set(),
+        'page_mcids': defaultdict(set),
+    }
+
+    if pdf is None:
+        return lookup
+
+    try:
+        struct_tree_root = pdf.Root.get('/StructTreeRoot')
+    except Exception:
+        struct_tree_root = None
+
+    if not struct_tree_root:
+        return lookup
+
+    def _walk(element: Any, current_page: Any = None):
+        element = _resolve_pdf_object(element)
+        if element is None:
+            return
+
+        next_page = current_page
+        if isinstance(element, pikepdf.Dictionary):
+            if '/Pg' in element:
+                next_page = element.get('/Pg')
+
+            struct_type = element.get('/S')
+            if struct_type and str(struct_type) == '/Figure' and _element_has_alt_text(element):
+                page_key = _object_key(next_page) if next_page is not None else None
+                mcids, obj_refs = _extract_structure_refs(element.get('/K'))
+
+                if page_key is not None:
+                    for mcid in mcids:
+                        lookup['page_mcids'][page_key].add(mcid)
+
+                for obj_ref in obj_refs:
+                    ref_key = _object_key(obj_ref)
+                    if ref_key:
+                        lookup['xobject_keys'].add(ref_key)
+
+            children = element.get('/K')
+            for child in _iter_structure_children(children):
+                _walk(child, next_page)
+
+        elif isinstance(element, (list, pikepdf.Array)):
+            for child in element:
+                _walk(child, current_page)
+
+    try:
+        _walk(struct_tree_root)
+    except Exception as exc:
+        logger.debug(f"[WCAGValidator] Failed to traverse structure tree for alt lookup: {exc}")
+
+    return lookup
+
+
+def has_figure_alt_text(xobject: Any, lookup: Optional[Dict[str, Any]]) -> bool:
+    """Return True if the XObject is linked to a Figure element with alt text."""
+    if not lookup or xobject is None:
+        return False
+
+    object_key = _object_key(xobject)
+    if not object_key:
+        return False
+
+    return object_key in lookup['xobject_keys']
+
+
+def build_figure_alt_lookup(pdf) -> Dict[str, Any]:
+    """Public helper to build Figure alt mappings for other modules."""
+    return _build_figure_alt_lookup(pdf)
 
 
 class WCAGValidator:
@@ -66,6 +235,7 @@ class WCAGValidator:
         self.issues = defaultdict(list)
         self.wcag_compliance = {'A': True, 'AA': True, 'AAA': True}
         self.pdfua_compliance = True
+        self._figure_alt_lookup = None
         
     def validate(self) -> Dict[str, Any]:
         """
@@ -422,9 +592,32 @@ class WCAGValidator:
             logger.error(f"[WCAGValidator] Error validating alternative text: {str(e)}")
     
     def _has_alt_text(self, xobject) -> bool:
-        """Check if an image has alternative text."""
-        # This is a simplified check - full implementation would traverse structure tree
-        return '/Alt' in xobject or '/ActualText' in xobject
+        """Check if an image has alt text on the stream or its Figure element."""
+        if xobject is None:
+            return False
+
+        if '/Alt' in xobject or '/ActualText' in xobject:
+            return True
+
+        lookup = self._get_figure_alt_lookup()
+        if has_figure_alt_text(xobject, lookup):
+            return True
+
+        return False
+
+    def _get_figure_alt_lookup(self) -> Optional[Dict[str, Any]]:
+        """Return cached mapping of Figure structure elements with alt text."""
+        if self.pdf is None:
+            return None
+
+        if self._figure_alt_lookup is None:
+            try:
+                self._figure_alt_lookup = _build_figure_alt_lookup(self.pdf)
+            except Exception as exc:
+                logger.debug(f"[WCAGValidator] Could not build Figure alt lookup: {exc}")
+                self._figure_alt_lookup = None
+
+        return self._figure_alt_lookup
     
     def _validate_table_structure(self):
         """Validate WCAG 1.3.1 (Info and Relationships) for tables - Level A."""

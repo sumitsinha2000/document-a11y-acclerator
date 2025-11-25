@@ -41,6 +41,7 @@ from backend.utils.app_helpers import (
     save_fix_history,
     save_scan_to_db,
     scan_results_changed,
+    update_scan_file_reference,
     update_batch_statistics,
     update_scan_status,
     resolve_uploaded_file_path,
@@ -763,6 +764,15 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
             if archive_info:
                 fixed_filename = archive_info.get("relative_path")
                 fixed_file_remote = archive_info.get("remote_path") or fixed_file_remote
+                remote_reference = archive_info.get("remote_path")
+                if remote_reference:
+                    try:
+                        update_scan_file_reference(scan_id, remote_reference)
+                    except Exception:
+                        logger.exception(
+                            "[Backend] Failed to record remote reference for %s",
+                            scan_id,
+                        )
 
         save_success = False
         if changes_detected:

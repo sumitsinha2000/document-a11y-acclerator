@@ -1109,6 +1109,8 @@ def _resolve_scan_file_path(
     if not scan_record and NEON_DATABASE_URL:
         scan_record = _fetch_scan_record(scan_id)
 
+    remote_candidates: List[Tuple[str, str]] = []
+
     latest_fixed = get_fixed_version(scan_id)
     if latest_fixed:
         fixed_path = latest_fixed.get("absolute_path")
@@ -1118,24 +1120,43 @@ def _resolve_scan_file_path(
                 return path_obj
         remote_reference = latest_fixed.get("remote_path")
         if remote_reference:
-            downloaded = _download_remote_to_temp(remote_reference, scan_id)
-            if downloaded and downloaded.exists():
-                return downloaded
+            remote_candidates.append(("fixed_version", remote_reference))
 
     remote_history_entry = lookup_remote_fixed_entry(scan_id)
     if remote_history_entry:
         remote_reference = remote_history_entry.get("remote_path")
         if remote_reference:
-            downloaded = _download_remote_to_temp(remote_reference, scan_id)
-            if downloaded and downloaded.exists():
-                return downloaded
+            remote_candidates.append(("fix_history", remote_reference))
+
+    remote_references: List[str] = []
+
+    for label, remote_identifier in remote_candidates:
+        if not remote_identifier:
+            continue
+        logger.info(
+            "[Storage] Attempting remote resolution for %s via %s: %s",
+            scan_id,
+            label,
+            remote_identifier,
+        )
+        try:
+            downloaded = _download_remote_to_temp(remote_identifier, scan_id)
+        except Exception:
+            logger.exception(
+                "[Storage] Remote resolution failed for %s via %s",
+                scan_id,
+                label,
+            )
+            downloaded = None
+        if downloaded and downloaded.exists():
+            return downloaded
+        remote_references.append(remote_identifier)
 
     upload_dir = _uploads_root()
     candidates: List[Path] = [
         upload_dir / f"{scan_id}.pdf",
         upload_dir / scan_id,
     ]
-    remote_references: List[str] = []
 
     if scan_record:
         filename = scan_record.get("filename")
@@ -1158,17 +1179,28 @@ def _resolve_scan_file_path(
 
         seen_values: Set[str] = set()
 
+        def _looks_like_remote_identifier(value: str) -> bool:
+            normalized = value.strip()
+            if not normalized:
+                return False
+            lowered = normalized.lower()
+            if lowered.startswith(("http://", "https://")):
+                return True
+            if lowered.startswith(("uploads/", "fixed/")):
+                return True
+            return False
+
         def _process_stored_reference(reference: str):
             cleaned = reference.strip()
             if not cleaned or cleaned in seen_values:
                 return
             seen_values.add(cleaned)
-            if cleaned.lower().startswith(("http://", "https://")):
+            if _looks_like_remote_identifier(cleaned):
                 remote_references.append(cleaned)
                 return
             path_obj = Path(cleaned)
             candidates.append(path_obj)
-            if not path_obj.exists():
+            if not path_obj.exists() and not path_obj.is_absolute():
                 remote_references.append(cleaned)
 
         for stored_value in stored_values:
@@ -1202,6 +1234,20 @@ def resolve_uploaded_file_path(
 ) -> Optional[Path]:
     """Compatibility wrapper used by legacy code paths."""
     return _resolve_scan_file_path(scan_id, scan_record)
+
+
+def update_scan_file_reference(scan_id: str, reference: Optional[str]):
+    """
+    Persist the canonical file reference (usually a remote storage key) for a scan.
+    """
+    try:
+        execute_query(
+            "UPDATE scans SET file_path = %s WHERE id = %s",
+            (reference, scan_id),
+            fetch=False,
+        )
+    except Exception:
+        logger.exception("[Backend] Failed to update file reference for scan %s", scan_id)
 
 def scan_results_changed(
     *,
@@ -1443,13 +1489,26 @@ def _perform_automated_fix(
                     try:
                         temp_path_obj.unlink(missing_ok=True)
                     except Exception:
-                        logger.warning("[Backend] Could not remove temp fixed file %s", temp_path_obj)
+                        logger.warning(
+                            "[Backend] Could not remove temp fixed file %s",
+                            temp_path_obj,
+                        )
                 else:
                     logger.warning(
                         "[Backend] Failed to archive fixed PDF for %s; leaving temp file at %s",
                         scan_id,
                         temp_path_obj,
                     )
+                if archive_info and archive_info.get("remote_path"):
+                    try:
+                        update_scan_file_reference(
+                            scan_id, archive_info.get("remote_path")
+                        )
+                    except Exception:
+                        logger.exception(
+                            "[Backend] Failed to persist remote reference for %s",
+                            scan_id,
+                        )
 
         result.pop("fixedTempPath", None)
 
@@ -1771,6 +1830,7 @@ __all__ = [
     "get_scan_by_id",
     "_resolve_scan_file_path",
     "resolve_uploaded_file_path",
+    "update_scan_file_reference",
     "scan_results_changed",
     "archive_fixed_pdf_version",
     "get_fixed_version",

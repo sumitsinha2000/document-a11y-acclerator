@@ -23,6 +23,7 @@ from backend.utils.app_helpers import (
     derive_file_status,
     execute_query,
     get_fixed_version,
+    lookup_remote_fixed_entry,
     get_versioned_files,
     prune_fixed_versions,
     save_scan_to_db,
@@ -548,8 +549,14 @@ async def start_deferred_scan(scan_id: str):
 
     file_path = _resolve_scan_file_path(scan_id, scan_record)
     if not file_path or not file_path.exists():
+        history_entry = lookup_remote_fixed_entry(scan_id)
         return JSONResponse(
-            {"error": "Original file not found for scanning"}, status_code=404
+            {
+                "error": "Original file not found for scanning",
+                "scanId": scan_id,
+                "remotePath": history_entry.get("remote_path") if history_entry else None,
+            },
+            status_code=404,
         )
 
     analyzer = PDFAccessibilityAnalyzer()

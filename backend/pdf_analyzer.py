@@ -6,9 +6,18 @@ Enhanced with PDF-Extract-Kit integration
 
 import json
 import logging
-from typing import Dict, List, Any, Optional
+from collections import defaultdict
+from typing import Dict, List, Any, Optional, Tuple, Set
 import PyPDF2
 import pdfplumber
+
+try:
+    import pikepdf
+    PIKEPDF_AVAILABLE = True
+except ImportError:
+    pikepdf = None
+    PIKEPDF_AVAILABLE = False
+    print("[Analyzer] pikepdf not available - structure-aware analysis disabled")
 # from pathlib import Path
 
 try:
@@ -19,10 +28,13 @@ except ImportError:
     print("[Analyzer] PDF-Extract-Kit processor not available")
 
 try:
-    from backend.wcag_validator import WCAGValidator
+    from backend.wcag_validator import WCAGValidator, build_figure_alt_lookup, has_figure_alt_text
     WCAG_VALIDATOR_AVAILABLE = True
 except ImportError:
     WCAG_VALIDATOR_AVAILABLE = False
+    WCAGValidator = None
+    build_figure_alt_lookup = None
+    has_figure_alt_text = None
     print("[Analyzer] WCAG validator not available")
 
 # PDF/A validation is intentionally disabled; the analyzer now focuses on WCAG 2.1 and PDF/UA-1.
@@ -261,7 +273,7 @@ class PDFAccessibilityAnalyzer:
                 pages_with_images = []
                 pages_with_tables = []
                 total_form_fields = 0
-                missing_alt_issues = []
+                image_candidates: List[Dict[str, Any]] = []
                 
                 for page_num, page in enumerate(pdf.pages, start=1):
                     # Check for images
@@ -270,12 +282,11 @@ class PDFAccessibilityAnalyzer:
                         total_images += len(images)
                         pages_with_images.append(page_num)
                         for img_index, image in enumerate(images, start=1):
-                            missing_alt_issues.append({
-                                "severity": "high",
-                                "description": f"Image {img_index} on page {page_num} may lack alternative text",
+                            image_candidates.append({
                                 "page": page_num,
                                 "pages": [page_num],
                                 "imageIndex": img_index,
+                                "xobjectName": self._normalize_xobject_name(image.get("name")),
                                 "location": {
                                     "page": page_num,
                                     "imageIndex": img_index,
@@ -283,7 +294,6 @@ class PDFAccessibilityAnalyzer:
                                     "width": image.get("width"),
                                     "height": image.get("height"),
                                 },
-                                "recommendation": "Add descriptive alt text to this image using a PDF editor.",
                             })
                     
                     # Check for tables
@@ -296,6 +306,7 @@ class PDFAccessibilityAnalyzer:
                     if hasattr(page, 'annots') and page.annots:
                         total_form_fields += len(page.annots)
                 
+                missing_alt_issues = self._collect_missing_alt_text_issues(pdf_path, image_candidates)
                 if not self.issues["missingAltText"] and missing_alt_issues:
                     self.issues["missingAltText"].extend(missing_alt_issues)
                 
@@ -332,6 +343,143 @@ class PDFAccessibilityAnalyzer:
                 
         except Exception as e:
             print(f"[Analyzer] Error in pdfplumber analysis: {e}")
+
+    def _collect_missing_alt_text_issues(
+        self,
+        pdf_path: str,
+        image_candidates: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Return precise missing-alt issues based on structure-aware scanning."""
+        if not image_candidates:
+            return []
+
+        structure_results = self._find_images_without_structure_alt(pdf_path)
+        if structure_results is None:
+            return self._fallback_missing_alt_issues(image_candidates)
+
+        if not structure_results:
+            return []
+
+        candidate_map: Dict[Tuple[int, Optional[str]], List[Dict[str, Any]]] = defaultdict(list)
+        for candidate in image_candidates:
+            key = (candidate["page"], candidate.get("xobjectName"))
+            candidate_map[key].append(candidate)
+
+        issues: List[Dict[str, Any]] = []
+        seen_refs: Set[Tuple[int, Optional[str]]] = set()
+
+        for entry in structure_results:
+            key = (entry["page"], entry.get("name"))
+            if key in seen_refs:
+                continue
+            seen_refs.add(key)
+
+            candidates = candidate_map.get(key)
+            if not candidates:
+                issues.append(self._format_missing_alt_issue(entry["page"], None))
+                continue
+
+            for candidate in candidates:
+                issues.append(self._format_missing_alt_issue(entry["page"], candidate))
+
+        return issues
+
+    def _find_images_without_structure_alt(self, pdf_path: str) -> Optional[List[Dict[str, Any]]]:
+        """Inspect the structure tree to identify images lacking alt text."""
+        if not PIKEPDF_AVAILABLE:
+            return None
+
+        pdf_doc = None
+        validator = None
+        lookup = None
+        results: List[Dict[str, Any]] = []
+
+        try:
+            pdf_doc = pikepdf.open(pdf_path)
+
+            if WCAG_VALIDATOR_AVAILABLE and WCAGValidator:
+                validator = WCAGValidator(pdf_path)
+                validator.pdf = pdf_doc
+                lookup = validator._get_figure_alt_lookup()
+            elif build_figure_alt_lookup:
+                lookup = build_figure_alt_lookup(pdf_doc)
+
+            for page_index, page in enumerate(pdf_doc.pages, 1):
+                if '/Resources' not in page or '/XObject' not in page.Resources:
+                    continue
+                xobjects = page.Resources.XObject
+                for name, xobject in xobjects.items():
+                    if xobject.get('/Subtype') != '/Image':
+                        continue
+
+                    has_alt = False
+                    if validator:
+                        has_alt = validator._has_alt_text(xobject)
+                    else:
+                        if '/Alt' in xobject or '/ActualText' in xobject:
+                            has_alt = True
+                        elif has_figure_alt_text and lookup:
+                            has_alt = has_figure_alt_text(xobject, lookup)
+
+                    if not has_alt:
+                        results.append({
+                            "page": page_index,
+                            "name": self._normalize_xobject_name(str(name)),
+                        })
+
+        except Exception as exc:
+            print(f"[Analyzer] Could not perform structure-aware alt text scan: {exc}")
+            return None
+        finally:
+            if pdf_doc is not None:
+                try:
+                    pdf_doc.close()
+                except Exception:
+                    pass
+
+        return results
+
+    def _fallback_missing_alt_issues(self, image_candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Return legacy heuristic issues when structure-aware detection is unavailable."""
+        issues: List[Dict[str, Any]] = []
+        for candidate in image_candidates:
+            issues.append({
+                "severity": "medium",
+                "description": f"Image on page {candidate['page']} may lack alternative text (structure analysis unavailable)",
+                "page": candidate["page"],
+                "pages": candidate.get("pages", [candidate["page"]]),
+                "imageIndex": candidate.get("imageIndex"),
+                "location": candidate.get("location"),
+                "recommendation": "Add descriptive alt text to this image using a PDF editor.",
+            })
+        return issues
+
+    def _format_missing_alt_issue(self, page_num: int, candidate: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Create a standardized issue record for an image missing alt text."""
+        issue = {
+            "severity": "high",
+            "description": f"Image on page {page_num} has no associated alternative text or tagged Figure entry",
+            "page": page_num,
+            "pages": [page_num],
+            "recommendation": "Add an Alt text entry to the Figure tag or XObject stream for this image.",
+        }
+
+        if candidate:
+            issue.update({
+                "pages": candidate.get("pages", [page_num]),
+                "imageIndex": candidate.get("imageIndex"),
+                "location": candidate.get("location"),
+            })
+
+        return issue
+
+    @staticmethod
+    def _normalize_xobject_name(name: Optional[Any]) -> Optional[str]:
+        """Normalize XObject names so pdfplumber and pikepdf references match."""
+        if not name:
+            return None
+        text = str(name)
+        return text[1:] if text.startswith('/') else text
 
     def _use_simulated_analysis(
         self,
