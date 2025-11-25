@@ -28,6 +28,7 @@ from fastapi import (
     BackgroundTasks,
     HTTPException,
     Body,
+    Response,
 )
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,7 +48,13 @@ from backend.multi_tier_storage import (
 )
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.auto_fix_engine import AutoFixEngine
-from backend.routes import health_router, groups_router, scans_router, fixes_router
+from backend.routes import (
+    health_router,
+    groups_router,
+    folders_router,
+    scans_router,
+    fixes_router,
+)
 import backend.utils.app_helpers as app_helpers
 from backend.utils.app_helpers import (
     SafeJSONResponse,
@@ -68,6 +75,7 @@ from backend.utils.app_helpers import (
     _uploads_root,
     _build_scan_export_payload,
     get_fixed_version,
+    lookup_remote_fixed_entry,
     _fetch_scan_record,
     _resolve_scan_file_path,
     _parse_scan_results_json,
@@ -79,6 +87,7 @@ from backend.utils.app_helpers import (
     save_fix_history,
     update_scan_status,
     get_scan_by_id,
+    update_scan_file_reference,
     _fixed_root,
     _truthy,
     _extract_version_from_path,
@@ -153,6 +162,7 @@ mount_static_if_available(
 
 app.include_router(health_router)
 app.include_router(groups_router)
+app.include_router(folders_router)
 app.include_router(scans_router)
 app.include_router(fixes_router)
 
@@ -162,12 +172,21 @@ app.include_router(fixes_router)
 # ----------------------
 
 
+@app.get("/favicon.ico")
+async def serve_favicon():
+    icon_path = Path("public/favicon.ico")
+    if icon_path.exists():
+        return FileResponse(icon_path, media_type="image/x-icon")
+    return Response(status_code=204)
+
+
 @app.post("/api/upload")
 def upload_file(
     request: Request,
     file: UploadFile = File(...),
     group_id: Optional[str] = Form(None),
     scan_mode: Optional[str] = Form(None),
+    folder_id: Optional[str] = Form(None),
 ):
     """
     Upload endpoint (synchronous):
@@ -203,6 +222,23 @@ def upload_file(
             bool(NEON_DATABASE_URL),
         )
 
+        folder_record = None
+        if folder_id:
+            folder_rows = execute_query(
+                "SELECT id, name, group_id FROM batches WHERE id = %s",
+                (folder_id,),
+                fetch=True,
+            )
+            if not folder_rows:
+                return JSONResponse({"error": "Folder not found"}, status_code=404)
+            folder_record = dict(folder_rows[0])
+            folder_group_id = folder_record.get("group_id")
+            if folder_group_id and group_id and folder_group_id != group_id:
+                return JSONResponse(
+                    {"error": "Folder does not belong to the selected project"},
+                    status_code=400,
+                )
+
         # When a group is provided, create a placeholder scan entry so dashboards
         # can track the upload even before analysis runs.
         if group_id and NEON_DATABASE_URL:
@@ -218,6 +254,7 @@ def upload_file(
                     scan_id,
                     file.filename,
                     placeholder,
+                    batch_id=folder_id,
                     group_id=group_id,
                     status="uploaded",
                     file_path=storage_reference,
@@ -232,6 +269,9 @@ def upload_file(
                         "scanDeferred": True,
                         "status": "uploaded",
                         "filePath": storage_reference,
+                        "batchId": folder_id,
+                        "folderId": folder_id,
+                        "folderName": folder_record.get("name") if folder_record else None,
                     }
                 )
                 response_payload["result"].update(
@@ -240,8 +280,17 @@ def upload_file(
                         "groupId": group_id,
                         "status": "uploaded",
                         "filePath": storage_reference,
+                        "batchId": folder_id,
+                        "folderId": folder_id,
                     }
                 )
+                try:
+                    if folder_id:
+                        update_batch_statistics(folder_id)
+                except Exception:
+                    logger.exception(
+                        "[API] Failed to refresh batch %s after upload", folder_id
+                    )
                 try:
                     update_group_file_count(group_id)
                 except Exception:
@@ -1022,6 +1071,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
         total_issues_after = summary_after.get("totalIssues", total_issues_before)
         high_severity_after = summary_after.get("highSeverity", high_severity_before)
         fixed_filename = result.get("fixedFile")
+        fixed_file_remote = result.get("fixedFileRemote")
 
         changes_detected = scan_results_changed(
             issues_before=issues_before,
@@ -1037,6 +1087,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
             "summary": summary_after,
             "verapdfStatus": scan_results_after.get("verapdfStatus"),
             "fixes": result.get("suggestions", []),
+            "criteriaSummary": scan_results_after.get("criteriaSummary", {}),
         }
 
         try:
@@ -1060,13 +1111,31 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
         archive_info = None
         if changes_detected:
             source_path = resolve_uploaded_file_path(scan_id, scan_data)
-            archive_info = archive_fixed_pdf_version(
-                scan_id=scan_id,
-                original_filename=original_filename,
-                source_path=source_path,
-            )
+            try:
+                archive_info = archive_fixed_pdf_version(
+                    scan_id=scan_id,
+                    original_filename=original_filename,
+                    source_path=source_path,
+                )
+            except Exception as archive_exc:
+                logger.exception(
+                    "[Backend] Failed to archive fixed PDF for %s", scan_id
+                )
+                return JSONResponse(
+                    {"error": str(archive_exc), "scan_id": scan_id}, status_code=500
+                )
             if archive_info:
                 fixed_filename = archive_info.get("relative_path")
+                fixed_file_remote = archive_info.get("remote_path") or fixed_file_remote
+                remote_reference = archive_info.get("remote_path")
+                if remote_reference:
+                    try:
+                        update_scan_file_reference(scan_id, remote_reference)
+                    except Exception:
+                        logger.exception(
+                            "[Backend] Failed to record remote reference for %s",
+                            scan_id,
+                        )
 
         save_success = False
         if changes_detected:
@@ -1082,6 +1151,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
                         "relativePath": archive_info.get("relative_path"),
                         "storedFilename": archive_info.get("filename"),
                         "fileSize": archive_info.get("size"),
+                        "remotePath": archive_info.get("remote_path"),
                     }
                 )
             try:
@@ -1120,6 +1190,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
             "status": "success",
             "fixedFile": fixed_filename,
             "fixedFilePath": fixed_filename,
+            "fixedFileRemote": fixed_file_remote,
             "scanResults": scan_results_after,
             "summary": summary_after,
             "fixesApplied": fixes_applied,
@@ -1133,6 +1204,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
                     "versionLabel": f"V{archive_info.get('version')}",
                     "fixedFile": archive_info.get("relative_path"),
                     "fixedFilePath": archive_info.get("relative_path"),
+                    "fixedFileRemote": archive_info.get("remote_path") or fixed_file_remote,
                 }
             )
 
@@ -1184,14 +1256,23 @@ async def download_fixed_file(filename: str, request: Request):
         scan_id_param = request.query_params.get("scanId")
 
         file_path: Optional[Path] = None
+        remote_identifier: Optional[str] = None
         selected_version: Optional[Dict[str, Any]] = None
         scan_id_for_version = scan_id_param
 
         requested_path: Optional[Path]
+        relative_request: Optional[Path] = None
+        relative_str: Optional[str] = None
         try:
             requested_path = (fixed_dir / filename).resolve()
         except Exception:
             requested_path = None
+        else:
+            try:
+                relative_request = requested_path.relative_to(fixed_dir)
+                relative_str = relative_request.as_posix()
+            except ValueError:
+                relative_request = None
 
         base_fixed = fixed_dir.resolve()
         if (
@@ -1229,11 +1310,18 @@ async def download_fixed_file(filename: str, request: Request):
                             status_code=403,
                         )
         else:
-            target_scan_id = scan_id_param or filename
+            derived_scan_id = scan_id_param
+            if not derived_scan_id and relative_request:
+                relative_parts = relative_request.parts
+                if relative_parts:
+                    derived_scan_id = relative_parts[0]
+            target_scan_id = derived_scan_id or filename
+            requested_number: Optional[int] = None
             versions = get_versioned_files(target_scan_id)
             if versions:
                 latest = versions[-1]
                 selected_version = latest
+                requested_filename = relative_request.name if relative_request else None
                 if version_param:
                     try:
                         requested_number = int(version_param)
@@ -1264,20 +1352,69 @@ async def download_fixed_file(filename: str, request: Request):
                             status_code=403,
                         )
                     selected_version = match
+                elif requested_filename:
+                    match = next(
+                        (
+                            entry
+                            for entry in versions
+                            if entry.get("filename") == requested_filename
+                        ),
+                        None,
+                    )
+                    if match:
+                        selected_version = match
 
-                file_path = Path(selected_version["absolute_path"])
+                remote_identifier = selected_version.get("remote_path")
+                absolute_candidate = selected_version.get("absolute_path")
+                if absolute_candidate:
+                    candidate_path = Path(absolute_candidate)
+                    if candidate_path.exists():
+                        file_path = candidate_path
                 scan_id_for_version = target_scan_id
             else:
-                for folder in (fixed_dir, uploads_dir):
-                    for ext in ("", ".pdf"):
-                        candidate = folder / f"{filename}{ext}"
-                        if candidate.exists():
-                            file_path = candidate
+                history_entry = lookup_remote_fixed_entry(
+                    target_scan_id,
+                    target_relative=relative_str,
+                    version=requested_number,
+                )
+                if history_entry:
+                    selected_version = {
+                        "version": history_entry.get("version"),
+                        "filename": history_entry.get("filename"),
+                        "relative_path": history_entry.get("relative_path"),
+                        "absolute_path": None,
+                        "remote_path": history_entry.get("remote_path"),
+                    }
+                    remote_identifier = history_entry.get("remote_path")
+                    scan_id_for_version = target_scan_id
+                else:
+                    for folder in (fixed_dir, uploads_dir):
+                        for ext in ("", ".pdf"):
+                            candidate = folder / f"{filename}{ext}"
+                            if candidate.exists():
+                                file_path = candidate
+                                break
+                        if file_path:
                             break
-                    if file_path:
-                        break
 
-        if not file_path:
+        if selected_version and not remote_identifier:
+            remote_identifier = selected_version.get("remote_path")
+            if not remote_identifier:
+                lookup_scan_id = (
+                    scan_id_for_version
+                    or scan_id_param
+                    or (derived_scan_id if "derived_scan_id" in locals() else None)
+                    or filename
+                )
+                history_entry = lookup_remote_fixed_entry(
+                    lookup_scan_id,
+                    target_relative=(selected_version.get("relative_path") or relative_str),
+                    version=selected_version.get("version"),
+                )
+                if history_entry:
+                    remote_identifier = history_entry.get("remote_path")
+
+        if not file_path and not remote_identifier:
             return JSONResponse({"error": "File not found"}, status_code=404)
 
         original_filename = None
@@ -1291,15 +1428,31 @@ async def download_fixed_file(filename: str, request: Request):
                 f"{Path(original_filename).stem}_V{selected_version['version']}.pdf"
             )
         elif selected_version:
-            download_name = selected_version.get("filename") or file_path.name
+            download_name = selected_version.get("filename") or (file_path.name if file_path else filename)
         else:
-            download_name = file_path.name
+            download_name = file_path.name if file_path else filename
         if not download_name.lower().endswith(".pdf"):
             download_name = f"{Path(download_name).stem}.pdf"
+        if remote_identifier:
+            try:
+                remote_stream = stream_remote_file(remote_identifier)
+                headers = {"Content-Disposition": f'attachment; filename="{download_name}"'}
+                return StreamingResponse(
+                    remote_stream,
+                    media_type="application/pdf",
+                    headers=headers,
+                )
+            except FileNotFoundError:
+                remote_identifier = None
+            except Exception:
+                logger.exception("[Backend] Remote download failed for %s", remote_identifier)
 
-        return FileResponse(
-            file_path, media_type="application/pdf", filename=download_name
-        )
+        if file_path:
+            return FileResponse(
+                file_path, media_type="application/pdf", filename=download_name
+            )
+
+        return JSONResponse({"error": "File not found"}, status_code=404)
     except Exception as exc:
         logger.exception("[Backend] Error downloading fixed file %s", filename)
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -1312,23 +1465,23 @@ async def serve_pdf_file(scan_id: str, request: Request):
         uploads_dir = _uploads_root()
         fixed_dir = _fixed_root()
 
-        version_param = request.query_params.get("version")
         file_path: Optional[Path] = None
+        remote_identifier: Optional[str] = None
 
-        if version_param:
-            try:
-                requested_version = int(version_param)
-            except (ValueError, TypeError):
-                return JSONResponse(
-                    {"error": "Invalid version parameter"}, status_code=400
-                )
-            version_info = get_fixed_version(scan_id, requested_version)
-            if version_info:
-                file_path = Path(version_info["absolute_path"])
-        else:
-            latest_version = get_fixed_version(scan_id)
-            if latest_version:
-                file_path = Path(latest_version["absolute_path"])
+        version_info = get_fixed_version(scan_id)
+
+        if version_info:
+            remote_identifier = version_info.get("remote_path")
+            absolute_candidate = version_info.get("absolute_path")
+            if absolute_candidate:
+                candidate_path = Path(absolute_candidate)
+                if candidate_path.exists():
+                    file_path = candidate_path
+
+        if not file_path and not remote_identifier:
+            history_entry = lookup_remote_fixed_entry(scan_id)
+            if history_entry:
+                remote_identifier = history_entry.get("remote_path")
 
         if not file_path:
             for folder in (fixed_dir, uploads_dir):
@@ -1340,10 +1493,19 @@ async def serve_pdf_file(scan_id: str, request: Request):
                 if file_path:
                     break
 
-        if not file_path:
-            return JSONResponse({"error": "PDF file not found"}, status_code=404)
+        if remote_identifier:
+            try:
+                remote_stream = stream_remote_file(remote_identifier)
+                return StreamingResponse(remote_stream, media_type="application/pdf")
+            except FileNotFoundError:
+                remote_identifier = None
+            except Exception:
+                logger.exception("[Backend] Remote preview fetch failed for %s", scan_id)
 
-        return FileResponse(file_path, media_type="application/pdf")
+        if file_path:
+            return FileResponse(file_path, media_type="application/pdf")
+
+        return JSONResponse({"error": "PDF file not found"}, status_code=404)
     except Exception as exc:
         logger.exception("[Backend] Error serving PDF file for %s", scan_id)
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -1456,6 +1618,7 @@ async def apply_manual_fix(request: Request):
             "summary": summary,
             "verapdfStatus": verapdf_status,
             "fixes": suggestions,
+            "criteriaSummary": rescan_data.get("criteriaSummary", {}),
         }
 
         remote_file_path = _mirror_file_to_remote(
@@ -1710,7 +1873,25 @@ async def fix_history(scan_id: str):
             (scan_id,),
             fetch=True,
         )
-        return SafeJSONResponse({"history": rows})
+        history: List[Dict[str, Any]] = []
+        for row in rows:
+            entry = dict(row)
+            metadata = entry.get("fix_metadata")
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except Exception:
+                    metadata = {}
+            elif not isinstance(metadata, dict):
+                metadata = {}
+            entry["fix_metadata"] = metadata
+            entry["fixedFileRemote"] = metadata.get("remotePath")
+            entry["fixedFilePath"] = metadata.get("relativePath") or entry.get(
+                "fixed_filename"
+            )
+            entry["fixedFileVersion"] = metadata.get("version")
+            history.append(entry)
+        return SafeJSONResponse({"history": history})
     except Exception:
         logger.exception("fix_history DB error")
         return JSONResponse({"history": []})

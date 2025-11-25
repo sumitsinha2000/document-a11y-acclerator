@@ -7,7 +7,7 @@ import tempfile
 import pdfplumber
 from datetime import datetime
 import re
-from backend.pdfa_fix_engine import PDFAFixEngine  # Import the class instead of the function
+# from backend.pdfa_fix_engine import PDFAFixEngine  # PDF/A fix engine temporarily disabled
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
 from backend.pdf_structure_standards import (
@@ -45,15 +45,7 @@ class AutoFixEngine:
                 'removeEncryption', 'addOutputIntent', 'fixAnnotationAppearances'
             ]
         }
-        print("[AutoFixEngine] Initializing PDFAFixEngine...")
-        self.pdfa_engine = PDFAFixEngine()
-        print(f"[AutoFixEngine] PDFAFixEngine instantiated: {type(self.pdfa_engine)}")
-        print(f"[AutoFixEngine] apply_pdfa_fixes method: {type(self.pdfa_engine.apply_pdfa_fixes)}")
-        
-        # Check the method signature
-        import inspect
-        sig = inspect.signature(self.pdfa_engine.apply_pdfa_fixes)
-        print(f"[AutoFixEngine] apply_pdfa_fixes signature: {sig}")
+        # PDF/A fix engine is disabled so automated fixes focus on WCAG and PDF/UA issues.
         
         self.ai_engine = None
         if SAMBANOVA_AVAILABLE:
@@ -417,128 +409,7 @@ class AutoFixEngine:
                     })
                     fixes['estimatedTime'] += 12
         
-        if scan_results.get('pdfaIssues') and len(scan_results['pdfaIssues']) > 0:
-            for issue in scan_results['pdfaIssues']:
-                severity = issue.get('severity', 'error')
-                message = issue.get('message', '')
-                
-                # Categorize PDF/A fixes
-                if any(keyword in message.lower() for keyword in ['font', 'embed']):
-                    # Font embedding requires source fonts - manual
-                    fixes['manual'].append({
-                        'action': 'Embed fonts',
-                        'title': 'Embed all fonts in document',
-                        'description': message,
-                        'category': 'pdfaIssues',
-                        'severity': 'critical',
-                        'estimatedTime': '30-60 minutes',
-                        'fixType': 'embedFonts',
-                        'fixData': {'clause': issue.get('clause', '')},
-                        'instructions': 'Re-create PDF with all fonts embedded, or use PDF editor to embed fonts'
-                    })
-                    fixes['estimatedTime'] += 45
-                
-                elif any(keyword in message.lower() for keyword in ['transparency', 'blend mode']):
-                    # Transparency requires flattening - manual
-                    fixes['manual'].append({
-                        'action': 'Flatten transparency',
-                        'title': 'Remove transparency from document',
-                        'description': message,
-                        'category': 'pdfaIssues',
-                        'severity': 'error',
-                        'estimatedTime': '15-30 minutes',
-                        'fixType': 'flattenTransparency',
-                        'fixData': {'clause': issue.get('clause', '')},
-                        'instructions': 'Use PDF editor to flatten transparency layers'
-                    })
-                    fixes['estimatedTime'] += 22
-                
-                elif any(keyword in message.lower() for keyword in ['encrypt']):
-                    # Encryption removal - semi-automated
-                    fixes['semiAutomated'].append({
-                        'action': 'Remove encryption',
-                        'title': 'Remove document encryption',
-                        'description': message,
-                        'category': 'pdfaIssues',
-                        'severity': 'critical',
-                        'estimatedTime': '< 5 minutes',
-                        'fixType': 'removeEncryption',
-                        'fixData': {'clause': issue.get('clause', '')},
-                        'instructions': 'Save document without encryption'
-                    })
-                    fixes['estimatedTime'] += 3
-                
-                elif any(keyword in message.lower() for keyword in ['outputintent', 'color space', 'icc']):
-                    # OutputIntent - semi-automated
-                    fixes['semiAutomated'].append({
-                        'action': 'Add OutputIntent',
-                        'title': 'Add ICC color profile',
-                        'description': message,
-                        'category': 'pdfaIssues',
-                        'severity': 'error',
-                        'estimatedTime': '5-10 minutes',
-                        'fixType': 'addOutputIntent',
-                        'fixData': {'clause': issue.get('clause', '')},
-                        'instructions': 'Add sRGB or custom ICC profile as OutputIntent'
-                    })
-                    fixes['estimatedTime'] += 7
-                
-                elif any(keyword in message.lower() for keyword in ['annotation', 'appearance']):
-                    # Annotation appearances - semi-automated
-                    fixes['semiAutomated'].append({
-                        'action': 'Fix annotation appearances',
-                        'title': 'Add appearance streams to annotations',
-                        'description': message,
-                        'category': 'pdfaIssues',
-                        'severity': 'error',
-                        'estimatedTime': '5-10 minutes',
-                        'fixType': 'fixAnnotationAppearances',
-                        'fixData': {'clause': issue.get('clause', '')},
-                        'instructions': 'Add appearance streams to all annotations'
-                    })
-                    fixes['estimatedTime'] += 7
-                
-                elif any(keyword in message.lower() for keyword in ['pdfaid:part', 'pdfaid:conformance', 'pdf/a identification']):
-                    # PDF/A identifier - automated
-                    fixes['automated'].append({
-                        'action': 'Add PDF/A identifier',
-                        'title': 'Add PDF/A identification to metadata',
-                        'description': message,
-                        'category': 'pdfaIssues',
-                        'severity': 'critical',
-                        'estimatedTime': '< 1 minute',
-                        'fixType': 'addPDFAIdentifier',
-                        'fixData': {'clause': issue.get('clause', '')}
-                    })
-                    fixes['estimatedTime'] += 1
-                
-                elif any(keyword in message.lower() for keyword in ['metadata', 'xmp', 'docinfo']):
-                    # Metadata consistency - automated
-                    fixes['automated'].append({
-                        'action': 'Fix metadata consistency',
-                        'title': 'Synchronize DocInfo and XMP metadata',
-                        'description': message,
-                        'category': 'pdfaIssues',
-                        'severity': 'error',
-                        'estimatedTime': '< 1 minute',
-                        'fixType': 'fixMetadataConsistency',
-                        'fixData': {'clause': issue.get('clause', '')}
-                    })
-                    fixes['estimatedTime'] += 1
-                
-                else:
-                    # Other PDF/A issues - semi-automated
-                    fixes['semiAutomated'].append({
-                        'action': f"Fix {issue.get('clause', 'PDF/A')} issue",
-                        'title': f"Fix PDF/A {issue.get('clause', 'PDF/A')} compliance",
-                        'description': message,
-                        'category': 'pdfaIssues',
-                        'severity': severity,
-                        'estimatedTime': '10-15 minutes',
-                        'fixType': 'fixPDFA',
-                        'fixData': {'clause': issue.get('clause', '')}
-                    })
-                    fixes['estimatedTime'] += 12
+        # PDF/A fix suggestions are currently disabled so the engine focuses on WCAG and PDF/UA issues.
         
         return fixes
     
@@ -832,35 +703,7 @@ class AutoFixEngine:
                     'warning': True
                 })
             
-            step_id = tracker.add_step(
-                "Add PDF/A Compliance",
-                "Adding OutputIntent and PDF/A identifier",
-                "pending"
-            ) if tracker else None
-            
-            if tracker:
-                tracker.start_step(step_id)
-            
-            try:
-                pdfa_result = self.pdfa_engine.apply_pdfa_fixes(pdf_path, scan_data)
-                
-                if pdfa_result.get('success'):
-                    fixes_applied.append({
-                        'type': 'addPDFACompliance',
-                        'description': 'Added PDF/A OutputIntent and identifier',
-                        'success': True
-                    })
-                    if tracker:
-                        tracker.complete_step(step_id, "PDF/A compliance added")
-                else:
-                    if tracker:
-                        tracker.fail_step(step_id, pdfa_result.get('error', 'Unknown error'))
-            except Exception as e:
-                print(f"[AutoFixEngine] ✗ Error adding PDF/A compliance: {e}")
-                if tracker:
-                    tracker.fail_step(step_id, str(e))
-                import traceback
-                traceback.print_exc()
+            # PDF/A compliance step waived; AutoFixEngine concentrates on WCAG and PDF/UA improvements.
 
             step_id = tracker.add_step(
                 "Save Fixed PDF",
@@ -883,19 +726,15 @@ class AutoFixEngine:
                 stream_decode_level=pikepdf.StreamDecodeLevel.none
             )
             
-            print(f"[AutoFixEngine] ✓ PDF saved to temp file")
-            print(f"[AutoFixEngine] Temp file size: {os.path.getsize(temp_path)} bytes")
+            temp_size = os.path.getsize(temp_path)
+            print(f"[AutoFixEngine] Temp file size: {temp_size} bytes")
             
             pdf.close()
             pdf = None
             
-            print(f"[AutoFixEngine] Replacing original file with fixed version...")
-            shutil.move(temp_path, pdf_path)
-            print(f"[AutoFixEngine] ✓ Original file replaced")
-            print(f"[AutoFixEngine] Final file size: {os.path.getsize(pdf_path)} bytes")
-            
+            fixed_output_path = Path(temp_path)
             if tracker:
-                tracker.complete_step(step_id, f"PDF saved ({os.path.getsize(pdf_path)} bytes)")
+                tracker.complete_step(step_id, f"PDF saved ({temp_size} bytes)")
 
             rescan_data = {}
             rescan_step_id = None
@@ -908,8 +747,8 @@ class AutoFixEngine:
                 tracker.start_step(rescan_step_id)
 
             try:
-                rescan_data = self._analyze_fixed_pdf(pdf_path)
-                rescan_data["fixedFile"] = os.path.basename(pdf_path)
+                rescan_data = self._analyze_fixed_pdf(fixed_output_path)
+                rescan_data["fixedFile"] = fixed_output_path.name
                 if tracker and rescan_step_id:
                     tracker.complete_step(
                         rescan_step_id,
@@ -927,7 +766,8 @@ class AutoFixEngine:
             
             return {
                 'success': True,
-                'fixedFile': os.path.basename(pdf_path),
+                'fixedFile': fixed_output_path.name,
+                'fixedTempPath': str(fixed_output_path),
                 'fixesApplied': fixes_applied,
                 'successCount': len(fixes_applied),
                 'message': f'Successfully applied {len(fixes_applied)} automated fixes',

@@ -14,8 +14,10 @@ from backend.utils.app_helpers import (
     _delete_batch_with_files,
     _delete_scan_with_files,
     _parse_scan_results_json,
+    derive_file_status,
     execute_query,
     get_db_connection,
+    remap_status_counts,
     update_group_file_count,
 )
 
@@ -76,7 +78,7 @@ async def get_group_details(group_id: str):
         scans = (
             execute_query(
                 """
-            SELECT scan_results, status
+            SELECT scan_results, status, COALESCE(issues_fixed, 0) AS issues_fixed
             FROM scans
             WHERE group_id = %s
             """,
@@ -103,8 +105,23 @@ async def get_group_details(group_id: str):
             total_issues += summary.get("totalIssues", 0)
             total_compliance += summary.get("complianceScore", 0)
 
-            status_key = (scan.get("status") or "unknown").lower()
-            status_counts[status_key] = status_counts.get(status_key, 0) + 1
+            issues_remaining = summary.get(
+                "issuesRemaining", summary.get("remainingIssues")
+            )
+            status_code, _ = derive_file_status(
+                scan.get("status"),
+                issues_remaining=issues_remaining,
+                summary_status=summary.get("status"),
+            )
+            status_counts[status_code] = status_counts.get(status_code, 0) + 1
+
+            scan_issues_fixed = scan.get("issues_fixed")
+            if scan_issues_fixed is None:
+                scan_issues_fixed = summary.get("issuesFixed")
+            if scan_issues_fixed is None and issues_remaining is not None:
+                total_for_scan = summary.get("totalIssues", 0) or 0
+                scan_issues_fixed = max(total_for_scan - (issues_remaining or 0), 0)
+            issues_fixed += scan_issues_fixed or 0
 
             if isinstance(results, dict):
                 for category, issues in results.items():
@@ -120,9 +137,8 @@ async def get_group_details(group_id: str):
                         if severity in severity_totals:
                             severity_totals[severity] += 1
 
-            if status_key == "fixed":
+            if status_code == "fixed":
                 fixed_count += 1
-                issues_fixed += summary.get("totalIssues", 0)
 
         avg_compliance = (
             round(total_compliance / total_files, 2) if total_files > 0 else 0
@@ -147,7 +163,7 @@ async def get_group_details(group_id: str):
             "fixed_files": fixed_count,
             "category_totals": category_totals,
             "severity_totals": severity_totals,
-            "status_counts": status_counts,
+            "status_counts": remap_status_counts(status_counts),
         }
 
         return SafeJSONResponse(response)
@@ -174,11 +190,20 @@ async def get_group_files(group_id: str):
             row_dict = dict(row)
             scan_results = _parse_scan_results_json(row_dict.get("scan_results") or {})
             summary = scan_results.get("summary", {})
+            issues_remaining = summary.get(
+                "issuesRemaining", summary.get("remainingIssues")
+            )
+            status_code, status_label = derive_file_status(
+                row_dict.get("status"),
+                issues_remaining=issues_remaining,
+                summary_status=summary.get("status"),
+            )
             files.append(
                 {
                     "id": row_dict["id"],
                     "filename": row_dict["filename"],
-                    "status": row_dict.get("status", "unprocessed"),
+                    "status": status_label,
+                    "statusCode": status_code,
                     "uploadDate": row_dict.get("upload_date"),
                     "totalIssues": summary.get(
                         "totalIssues", row_dict.get("total_issues", 0)

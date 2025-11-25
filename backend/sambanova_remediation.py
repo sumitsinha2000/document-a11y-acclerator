@@ -533,30 +533,7 @@ Make it beginner-friendly but thorough. Use clear, numbered steps."""
             pdf = pikepdf.open(pdf_path)
             fixes_applied = []
             
-            print("[SambaNova AI Fix] Applying PDF/A conformance fixes...")
-            try:
-                from pdfa_fixer import PDFAFixer
-                from pdfa_validator import validate_pdfa
-                
-                # Validate PDF/A compliance
-                pdfa_validation = validate_pdfa(pdf)
-                pdfa_issues = pdfa_validation.get('issues', [])
-                
-                if pdfa_issues:
-                    print(f"[SambaNova AI Fix] Found {len(pdfa_issues)} PDF/A issues, applying fixes...")
-                    pdfa_fixer = PDFAFixer(pdf, pdfa_issues)
-                    fixed_pdfa_issues = pdfa_fixer.apply_fixes()
-                    
-                    for fixed_issue in fixed_pdfa_issues:
-                        fixes_applied.append({
-                            'type': 'pdfa_fix',
-                            'description': f"PDF/A: {fixed_issue.get('fixNote', 'Fixed PDF/A issue')}",
-                            'success': True
-                        })
-                    
-                    print(f"[SambaNova AI Fix] ✓ Applied {len(fixed_pdfa_issues)} PDF/A fixes")
-            except Exception as pdfa_error:
-                print(f"[SambaNova AI Fix] Warning: PDF/A fixes failed: {pdfa_error}")
+            # PDF/A remediation steps are disabled so the engine focuses on WCAG 2.1 and PDF/UA-1 fixes.
             
             # Step 3: Apply AI-guided fixes
             

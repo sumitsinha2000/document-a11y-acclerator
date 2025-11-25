@@ -36,30 +36,26 @@ const deriveComplianceValue = (reportedValue, issueCount) => {
 export const calculateComplianceSnapshot = (results = {}, verapdfStatus = {}) => {
   const wcagIssues = getIssueCount(results, "wcagIssues")
   const pdfuaIssues = getIssueCount(results, "pdfuaIssues")
-  const pdfaIssues = getIssueCount(results, "pdfaIssues")
 
   const wcagCompliance = deriveComplianceValue(verapdfStatus?.wcagCompliance, wcagIssues)
   const pdfuaCompliance = deriveComplianceValue(verapdfStatus?.pdfuaCompliance, pdfuaIssues)
-  const pdfaCompliance = deriveComplianceValue(verapdfStatus?.pdfaCompliance, pdfaIssues)
 
-  const combined = combineComplianceScores(wcagCompliance, pdfuaCompliance, pdfaCompliance)
+  const combined = combineComplianceScores(wcagCompliance, pdfuaCompliance)
   const totalVeraPDFIssues =
     typeof verapdfStatus?.totalVeraPDFIssues === "number"
       ? verapdfStatus.totalVeraPDFIssues
-      : wcagIssues + pdfuaIssues + pdfaIssues
+      : wcagIssues + pdfuaIssues
 
   return {
     ...verapdfStatus,
     isActive: Boolean(
       verapdfStatus?.isActive ||
         isNumber(wcagCompliance) ||
-        isNumber(pdfuaCompliance) ||
-        isNumber(pdfaCompliance),
+        isNumber(pdfuaCompliance),
     ),
     totalVeraPDFIssues,
     wcagCompliance,
     pdfuaCompliance,
-    pdfaCompliance,
     complianceScore: combined ?? 0,
   }
 }
@@ -75,7 +71,6 @@ export const calculateSummaryFromResults = (results = {}, verapdfStatus = null) 
       complianceScore: complianceSnapshot.complianceScore,
       wcagCompliance: complianceSnapshot.wcagCompliance,
       pdfuaCompliance: complianceSnapshot.pdfuaCompliance,
-      pdfaCompliance: complianceSnapshot.pdfaCompliance,
     }
   }
 
@@ -126,7 +121,6 @@ export const calculateSummaryFromResults = (results = {}, verapdfStatus = null) 
     complianceScore: complianceSnapshot.complianceScore,
     wcagCompliance: complianceSnapshot.wcagCompliance,
     pdfuaCompliance: complianceSnapshot.pdfuaCompliance,
-    pdfaCompliance: complianceSnapshot.pdfaCompliance,
   }
 }
 
@@ -144,7 +138,7 @@ export const resolveSummary = ({ summary, results, verapdfStatus } = {}) => {
     }
   })
 
-  const complianceKeys = ["wcagCompliance", "pdfuaCompliance", "pdfaCompliance"]
+  const complianceKeys = ["wcagCompliance", "pdfuaCompliance"]
   complianceKeys.forEach((key) => {
     if (!isNumber(merged[key]) && isNumber(fallback[key])) {
       merged[key] = fallback[key]

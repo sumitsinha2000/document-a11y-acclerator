@@ -17,10 +17,13 @@ from backend.utils.wcag_mapping import annotate_wcag_mappings
 from backend.utils.app_helpers import (
     SafeJSONResponse,
     NEON_DATABASE_URL,
+    FILE_STATUS_LABELS,
     build_placeholder_scan_payload,
     build_verapdf_status,
+    derive_file_status,
     execute_query,
     get_fixed_version,
+    lookup_remote_fixed_entry,
     get_versioned_files,
     prune_fixed_versions,
     save_scan_to_db,
@@ -80,8 +83,19 @@ async def get_scans():
             parsed_payload = _parse_scan_results_json(raw_payload)
             summary = parsed_payload.get("summary", {}) or {}
             results = parsed_payload.get("results", parsed_payload) or {}
+            criteria_summary = parsed_payload.get("criteriaSummary") or {}
 
             scan_identifier = row_dict.get("id")
+            issues_remaining = (
+                row_dict.get("issues_remaining")
+                or summary.get("issuesRemaining")
+                or summary.get("remainingIssues")
+            )
+            status_code, status_label = derive_file_status(
+                row_dict.get("status"),
+                issues_remaining=issues_remaining,
+                summary_status=summary.get("status"),
+            )
 
             scans.append(
                 {
@@ -90,12 +104,14 @@ async def get_scans():
                     "filename": row_dict.get("filename"),
                     "groupId": row_dict.get("group_id"),
                     "batchId": row_dict.get("batch_id"),
-                    "status": row_dict.get("status", "unprocessed"),
+                    "status": status_label,
+                    "statusCode": status_code,
                     "uploadDate": row_dict.get("upload_date")
                     or row_dict.get("created_at"),
                     "filePath": row_dict.get("file_path"),
                     "summary": summary,
                     "results": results if isinstance(results, dict) else {},
+                    "criteriaSummary": criteria_summary,
                     "verapdfStatus": parsed_payload.get("verapdfStatus"),
                     "totalIssues": summary.get(
                         "totalIssues", row_dict.get("total_issues", 0)
@@ -122,6 +138,7 @@ async def scan_pdf(
     file: UploadFile = File(...),
     group_id: Optional[str] = Form(None),
     scan_mode: Optional[str] = Form(None),
+    folder_id: Optional[str] = Form(None),
 ):
     if not file or not file.filename:
         return JSONResponse({"error": "No file provided"}, status_code=400)
@@ -129,6 +146,22 @@ async def scan_pdf(
         return JSONResponse({"error": "Only PDF files supported"}, status_code=400)
     if not group_id:
         return JSONResponse({"error": "Group ID is required"}, status_code=400)
+
+    if folder_id:
+        folder_rows = execute_query(
+            "SELECT id, name, group_id FROM batches WHERE id = %s",
+            (folder_id,),
+            fetch=True,
+        )
+        if not folder_rows:
+            return JSONResponse({"error": "Folder not found"}, status_code=404)
+        folder_record = dict(folder_rows[0])
+        folder_group_id = folder_record.get("group_id")
+        if folder_group_id and folder_group_id != group_id:
+            return JSONResponse(
+                {"error": "Folder does not belong to the selected project"},
+                status_code=400,
+            )
 
     scan_uid = f"scan_{uuid.uuid4().hex}"
     upload_dir = _temp_storage_root()
@@ -190,6 +223,7 @@ async def scan_pdf(
             scan_uid,
             file.filename,
             formatted_results,
+            batch_id=folder_id,
             group_id=group_id,
             file_path=storage_reference,
             total_issues=total_issues,
@@ -199,6 +233,14 @@ async def scan_pdf(
         logger.info(
             f"[Backend] ✓ Scan record saved as {saved_id} with {total_issues} issues in group {group_id}"
         )
+        if folder_id:
+            try:
+                update_batch_statistics(folder_id)
+            except Exception:
+                logger.exception(
+                    "[Backend] Failed to refresh statistics for batch %s after scan",
+                    folder_id,
+                )
         if group_id and NEON_DATABASE_URL:
             try:
                 update_group_file_count(group_id)
@@ -218,6 +260,7 @@ async def scan_pdf(
             "groupId": group_id,
             "summary": formatted_results["summary"],
             "results": scan_results,
+            "criteriaSummary": formatted_results.get("criteriaSummary", {}),
             "fixes": fix_suggestions,
             "timestamp": datetime.now().isoformat(),
             "verapdfStatus": verapdf_status,
@@ -232,6 +275,7 @@ async def scan_batch(
     group_id: Optional[str] = Form(None),
     batch_name: Optional[str] = Form(None),
     scan_mode: Optional[str] = Form(None),
+    folder_id: Optional[str] = Form(None),
 ):
     try:
         if not files:
@@ -248,42 +292,60 @@ async def scan_batch(
                 status_code=400,
             )
 
-        batch_id = f"batch_{uuid.uuid4().hex}"
-        batch_title = batch_name or f"Batch {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        default_batch_title = batch_name or f"Batch {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         scan_now = should_scan_now(scan_mode, request)
         batch_status = "processing" if scan_now else "uploaded"
+        batch_id = folder_id or f"batch_{uuid.uuid4().hex}"
+        batch_title = default_batch_title
 
-        try:
-            execute_query(
-                """
-                INSERT INTO batches (
-                    id,
-                    name,
-                    group_id,
-                    created_at,
-                    status,
-                    total_files,
-                    total_issues,
-                    remaining_issues,
-                    fixed_issues,
-                    unprocessed_files
+        if folder_id:
+            folder_rows = execute_query(
+                "SELECT id, name, group_id FROM batches WHERE id = %s",
+                (folder_id,),
+                fetch=True,
+            )
+            if not folder_rows:
+                return JSONResponse({"error": "Folder not found"}, status_code=404)
+            folder_record = dict(folder_rows[0])
+            folder_group_id = folder_record.get("group_id")
+            if folder_group_id and folder_group_id != group_id:
+                return JSONResponse(
+                    {"error": "Folder does not belong to the selected project"},
+                    status_code=400,
                 )
-                VALUES (%s, %s, %s, NOW(), %s, %s, 0, 0, 0, %s)
-                """,
-                (
-                    batch_id,
-                    batch_title,
-                    group_id,
-                    batch_status,
-                    len(pdf_files),
-                    len(pdf_files),
-                ),
-            )
-        except Exception:
-            logger.exception("[Backend] Failed to create batch %s", batch_id)
-            return JSONResponse(
-                {"error": "Failed to create batch record"}, status_code=500
-            )
+            batch_title = folder_record.get("name") or default_batch_title
+        else:
+            try:
+                execute_query(
+                    """
+                    INSERT INTO batches (
+                        id,
+                        name,
+                        group_id,
+                        created_at,
+                        status,
+                        total_files,
+                        total_issues,
+                        remaining_issues,
+                        fixed_issues,
+                        unprocessed_files
+                    )
+                    VALUES (%s, %s, %s, NOW(), %s, %s, 0, 0, 0, %s)
+                    """,
+                    (
+                        batch_id,
+                        batch_title,
+                        group_id,
+                        batch_status,
+                        len(pdf_files),
+                        len(pdf_files),
+                    ),
+                )
+            except Exception:
+                logger.exception("[Backend] Failed to create batch %s", batch_id)
+                return JSONResponse(
+                    {"error": "Failed to create batch record"}, status_code=500
+                )
 
         _ensure_local_storage("Batch uploads")
         upload_dir = _uploads_root()
@@ -316,7 +378,8 @@ async def scan_batch(
                         "filename": upload.filename,
                         "batchId": batch_id,
                         "groupId": group_id,
-                        "status": "error",
+                        "status": "Error",
+                        "statusCode": "error",
                         "error": str(write_err),
                     }
                 )
@@ -378,7 +441,7 @@ async def scan_batch(
                         record_payload,
                         batch_id=batch_id,
                         group_id=group_id,
-                        status="completed",
+                        status="scanned",
                         total_issues=total_issues_file,
                         issues_fixed=0,
                         issues_remaining=remaining_issues,
@@ -386,7 +449,7 @@ async def scan_batch(
                     )
                     successful_scans += 1
                     total_batch_issues += total_issues_file
-                    status_value = "completed"
+                    status_code = "scanned"
                 else:
                     record_payload = build_placeholder_scan_payload(upload.filename)
                     saved_id = save_scan_to_db(
@@ -401,7 +464,7 @@ async def scan_batch(
                         issues_remaining=0,
                         file_path=storage_reference,
                     )
-                    status_value = "uploaded"
+                    status_code = "uploaded"
 
                 processed_files += 1
                 scan_results_response.append(
@@ -411,9 +474,11 @@ async def scan_batch(
                         "filename": upload.filename,
                         "batchId": batch_id,
                         "groupId": group_id,
-                        "status": status_value,
+                        "status": FILE_STATUS_LABELS.get(status_code, status_code.title()),
+                        "statusCode": status_code,
                         "summary": record_payload.get("summary", {}),
                         "results": record_payload.get("results", {}),
+                        "criteriaSummary": record_payload.get("criteriaSummary", {}),
                         "fixes": record_payload.get("fixes", []),
                         "verapdfStatus": record_payload.get("verapdfStatus"),
                         "uploadDate": datetime.utcnow().isoformat(),
@@ -432,7 +497,8 @@ async def scan_batch(
                         "filename": upload.filename,
                         "batchId": batch_id,
                         "groupId": group_id,
-                        "status": "error",
+                        "status": "Error",
+                        "statusCode": "error",
                         "error": str(processing_err),
                     }
                 )
@@ -487,8 +553,14 @@ async def start_deferred_scan(scan_id: str):
 
     file_path = _resolve_scan_file_path(scan_id, scan_record)
     if not file_path or not file_path.exists():
+        history_entry = lookup_remote_fixed_entry(scan_id)
         return JSONResponse(
-            {"error": "Original file not found for scanning"}, status_code=404
+            {
+                "error": "Original file not found for scanning",
+                "scanId": scan_id,
+                "remotePath": history_entry.get("remote_path") if history_entry else None,
+            },
+            status_code=404,
         )
 
     analyzer = PDFAccessibilityAnalyzer()
@@ -546,7 +618,7 @@ async def start_deferred_scan(scan_id: str):
             """,
             (
                 _serialize_scan_results(formatted_results),
-                "unprocessed",
+                "scanned",
                 total_issues,
                 total_issues,
                 0,
@@ -581,7 +653,8 @@ async def start_deferred_scan(scan_id: str):
             "results": scan_results,
             "fixes": fix_suggestions,
             "verapdfStatus": verapdf_status,
-            "status": "unprocessed",
+            "status": FILE_STATUS_LABELS.get("scanned", "Scanned"),
+            "statusCode": "scanned",
             "timestamp": datetime.now().isoformat(),
         }
     )
@@ -733,11 +806,10 @@ async def get_scan(scan_id: str):
         if isinstance(summary, dict) and verapdf_status:
             summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
             summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
-            summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+            # PDF/A compliance tracking disabled so we only average WCAG and PDF/UA scores.
             combined_score = _combine_compliance_scores(
                 summary.get("wcagCompliance"),
                 summary.get("pdfuaCompliance"),
-                summary.get("pdfaCompliance"),
             )
             if combined_score is not None:
                 summary["complianceScore"] = combined_score
@@ -774,23 +846,55 @@ async def get_scan(scan_id: str):
             "isActive": False,
             "wcagCompliance": None,
             "pdfuaCompliance": None,
-            "pdfaCompliance": None,
             "totalVeraPDFIssues": len(results_dict.get("wcagIssues", []))
-            + len(results_dict.get("pdfaIssues", []))
             + len(results_dict.get("pdfuaIssues", [])),
         }
+
+        batch_info = None
+        batch_id_value = scan.get("batch_id") or scan.get("batchId")
+        if batch_id_value:
+            batch_rows = execute_query(
+                """
+                SELECT id, name
+                FROM batches
+                WHERE id = %s
+                LIMIT 1
+                """,
+                (batch_id_value,),
+                fetch=True,
+            )
+            if batch_rows:
+                batch_info = batch_rows[0]
+
+        remaining_issues = (
+            scan.get("issues_remaining")
+            or summary.get("issuesRemaining")
+            or summary.get("remainingIssues")
+        )
+        status_code, status_label = derive_file_status(
+            scan.get("status"),
+            issues_remaining=remaining_issues,
+            summary_status=summary.get("status"),
+        )
 
         response_data = {
             "scanId": scan.get("id"),
             "filename": scan.get("filename"),
-            "status": scan.get("status", "completed"),
+            "status": status_label,
+            "statusCode": status_code,
             "groupId": scan.get("group_id"),
+            "batchId": batch_id_value,
+            "folderId": batch_id_value,
             "uploadDate": scan.get("upload_date") or scan.get("created_at"),
             "summary": summary,
             "results": results_dict,
             "fixes": scan_results.get("fixes", []),
             "verapdfStatus": response_verapdf,
         }
+
+        if batch_info:
+            response_data["batchName"] = batch_info.get("name")
+            response_data["folderName"] = batch_info.get("name")
 
         if latest_version:
             response_data["latestVersion"] = latest_version.get("version")
@@ -884,9 +988,15 @@ async def get_scan_current_state(scan_id: str):
                     fix_suggestions = json.loads(fix_suggestions)
                 except json.JSONDecodeError:
                     fix_suggestions = []
-
+            remaining_after = latest_fix.get("total_issues_after")
+            status_code, status_label = derive_file_status(
+                "fixed",
+                has_fix_history=True,
+                issues_remaining=remaining_after,
+            )
             response["currentState"] = {
-                "status": "fixed",
+                "status": status_label,
+                "statusCode": status_code,
                 "fixedFilename": latest_fix.get("fixed_filename"),
                 "lastFixApplied": latest_fix.get("applied_at"),
                 "fixType": latest_fix.get("fix_type"),
@@ -906,8 +1016,17 @@ async def get_scan_current_state(scan_id: str):
                     "relative_path"
                 )
         else:
+            remaining_initial = scan.get("issues_remaining") or initial_summary.get(
+                "issuesRemaining", initial_summary.get("remainingIssues")
+            )
+            status_code, status_label = derive_file_status(
+                scan.get("status"),
+                issues_remaining=remaining_initial,
+                summary_status=initial_summary.get("status"),
+            )
             response["currentState"] = {
-                "status": scan.get("status", "scanned"),
+                "status": status_label,
+                "statusCode": status_code,
                 "remainingIssues": initial_results,
                 "complianceScore": initial_summary.get("complianceScore", 0),
                 "totalIssues": scan.get("total_issues", 0),

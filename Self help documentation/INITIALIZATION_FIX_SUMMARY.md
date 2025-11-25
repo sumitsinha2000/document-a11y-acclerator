@@ -3,27 +3,33 @@
 ## Issues Identified
 
 ### 1. Circular Dependency Error
+
 **Error:** `ReferenceError: Cannot access 'C' before initialization`
 
 **Root Cause:**
+
 - `NotificationContext.jsx` was importing `Toast.jsx` and `ConfirmDialog.jsx` components
 - Multiple components imported `useNotification` from `NotificationContext`
 - This created a circular dependency chain that prevented proper module initialization
 
 **Solution:**
+
 - Created `NotificationContainer.jsx` to separate UI rendering from context logic
 - `NotificationContext.jsx` now only manages state and provides hooks
 - `NotificationContainer.jsx` imports and renders Toast and ConfirmDialog components
 - App.jsx renders `NotificationContainer` as a sibling to `AppContent`
 
 ### 2. Groups Not Fetching
+
 **Error:** 404 errors when trying to fetch groups from `/api/groups`
 
 **Root Cause:**
+
 - Backend API is not deployed or accessible
 - Frontend was making API calls without checking if backend exists
 
 **Solution:**
+
 - Added backend availability detection in `GroupSelector.jsx`
 - Shows user-friendly message when backend is unavailable
 - Provides clear instructions to set up backend (see BACKEND_SETUP_REQUIRED.md)
@@ -31,21 +37,25 @@
 ## Files Changed
 
 ### 1. frontend/src/contexts/NotificationContext.jsx
+
 - **Removed:** Direct imports of Toast and ConfirmDialog components
 - **Added:** Export of toasts, confirmDialog, and removeToast in context value
 - **Result:** Context now only manages state, no UI dependencies
 
 ### 2. frontend/src/components/NotificationContainer.jsx (NEW)
+
 - **Purpose:** Renders Toast and ConfirmDialog components
 - **Imports:** Toast, ConfirmDialog, and useNotification hook
 - **Result:** Breaks circular dependency by separating UI from context
 
 ### 3. frontend/src/App.jsx
+
 - **Added:** Import of NotificationContainer
 - **Added:** `<NotificationContainer />` rendered inside NotificationProvider
 - **Result:** Notifications render without circular dependency
 
 ### 4. frontend/src/components/GroupSelector.jsx
+
 - **Added:** Backend availability state tracking
 - **Added:** User-friendly error message when backend is unavailable
 - **Added:** Clear instructions for backend setup
@@ -53,7 +63,8 @@
 
 ## How the Fix Works
 
-### Before (Circular Dependency):
+### Before (Circular Dependency)
+
 \`\`\`
 NotificationContext.jsx
   ├─ imports Toast.jsx
@@ -69,7 +80,8 @@ Toast.jsx / ConfirmDialog.jsx
 Result: Circular dependency → "Cannot access 'C' before initialization"
 \`\`\`
 
-### After (No Circular Dependency):
+### After (No Circular Dependency)
+
 \`\`\`
 NotificationContext.jsx
   └─ exports useNotification (NO component imports)
@@ -107,19 +119,21 @@ Result: Clean dependency chain → No initialization errors
 
 ## Next Steps
 
-### To Enable Groups Functionality:
+### To Enable Groups Functionality
+
 1. Deploy your backend API (see BACKEND_SETUP_REQUIRED.md)
 2. Set `VITE_API_URL` environment variable in Vercel
 3. Redeploy frontend
 
-### To Verify Fix Locally:
+### To Verify Fix Locally
+
 \`\`\`bash
 cd frontend
 npm install
 npm run dev
 \`\`\`
 
-Open http://localhost:5173 and check browser console for errors.
+Open <http://localhost:5173> and check browser console for errors.
 
 ## Additional Notes
 

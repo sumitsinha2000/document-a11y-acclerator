@@ -1,22 +1,32 @@
 import { useState, useEffect, useRef } from "react"
 import axios from "axios"
-import IssuesList from "./IssuesList"
 import FixSuggestions from "./FixSuggestions"
 import SidebarNav from "./SidebarNav"
 import Breadcrumb from "./Breadcrumb"
 import ExportDropdown from "./ExportDropdown"
 import FixHistory from "./FixHistory"
+import WcagCriteriaSummary from "./WcagCriteriaSummary"
+import PdfUaCriteriaSummary from "./PdfUaCriteriaSummary"
 import AIFixStrategyModal from "./AIFixStrategyModal"
 import API_BASE_URL, { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
 import { parseBackendDate } from "../utils/dates"
 import { resolveSummary, calculateComplianceSnapshot } from "../utils/compliance"
+import { resolveEntityStatus } from "../utils/statuses"
 
-export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
+const STATUS_BADGE_STYLES = {
+  uploaded: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200",
+  scanned: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  partially_fixed: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  fixed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  error: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
+  default: "bg-gray-100 text-gray-700 dark:bg-gray-800/60 dark:text-gray-200",
+}
+
+export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpen = true, onScanComplete }) {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [selectedCategory, setSelectedCategory] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [aiLoading, setAiLoading] = useState(false)
   const [showAiModal, setShowAiModal] = useState(false)
@@ -28,6 +38,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isScanningFile, setIsScanningFile] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   const { showSuccess, showError, showWarning, showInfo } = useNotification()
@@ -158,6 +169,51 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     }
   }
 
+  const handleScanFile = async () => {
+    const targetScanId = reportData?.scanId || reportData?.id
+    if (!targetScanId) {
+      showWarning("Unable to start a scan for this file at the moment.")
+      return
+    }
+
+    setIsScanningFile(true)
+    try {
+      const response = await axios.post(API_ENDPOINTS.startScan(targetScanId))
+      const payload = response?.data
+
+        if (payload) {
+          setReportData((prev) => {
+            if (!prev) {
+              return payload
+            }
+            return {
+              ...prev,
+              ...payload,
+              scanId: payload.scanId || prev.scanId,
+              filename: payload.filename || prev.filename,
+              fileName: payload.fileName || prev.fileName,
+              groupName: payload.groupName || prev.groupName,
+              summary: payload.summary || prev.summary,
+              results: payload.results || prev.results,
+              verapdfStatus: payload.verapdfStatus || prev.verapdfStatus,
+              fixes: payload.fixes || prev.fixes,
+              status: payload.status || prev.status,
+            }
+          })
+          setRefreshKey((prev) => prev + 1)
+          showSuccess("Scan completed for this file.")
+          if (onScanComplete) {
+            onScanComplete({ scanId: targetScanId, payload })
+          }
+        }
+    } catch (error) {
+      console.error("[v0] ReportViewer - Failed to scan file:", error)
+      showError("Failed to scan this file. Please try again.")
+    } finally {
+      setIsScanningFile(false)
+    }
+  }
+
   const handleAiRemediation = async (issueType, fixCategory) => {
     setAiLoading(true)
     try {
@@ -211,7 +267,6 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
       isActive: false,
       wcagCompliance: null,
       pdfuaCompliance: null,
-      pdfaCompliance: null,
       totalVeraPDFIssues: 0,
     },
   )
@@ -222,12 +277,16 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
     verapdfStatus,
   })
 
-  const scanStatus = (reportData.status || "").toLowerCase()
+  const scanStatusInfo = resolveEntityStatus(reportData)
+  const scanStatus = scanStatusInfo.code
   const isUploaded = scanStatus === "uploaded"
   const scanDateLabel = isUploaded ? "Uploaded on" : "Scanned on"
   const parsedReportDate = parseBackendDate(reportData.uploadDate || reportData.timestamp || reportData.created_at)
 
   const breadcrumbItems = [{ label: "Home", onClick: onBack }, { label: "Report" }]
+  const folderIdentifier = reportData.batchId || reportData.folderId
+  const folderLabel = reportData.batchName || reportData.folderName || "folder"
+  const canReturnToFolder = Boolean(onBackToFolder && folderIdentifier)
 
   return (
     <div className="flex overflow-x-hidden bg-slate-50 dark:bg-slate-900">
@@ -243,13 +302,18 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
           <div className="h-full flex flex-col">
             {/* Sidebar Header */}
             <div className="px-4 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Batch Files</h2>
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Folder Files</h2>
               <span className="text-xs text-slate-500 dark:text-slate-400">{scans.length} files</span>
             </div>
 
             {/* Files List */}
             <div className="flex-1 overflow-y-auto p-2">
-              {scans.map((scan, index) => (
+              {scans.map((scan, index) => {
+                const statusInfo = resolveEntityStatus(scan)
+                const showSummary =
+                  scan.summary && statusInfo.code !== "uploaded" && typeof scan.summary.complianceScore === "number"
+
+                return (
                 <button
                   key={index}
                   onClick={() => setSelectedFileIndex(index)}
@@ -287,7 +351,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                       >
                         {scan.fileName || scan.filename}
                       </p>
-                      {scan.summary && scan.status !== "uploaded" && typeof scan.summary.complianceScore === "number" && (
+                      {showSummary && (
                         <div className="flex items-center gap-2 mt-1">
                           <span
                             className={`text-xs font-semibold ${
@@ -304,35 +368,19 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                         </div>
                       )}
                       {/* Status badge */}
-                      {scan.status && (
+                      {statusInfo.label && (
                         <span
                           className={`inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full ${
-                            scan.status === "fixed"
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                              : scan.status === "processed"
-                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                : scan.status === "compliant"
-                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                  : scan.status === "uploaded"
-                                    ? "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200"
-                                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                            STATUS_BADGE_STYLES[statusInfo.code] || STATUS_BADGE_STYLES.default
                           }`}
                         >
-                          {scan.status === "fixed"
-                            ? "Fixed"
-                            : scan.status === "processed"
-                              ? "Processed"
-                              : scan.status === "compliant"
-                                ? "Compliant"
-                                : scan.status === "uploaded"
-                                  ? "Uploaded"
-                                  : "Unprocessed"}
+                          {statusInfo.label}
                         </span>
                       )}
                     </div>
                   </div>
                 </button>
-              ))}
+              )})}
             </div>
           </div>
         </div>
@@ -366,26 +414,61 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
           sidebarOpen ? "min-h-screen" : "min-h-0"
         } bg-white dark:bg-slate-800 border-r border-b border-slate-200 dark:border-slate-700 flex flex-col`}
       >
-        <div className="border-b-2 border-slate-200 dark:border-slate-700 px-8 py-8">
-          <div className="flex items-center justify-between mb-4">
-            <Breadcrumb items={breadcrumbItems} className="text-slate-600 dark:text-slate-300" />
-            <div className="flex items-center gap-3">
+        <div className="px-8 py-8">
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div className="flex flex-wrap items-center gap-3">
+              {canReturnToFolder && (
+                <button
+                  type="button"
+                  onClick={onBackToFolder}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 4L4 10l6 6" />
+                  </svg>
+                  <span>{`Back to ${folderLabel} files`}</span>
+                </button>
+              )}
+            </div>
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={handleRefresh}
+              className="px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-1 font-semibold text-sm border border-slate-200 dark:border-slate-600"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              <span>Refresh</span>
+            </button>
+            {isUploaded && (
               <button
-                onClick={handleRefresh}
-                className="px-5 py-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-2 font-semibold text-base border border-slate-200 dark:border-slate-600"
+                type="button"
+                onClick={handleScanFile}
+                disabled={isScanningFile}
+                className={`px-3 py-2 rounded-lg border border-violet-500 flex items-center gap-2 text-sm font-semibold transition ${
+                  isScanningFile
+                    ? "bg-violet-100 text-violet-600 cursor-wait"
+                    : "bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:from-violet-500 hover:to-purple-500"
+                }`}
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    d="M4 7h16M4 12h10M4 17h14"
                   />
                 </svg>
-                <span>Refresh</span>
+                <span>{isScanningFile ? "Scanning…" : "Scan file"}</span>
               </button>
-              <ExportDropdown scanId={reportData.scanId} filename={reportData.fileName || reportData.filename} />
-            </div>
+            )}
+            <ExportDropdown scanId={reportData.scanId} filename={reportData.fileName || reportData.filename} />
+          </div>
           </div>
 
           <div className="flex items-start justify-between">
@@ -408,14 +491,14 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                   <span className="text-violet-700 dark:text-violet-300 font-bold text-xl">{reportData.groupName}</span>
                 </div>
               )}
-              <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-3">
+              {/* <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-3">
                 {reportData.fileName || reportData.filename}
-              </h1>
+              </h1> */}
               <div className="flex items-center gap-4 text-base text-slate-600 dark:text-slate-400 font-medium">
-                <span>
+                {/* <span>
                   {scanDateLabel}{" "}
                   {parsedReportDate ? parsedReportDate.toLocaleDateString() : "Date unavailable"}
-                </span>
+                </span> */}
                 {reportData.appliedFixes && (
                   <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -460,10 +543,15 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
         )}
       </div>
 
-      <div className="p-8 space-y-6">
+      <div className="pt-4 px-8 pb-8 space-y-6">
           {scans.length > 1 && (
             <div className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
-              {scans.map((scan, index) => (
+              {scans.map((scan, index) => {
+                const statusInfo = resolveEntityStatus(scan)
+                const showCompliance =
+                  scan.summary && statusInfo.code !== "uploaded" && typeof scan.summary.complianceScore === "number"
+
+                return (
                 <button
                   key={index}
                   ref={(el) => (tabRefs.current[index] = el)}
@@ -476,7 +564,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                 >
                   <span>📄</span>
                   <span>{scan.fileName || scan.filename}</span>
-                  {scan.summary && scan.status !== "uploaded" && typeof scan.summary.complianceScore === "number" && (
+                  {showCompliance && (
                     <span
                       className={`px-2 py-0.5 rounded-full text-xs font-bold ${
                         scan.summary.complianceScore >= 70
@@ -488,7 +576,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                     </span>
                   )}
                 </button>
-              ))}
+              )})}
             </div>
           )}
 
@@ -512,6 +600,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
                         >
                           <path
                             strokeLinecap="round"
@@ -527,7 +616,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                       <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
                         {typeof verapdfStatus.wcagCompliance === "number" && (
                           <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
-                            <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                            <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                               <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
                               <path
                                 fillRule="evenodd"
@@ -546,6 +635,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                               className="w-4 h-4 text-purple-600 dark:text-purple-400"
                               fill="currentColor"
                               viewBox="0 0 20 20"
+                              aria-hidden="true"
                             >
                               <path
                                 fillRule="evenodd"
@@ -555,25 +645,6 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                             </svg>
                             <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
                               PDF/UA {verapdfStatus.pdfuaCompliance}%
-                            </span>
-                          </div>
-                        )}
-                        {typeof verapdfStatus.pdfaCompliance === "number" && (
-                          <div className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-full border border-emerald-200 dark:border-emerald-800">
-                            <svg
-                              className="w-4 h-4 text-emerald-600 dark:text-emerald-400"
-                              fill="currentColor"
-                              viewBox="0 0 20 20"
-                            >
-                              <path d="M4 3a2 2 0 012-2h6.586A2 2 0 0114 1.586L18.414 6A2 2 0 0120 7.414V17a2 2 0 01-2 2H6a2 2 0 01-2-2V3z" />
-                              <path
-                                fillRule="evenodd"
-                                d="M8 11a1 1 0 011-1h6a1 1 0 110 2H9a1 1 0 01-1-1z"
-                                clipRule="evenodd"
-                              />
-                            </svg>
-                            <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                              PDF/A {verapdfStatus.pdfaCompliance}%
                             </span>
                           </div>
                         )}
@@ -595,6 +666,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
                         >
                           <path
                             strokeLinecap="round"
@@ -621,6 +693,7 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
                         >
                           <path
                             strokeLinecap="round"
@@ -639,11 +712,14 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
                 <FixHistory key={`fix-history-${refreshKey}`} scanId={reportData.scanId} onRefresh={handleRefresh} />
               </div>
 
-              <div id="issues" key={`issues-${refreshKey}`}>
-                <IssuesList
+              <div id="criteria" key={`criteria-${refreshKey}`} className="space-y-6">
+                <WcagCriteriaSummary
+                  criteriaSummary={reportData.criteriaSummary?.wcag}
                   results={reportData.results}
-                  selectedCategory={selectedCategory}
-                  onSelectCategory={setSelectedCategory}
+                />
+                <PdfUaCriteriaSummary
+                  criteriaSummary={reportData.criteriaSummary?.pdfua}
+                  results={reportData.results}
                 />
               </div>
 
@@ -663,9 +739,8 @@ export default function ReportViewer({ scans, onBack, sidebarOpen = true }) {
             >
               <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Ready to Scan</h2>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                Start the scan from the dashboard, history, or batch views to generate accessibility results for this
-                file. Once the scan finishes, you will see detailed issue breakdowns, automated fix options, and export
-                actions here.
+                Start the scan from the folder dashboard or from the scan button above in this dashboard to generate
+                accessibility results.
               </p>
             </div>
           )}

@@ -41,19 +41,19 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
         setBackendAvailable(false)
         setError("Backend API is not available. Please deploy the backend or set VITE_API_URL environment variable.")
       } else {
-        setError("Failed to load groups")
+        setError("Failed to load projects")
       }
     }
   }
 
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) {
-      setError("Group name is required")
+      setError("Project name is required")
       return
     }
 
     if (newGroupName.trim().length > 255) {
-      setError("Group name must be less than 255 characters")
+      setError("Project name must be less than 255 characters")
       return
     }
 
@@ -78,7 +78,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
       console.log("[v0] ✓ Group creation complete and selected")
     } catch (err) {
       console.error("[v0] Error creating group:", err)
-      setError(err.message || "Failed to create group")
+      setError(err.message || "Failed to create project")
     } finally {
       setLoading(false)
     }
@@ -95,7 +95,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
     return (
       <div className="space-y-3">
         <label className="block text-sm font-semibold text-gray-900 dark:text-white">
-          Select Group {required && <span className="text-red-500">*</span>}
+          Select Project {required && <span className="text-red-500">*</span>}
         </label>
         <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <div className="flex items-start gap-3">
@@ -113,7 +113,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
             <div className="flex-1 min-w-0">
               <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-200 mb-1">Backend Not Available</h4>
               <p className="text-xs text-amber-700 dark:text-amber-300 mb-2">
-                The backend API is not responding. Groups functionality requires a backend server.
+                The backend API is not responding. Projects functionality requires a backend server.
               </p>
               <p className="text-xs text-amber-600 dark:text-amber-400">
                 Please see <strong>BACKEND_SETUP_REQUIRED.md</strong> for setup instructions.
@@ -129,11 +129,11 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
     <div className="space-y-3">
       {!isCreatingNew ? (
         <>
-          <label
-            className="block text-sm font-semibold text-gray-900 dark:text-white"
-            htmlFor="groupSelect"
-          >
-            Select Group {required && <span className="text-red-500">*</span>}
+        <label
+          className="block text-sm font-semibold text-gray-900 dark:text-white"
+          htmlFor="groupSelect"
+        >
+          Select Project {required && <span className="text-red-500">*</span>}
           </label>
 
           <div className="space-y-2">
@@ -146,10 +146,10 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
                  bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm
                  focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               aria-required={required}
-              aria-describedby="groupHelp"
+              aria-describedby="projectHelp"
               autoComplete="organization"
             >
-              <option value="">-- Select a group --</option>
+              <option value="">-- Select a project --</option>
               {groups.map((group) => (
                 <option key={group.id} value={group.id}>
                   {group.name} {group.file_count > 0 && `(${group.file_count} files)`}
@@ -158,10 +158,10 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
             </select>
 
             <p
-              id="groupHelp"
+              id="projectHelp"
               className="text-xs text-gray-600 dark:text-gray-400 mt-1"
             >
-              Choose an existing group or create a new one.
+              Choose an existing project or create a new one.
             </p>
 
             <button
@@ -173,7 +173,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
                  focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
                  dark:focus:ring-offset-gray-800"
             >
-              + Create New Group
+              + Create New Project
             </button>
           </div>
         </>
@@ -187,7 +187,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
             id="createGroupHeading"
             className="text-sm font-semibold text-gray-800 dark:text-gray-100"
           >
-            Create a New Group
+            Create a New Project
           </h3>
 
           <div>
@@ -195,7 +195,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
               htmlFor="newGroupName"
               className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
             >
-              Group Name <span className="text-red-500">*</span>
+              Project Name <span className="text-red-500">*</span>
             </label>
             <input
               id="newGroupName"
@@ -225,7 +225,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
               id="newGroupDescription"
               value={newGroupDescription}
               onChange={(e) => setNewGroupDescription(e.target.value)}
-              placeholder="Brief description of this group"
+              placeholder="Brief description of this project"
               rows={2}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                    bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2
@@ -257,7 +257,7 @@ export default function GroupSelector({ selectedGroup, onGroupChange, required =
                    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
                    dark:focus:ring-offset-gray-800 transition-colors"
             >
-              {loading ? "Creating..." : "Create Group"}
+              {loading ? "Creating..." : "Create Project"}
             </button>
 
             <button

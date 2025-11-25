@@ -1,3 +1,5 @@
+import { FILE_STATUS_LABELS_MAP, normalizeStatusCode, resolveEntityStatus } from "../utils/statuses"
+
 const CATEGORY_LABELS = {
   missingMetadata: "Metadata",
   untaggedContent: "Tagging",
@@ -9,12 +11,7 @@ const CATEGORY_LABELS = {
 }
 
 const STATUS_LABELS = {
-  uploaded: "Waiting",
-  unprocessed: "Unprocessed",
-  processing: "Processing",
-  processed: "Processed",
-  completed: "Completed",
-  fixed: "Fixed",
+  ...FILE_STATUS_LABELS_MAP,
   failed: "Failed",
 }
 
@@ -31,17 +28,20 @@ function ProgressItem({ label, value, total, colorClass, srLabel }) {
     <div className="space-y-1">
       <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-400">
         <span>{label}</span>
-        <span aria-hidden="true">{value}</span>
+        <span>{value}</span>
       </div>
-      <div className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative">
+      <div
+        className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative"
+        role="progressbar"
+        aria-label={srLabel || `${label}: ${value} of ${total} (${percent}%)`}
+        aria-valuemin={0}
+        aria-valuemax={total || 0}
+        aria-valuenow={value}
+      >
         <span className="sr-only">
           {srLabel || `${label}: ${value} of ${total} (${percent}%)`}
         </span>
-        <div
-          className={`h-full ${colorClass}`}
-          style={{ width: `${percent}%` }}
-          aria-hidden="true"
-        ></div>
+        <div className={`h-full ${colorClass}`} style={{ width: `${percent}%` }}></div>
       </div>
     </div>
   )
@@ -163,9 +163,8 @@ export function BatchInsightPanel({ scans }) {
   const issuesByFile = []
 
   scans.forEach((scan) => {
-    const rawStatus = (scan?.status || "unknown").toLowerCase()
-    const normalizedStatus = STATUS_LABELS[rawStatus] ? rawStatus : "unknown"
-    statusTotals.set(normalizedStatus, (statusTotals.get(normalizedStatus) || 0) + 1)
+    const { code } = resolveEntityStatus(scan)
+    statusTotals.set(code, (statusTotals.get(code) || 0) + 1)
 
     const totalIssues = scan?.summary?.totalIssues ?? scan?.initialSummary?.totalIssues ?? 0
     issuesByFile.push({
@@ -247,7 +246,13 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
   }))
   const topCategories = categoryEntries.sort((a, b) => b.count - a.count).slice(0, 3)
 
-  const statusEntries = Object.entries(statusCounts || {}).map(([key, count]) => ({
+  const aggregatedStatusCounts = Object.entries(statusCounts || {}).reduce((acc, [key, count]) => {
+    const code = normalizeStatusCode(key)
+    acc[code] = (acc[code] || 0) + count
+    return acc
+  }, {})
+
+  const statusEntries = Object.entries(aggregatedStatusCounts).map(([key, count]) => ({
     key,
     label: STATUS_LABELS[key] || key.replace(/([A-Z])/g, " $1").trim(),
     count,
@@ -294,9 +299,9 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
             Top Issue Categories
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Showing up to three categories with the highest number of issues across the group.
+            Showing up to three categories with the highest number of issues across the project.
           </p>
-          <dl className="mt-4 space-y-3" aria-label="Group top issue categories with counts and percentages">
+          <dl className="mt-4 space-y-3" aria-label="Project top issue categories with counts and percentages">
             {topCategories.map((category) => {
               const percent = totalIssues > 0 ? Math.round((category.count / totalIssues) * 100) : 0
               return (
@@ -318,7 +323,7 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
             File Status Overview
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {totalFiles || 0} files in this group. Status distribution is shown below.
+            {totalFiles || 0} files in this project. Status distribution is shown below.
           </p>
           <div className="mt-4 space-y-3">
             {filteredStatuses.map((status) => (

@@ -6,9 +6,23 @@ Enhanced with PDF-Extract-Kit integration
 
 import json
 import logging
-from typing import Dict, List, Any, Optional
+from collections import defaultdict
+from typing import Dict, List, Any, Optional, Tuple, Set
 import PyPDF2
 import pdfplumber
+
+try:
+    from PyPDF2.generic import ContentStream
+except Exception:
+    ContentStream = None
+
+try:
+    import pikepdf
+    PIKEPDF_AVAILABLE = True
+except ImportError:
+    pikepdf = None
+    PIKEPDF_AVAILABLE = False
+    print("[Analyzer] pikepdf not available - structure-aware analysis disabled")
 # from pathlib import Path
 
 try:
@@ -19,19 +33,16 @@ except ImportError:
     print("[Analyzer] PDF-Extract-Kit processor not available")
 
 try:
-    from backend.wcag_validator import WCAGValidator
+    from backend.wcag_validator import WCAGValidator, build_figure_alt_lookup, has_figure_alt_text
     WCAG_VALIDATOR_AVAILABLE = True
 except ImportError:
     WCAG_VALIDATOR_AVAILABLE = False
+    WCAGValidator = None
+    build_figure_alt_lookup = None
+    has_figure_alt_text = None
     print("[Analyzer] WCAG validator not available")
 
-try:
-    from backend.pdfa_validator import validate_pdfa
-    import pikepdf
-    PDFA_VALIDATOR_AVAILABLE = True
-except ImportError:
-    PDFA_VALIDATOR_AVAILABLE = False
-    print("[Analyzer] PDF/A validator not available")
+# PDF/A validation is intentionally disabled; the analyzer now focuses on WCAG 2.1 and PDF/UA-1.
 
 
 logger = logging.getLogger("pdf-accessibility-analyzer")
@@ -60,6 +71,8 @@ class PDFAccessibilityAnalyzer:
             "pdfuaIssues": [],
             "pdfaIssues": [],
         }
+        self._contrast_manual_note_added = False
+        self._low_contrast_issue_count = 0
         
         self.pdf_extract_kit = None
         if PDF_EXTRACT_KIT_AVAILABLE:
@@ -102,14 +115,13 @@ class PDFAccessibilityAnalyzer:
             
             self._analyze_with_pypdf2(pdf_path)
             self._analyze_with_pdfplumber(pdf_path)
+            self._analyze_contrast_basic(pdf_path)
             
             if self.wcag_validator_available:
                 print("[Analyzer] Running built-in WCAG 2.1 and PDF/UA-1 validation")
                 self._analyze_with_wcag_validator(pdf_path)
             
-            if PDFA_VALIDATOR_AVAILABLE:
-                print("[Analyzer] Running PDF/A validation")
-                self._analyze_with_pdfa_validator(pdf_path)
+            # PDF/A validation is disabled to keep analytics focused on WCAG 2.1 and PDF/UA checks.
             
             total_issues = sum(len(v) for v in self.issues.values())
             print(f"[Analyzer] Analysis complete, found {total_issues} issues")
@@ -269,6 +281,7 @@ class PDFAccessibilityAnalyzer:
                 pages_with_images = []
                 pages_with_tables = []
                 total_form_fields = 0
+                image_candidates: List[Dict[str, Any]] = []
                 
                 for page_num, page in enumerate(pdf.pages, start=1):
                     # Check for images
@@ -276,6 +289,20 @@ class PDFAccessibilityAnalyzer:
                     if images and len(images) > 0:
                         total_images += len(images)
                         pages_with_images.append(page_num)
+                        for img_index, image in enumerate(images, start=1):
+                            image_candidates.append({
+                                "page": page_num,
+                                "pages": [page_num],
+                                "imageIndex": img_index,
+                                "xobjectName": self._normalize_xobject_name(image.get("name")),
+                                "location": {
+                                    "page": page_num,
+                                    "imageIndex": img_index,
+                                    "bbox": image.get("bbox"),
+                                    "width": image.get("width"),
+                                    "height": image.get("height"),
+                                },
+                            })
                     
                     # Check for tables
                     tables = page.find_tables()
@@ -287,23 +314,19 @@ class PDFAccessibilityAnalyzer:
                     if hasattr(page, 'annots') and page.annots:
                         total_form_fields += len(page.annots)
                 
-                if not self.issues["missingAltText"] and total_images > 0:
-                    self.issues["missingAltText"].append({
-                        "severity": "high",
-                        "description": f"Found {total_images} image(s) that may lack alternative text descriptions",
-                        "count": total_images,
-                        "pages": pages_with_images[:10],
-                        "recommendation": "Add descriptive alt text to all images using a PDF editor.",
-                    })
+                missing_alt_issues = self._collect_missing_alt_text_issues(pdf_path, image_candidates)
+                if not self.issues["missingAltText"] and missing_alt_issues:
+                    self.issues["missingAltText"].extend(missing_alt_issues)
                 
                 if not self.issues["tableIssues"] and total_tables > 0 and not tables_reviewed:
-                    self.issues["tableIssues"].append({
+                    table_issue = {
                         "severity": "high",
                         "description": f"Found {total_tables} table(s) that may lack proper header markup",
                         "count": total_tables,
                         "pages": pages_with_tables[:10],
                         "recommendation": "Ensure all tables have properly marked header rows and columns.",
-                    })
+                    }
+                    self.issues["tableIssues"].append(table_issue)
                 elif tables_reviewed and total_tables > 0:
                     print(f"[Analyzer] Skipping {total_tables} table(s) - already reviewed and structured")
                 
@@ -324,11 +347,328 @@ class PDFAccessibilityAnalyzer:
                         "pages": pages_with_images[:5],
                         "recommendation": "Manually check that all text has sufficient contrast ratio (4.5:1 for normal text)",
                     })
+                    self._contrast_manual_note_added = True
                 
                 print(f"[Analyzer] pdfplumber analysis: {total_images} images, {total_tables} tables, {total_form_fields} form fields")
+                self._sync_table_issues_to_pdfua()
                 
         except Exception as e:
             print(f"[Analyzer] Error in pdfplumber analysis: {e}")
+
+    def _collect_missing_alt_text_issues(
+        self,
+        pdf_path: str,
+        image_candidates: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Return precise missing-alt issues based on structure-aware scanning."""
+        if not image_candidates:
+            return []
+
+        structure_results = self._find_images_without_structure_alt(pdf_path)
+        if structure_results is None:
+            return self._fallback_missing_alt_issues(image_candidates)
+
+        if not structure_results:
+            return []
+
+        candidate_map: Dict[Tuple[int, Optional[str]], List[Dict[str, Any]]] = defaultdict(list)
+        for candidate in image_candidates:
+            key = (candidate["page"], candidate.get("xobjectName"))
+            candidate_map[key].append(candidate)
+
+        issues: List[Dict[str, Any]] = []
+        seen_refs: Set[Tuple[int, Optional[str]]] = set()
+
+        for entry in structure_results:
+            key = (entry["page"], entry.get("name"))
+            if key in seen_refs:
+                continue
+            seen_refs.add(key)
+
+            candidates = candidate_map.get(key)
+            if not candidates:
+                issues.append(self._format_missing_alt_issue(entry["page"], None))
+                continue
+
+            for candidate in candidates:
+                issues.append(self._format_missing_alt_issue(entry["page"], candidate))
+
+        return issues
+
+    def _find_images_without_structure_alt(self, pdf_path: str) -> Optional[List[Dict[str, Any]]]:
+        """Inspect the structure tree to identify images lacking alt text."""
+        if not PIKEPDF_AVAILABLE:
+            return None
+
+        pdf_doc = None
+        validator = None
+        lookup = None
+        results: List[Dict[str, Any]] = []
+
+        try:
+            pdf_doc = pikepdf.open(pdf_path)
+
+            if WCAG_VALIDATOR_AVAILABLE and WCAGValidator:
+                validator = WCAGValidator(pdf_path)
+                validator.pdf = pdf_doc
+                lookup = validator._get_figure_alt_lookup()
+            elif build_figure_alt_lookup:
+                lookup = build_figure_alt_lookup(pdf_doc)
+
+            for page_index, page in enumerate(pdf_doc.pages, 1):
+                if '/Resources' not in page or '/XObject' not in page.Resources:
+                    continue
+                xobjects = page.Resources.XObject
+                for name, xobject in xobjects.items():
+                    if xobject.get('/Subtype') != '/Image':
+                        continue
+
+                    has_alt = False
+                    if validator:
+                        has_alt = validator._has_alt_text(xobject)
+                    else:
+                        if '/Alt' in xobject or '/ActualText' in xobject:
+                            has_alt = True
+                        elif has_figure_alt_text and lookup:
+                            has_alt = has_figure_alt_text(xobject, lookup)
+
+                    if not has_alt:
+                        results.append({
+                            "page": page_index,
+                            "name": self._normalize_xobject_name(str(name)),
+                        })
+
+        except Exception as exc:
+            print(f"[Analyzer] Could not perform structure-aware alt text scan: {exc}")
+            return None
+        finally:
+            if pdf_doc is not None:
+                try:
+                    pdf_doc.close()
+                except Exception:
+                    pass
+
+        return results
+
+    def _fallback_missing_alt_issues(self, image_candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Return legacy heuristic issues when structure-aware detection is unavailable."""
+        issues: List[Dict[str, Any]] = []
+        for candidate in image_candidates:
+            issues.append({
+                "severity": "medium",
+                "description": f"Image on page {candidate['page']} may lack alternative text (structure analysis unavailable)",
+                "page": candidate["page"],
+                "pages": candidate.get("pages", [candidate["page"]]),
+                "imageIndex": candidate.get("imageIndex"),
+                "location": candidate.get("location"),
+                "recommendation": "Add descriptive alt text to this image using a PDF editor.",
+            })
+        return issues
+
+    def _format_missing_alt_issue(self, page_num: int, candidate: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Create a standardized issue record for an image missing alt text."""
+        issue = {
+            "severity": "high",
+            "description": f"Image on page {page_num} has no associated alternative text or tagged Figure entry",
+            "page": page_num,
+            "pages": [page_num],
+            "recommendation": "Add an Alt text entry to the Figure tag or XObject stream for this image.",
+        }
+
+        if candidate:
+            issue.update({
+                "pages": candidate.get("pages", [page_num]),
+                "imageIndex": candidate.get("imageIndex"),
+                "location": candidate.get("location"),
+            })
+
+        return issue
+
+    @staticmethod
+    def _normalize_xobject_name(name: Optional[Any]) -> Optional[str]:
+        """Normalize XObject names so pdfplumber and pikepdf references match."""
+        if not name:
+            return None
+        text = str(name)
+        return text[1:] if text.startswith('/') else text
+
+    def _sync_table_issues_to_pdfua(self):
+        """Mirror generic table issues into PDF/UA clause 7.5 findings for reporting."""
+        table_issues = self.issues.get("tableIssues") or []
+        if not table_issues:
+            return
+
+        existing = set()
+        for issue in self.issues.get("pdfuaIssues", []):
+            clause = issue.get("clause")
+            desc = issue.get("description")
+            if not clause or not desc:
+                continue
+            existing.add((desc, clause))
+
+        for issue in table_issues:
+            if not isinstance(issue, dict):
+                continue
+            desc = issue.get("description")
+            if not desc:
+                continue
+            key = (desc, "ISO 14289-1:7.5")
+            if key in existing:
+                continue
+            pdfua_issue = {
+                "description": desc,
+                "clause": "ISO 14289-1:7.5",
+                "severity": issue.get("severity", "medium"),
+                "remediation": issue.get("recommendation", "Ensure table headers are identified and associated with data cells."),
+                "pages": issue.get("pages"),
+                "category": "pdfua",
+            }
+            self.issues["pdfuaIssues"].append(pdfua_issue)
+            existing.add(key)
+
+    def _analyze_contrast_basic(self, pdf_path: str):
+        """
+        Perform a lightweight contrast analysis by inspecting text color commands.
+        Assumes a white background and only looks at rg/RG + Tj/TJ sequences.
+        """
+        if ContentStream is None:
+            self._ensure_manual_contrast_notice("PyPDF2 ContentStream helper unavailable")
+            return
+
+        try:
+            with open(pdf_path, 'rb') as file_handle:
+                reader = PyPDF2.PdfReader(file_handle)
+                total_checked = 0
+                for page_num, page in enumerate(reader.pages, start=1):
+                    checked, _flagged = self._scan_page_for_low_contrast(page, reader, page_num)
+                    total_checked += checked
+
+                if total_checked == 0:
+                    self._ensure_manual_contrast_notice("No analyzable text color data found")
+        except Exception as exc:
+            print(f"[Analyzer] Contrast analysis unavailable: {exc}")
+            self._ensure_manual_contrast_notice("Contrast parsing failed")
+
+    def _scan_page_for_low_contrast(self, page, reader, page_num: int) -> Tuple[int, int]:
+        """Scan a single page for text runs drawn with insufficient contrast."""
+        if ContentStream is None:
+            return (0, 0)
+
+        try:
+            contents = page.get_contents()
+            if contents is None:
+                return (0, 0)
+            content_stream = ContentStream(contents, reader)
+            operations = getattr(content_stream, "operations", [])
+        except Exception:
+            return (0, 0)
+
+        fill_color: Optional[Tuple[float, float, float]] = None
+        stroke_color: Optional[Tuple[float, float, float]] = None
+        checked_runs = 0
+        flagged_runs = 0
+        background = (1.0, 1.0, 1.0)
+        contrast_threshold = 4.5
+
+        for operands, operator in operations:
+            op_name = self._decode_operator(operator)
+            if op_name == 'rg':
+                color = self._extract_rgb_from_operands(operands)
+                if color:
+                    fill_color = color
+            elif op_name == 'RG':
+                color = self._extract_rgb_from_operands(operands)
+                if color:
+                    stroke_color = color
+            elif op_name in ('Tj', 'TJ'):
+                active_color = fill_color or stroke_color
+                if active_color is None:
+                    continue
+                checked_runs += 1
+                ratio = self._contrast_ratio(active_color, background)
+                if ratio < contrast_threshold:
+                    flagged_runs += 1
+                    self._record_low_contrast_issue(page_num, ratio)
+
+        return (checked_runs, flagged_runs)
+
+    def _extract_rgb_from_operands(self, operands: List[Any]) -> Optional[Tuple[float, float, float]]:
+        """Return normalized RGB tuple from PDF operator operands."""
+        if not operands or len(operands) < 3:
+            return None
+        values: List[float] = []
+        for operand in operands[:3]:
+            try:
+                values.append(max(0.0, min(1.0, float(operand))))
+            except Exception:
+                return None
+        if len(values) != 3:
+            return None
+        return (values[0], values[1], values[2])
+
+    def _relative_luminance(self, r: float, g: float, b: float) -> float:
+        """Calculate relative luminance using WCAG 2.1 formula."""
+        def _linearize(channel: float) -> float:
+            if channel <= 0.03928:
+                return channel / 12.92
+            return ((channel + 0.055) / 1.055) ** 2.4
+
+        r_lin = _linearize(r)
+        g_lin = _linearize(g)
+        b_lin = _linearize(b)
+        return 0.2126 * r_lin + 0.7152 * g_lin + 0.0722 * b_lin
+
+    def _contrast_ratio(self, fg: Tuple[float, float, float], bg: Tuple[float, float, float]) -> float:
+        """Return WCAG contrast ratio between two RGB tuples."""
+        fg_lum = self._relative_luminance(*fg)
+        bg_lum = self._relative_luminance(*bg)
+        light = max(fg_lum, bg_lum)
+        dark = min(fg_lum, bg_lum)
+        return (light + 0.05) / (dark + 0.05)
+
+    def _decode_operator(self, operator: Any) -> str:
+        """Decode an operator token from a ContentStream operation."""
+        if isinstance(operator, bytes):
+            try:
+                return operator.decode('latin1')
+            except Exception:
+                return operator.decode('utf-8', errors='ignore')
+        return str(operator)
+
+    def _record_low_contrast_issue(self, page_num: int, ratio: float):
+        """Append a low-contrast issue, limiting the total count."""
+        max_entries = 25
+        if self._low_contrast_issue_count >= max_entries:
+            return
+
+        self._low_contrast_issue_count += 1
+
+        self.issues["poorContrast"].append({
+            "severity": "high",
+            "criterion": "1.4.3",
+            "description": f"Text on page {page_num} has low contrast (~{ratio:.1f}:1) against assumed white background",
+            "pages": [page_num],
+            "contrastRatio": round(ratio, 2),
+            "recommendation": "Increase text color contrast to at least 4.5:1 (WCAG 1.4.3 / 1.4.6).",
+        })
+
+    def _ensure_manual_contrast_notice(self, reason: Optional[str] = None):
+        """Ensure we log at least one manual contrast review reminder."""
+        if self._contrast_manual_note_added:
+            return
+
+        description = "Document contrast requires manual review"
+        if reason:
+            description += f" ({reason})."
+        else:
+            description += "."
+
+        self.issues["poorContrast"].append({
+            "severity": "medium",
+            "description": description,
+            "recommendation": "Manually verify that text meets WCAG 1.4.3/1.4.6 contrast thresholds.",
+        })
+        self._contrast_manual_note_added = True
 
     def _use_simulated_analysis(
         self,
@@ -526,41 +866,5 @@ class PDFAccessibilityAnalyzer:
             print("[Analyzer] ==========================================")
 
     def _analyze_with_pdfa_validator(self, pdf_path: str):
-        """Analyze PDF using PDF/A validator based on veraPDF library approach"""
-        try:
-            print("[Analyzer] ========== PDF/A VALIDATOR ANALYSIS ==========")
-            print(f"[Analyzer] Analyzing: {pdf_path}")
-            
-            with pikepdf.open(pdf_path) as pdf:
-                validation_results = validate_pdfa(pdf)
-            
-            print("[Analyzer] PDF/A validation complete")
-            print(f"[Analyzer] Conformance Level: {validation_results.get('conformanceLevel', 'None')}")
-            print(f"[Analyzer] Valid: {validation_results.get('isValid', False)}")
-            
-            # Merge PDF/A issues
-            if validation_results.get("issues"):
-                pdfa_count = len(validation_results["issues"])
-                self.issues["pdfaIssues"].extend(validation_results["issues"])
-                print(f"[Analyzer] ✓ PDF/A Validator found {pdfa_count} issues")
-                
-                # Show summary by severity
-                summary = validation_results.get('summary', {})
-                print(f"[Analyzer]   Critical: {summary.get('critical', 0)}")
-                print(f"[Analyzer]   Error: {summary.get('error', 0)}")
-                print(f"[Analyzer]   Warning: {summary.get('warning', 0)}")
-                
-                # Show first few issues
-                for i, issue in enumerate(validation_results["issues"][:3]):
-                    severity = issue.get('severity', 'unknown')
-                    message = issue.get('message', 'N/A')
-                    print(f"[Analyzer]   Issue {i+1} [{severity.upper()}]: {message[:80]}")
-            
-            print("[Analyzer] ==========================================")
-            
-        except Exception as e:
-            print("[Analyzer] ========== ERROR IN PDF/A VALIDATION ==========")
-            print(f"[Analyzer] Error: {e}")
-            import traceback
-            traceback.print_exc()
-            print("[Analyzer] ============================================")
+        """PDF/A validation is disabled while focusing on WCAG 2.1 and PDF/UA-1 checking."""
+        print("[Analyzer] PDF/A validation skipped (WCAG/PDF/UA focus).")

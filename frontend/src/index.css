@@ -4,18 +4,30 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --dashboard-panel-radius: 1.25rem;
+}
+
 /* Updated base styles to match Mosaic dashboard aesthetic with Inter font */
 @layer base {
   html {
     @apply text-sm antialiased;
+    height: 100%;
     font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
       sans-serif;
   }
 
   body {
     @apply bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-200;
+    margin: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
     font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
       sans-serif;
+  }
+
+  #root {
+    min-height: 100vh;
   }
 
   /* Headings */
@@ -51,6 +63,10 @@
   /* Card styles */
   .card {
     @apply bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 transition-all;
+  }
+
+  .dashboard-panel {
+    border-radius: var(--dashboard-panel-radius);
   }
 
   .card-hover {

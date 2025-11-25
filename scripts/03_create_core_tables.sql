@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS public.scans (
     group_id TEXT REFERENCES public.groups(id) ON DELETE CASCADE,
     status TEXT DEFAULT 'pending',
     scan_results JSONB,
+    file_path TEXT,
     total_issues INTEGER DEFAULT 0,
     issues_remaining INTEGER DEFAULT 0,
     issues_fixed INTEGER DEFAULT 0,
@@ -96,6 +97,7 @@ COMMENT ON COLUMN public.scans.batch_id IS 'Foreign key to batches table';
 COMMENT ON COLUMN public.scans.group_id IS 'Foreign key to groups table';
 COMMENT ON COLUMN public.scans.status IS 'Scan status: pending, processing, completed, failed, fixed';
 COMMENT ON COLUMN public.scans.scan_results IS 'Initial scan results (issues found) - JSONB format';
+COMMENT ON COLUMN public.scans.file_path IS 'Storage reference for the scanned document (local path or remote URL)';
 COMMENT ON COLUMN public.scans.total_issues IS 'Total issues found in initial scan';
 COMMENT ON COLUMN public.scans.issues_remaining IS 'Issues remaining to be fixed';
 COMMENT ON COLUMN public.scans.issues_fixed IS 'Issues that have been fixed';

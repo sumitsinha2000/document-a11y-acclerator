@@ -155,6 +155,7 @@ VITE_BACKEND_URL=http://localhost:5000
 ### Frontend (React + Vite)
 
 The main application is built with:
+
 - React 18
 - Vite for fast development and optimized builds
 - Axios for API calls
@@ -219,6 +220,7 @@ document-a11y-acclerator/
 ### Vite Build Optimization
 
 The build is configured with:
+
 - Code splitting for vendor, charts, and PDF libraries
 - Tree shaking for unused code
 - Minification and compression
@@ -234,6 +236,7 @@ The build is configured with:
 ## Support
 
 For issues, check:
+
 1. Vercel deployment logs
 2. Backend application logs
 3. Browser console errors

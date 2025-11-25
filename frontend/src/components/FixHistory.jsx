@@ -58,7 +58,7 @@ export default function FixHistory({ scanId, onRefresh }) {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(true)
 
   useEffect(() => {
     fetchFixHistory()
@@ -111,6 +111,10 @@ export default function FixHistory({ scanId, onRefresh }) {
           item.fixedFilePath ?? item.fixedFile ?? item.fixed_filename ?? item.fixed_filename
 
         const isLatestEntry = index === 0
+        const canPreview =
+          typeof item.previewable === "boolean"
+            ? item.previewable
+            : isLatestVersion || isLatestEntry
         return {
           id: item.id || item.scan_id || index,
           timestamp: parsedTimestamp ? parsedTimestamp.toISOString() : null,
@@ -121,6 +125,7 @@ export default function FixHistory({ scanId, onRefresh }) {
           successCount: fixesApplied.length,
           version: versionNumber,
           versionLabel,
+          canPreview,
           downloadable:
             typeof item.downloadable === "boolean"
               ? item.downloadable
@@ -140,12 +145,11 @@ export default function FixHistory({ scanId, onRefresh }) {
   }
 
   const handlePreview = (item) => {
-    if (!item || !item.fixedFile) {
+    if (!item || !item.fixedFile || !item.canPreview) {
       return
     }
 
-    const versionParam = typeof item.version === "number" ? item.version : undefined
-    const previewUrl = API_ENDPOINTS.previewPdf(scanId, versionParam)
+    const previewUrl = API_ENDPOINTS.previewPdf(scanId)
     window.open(previewUrl, "_blank", "noopener,noreferrer")
   }
 
@@ -179,7 +183,7 @@ export default function FixHistory({ scanId, onRefresh }) {
       <div className="p-7">
         <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Fix History</h3>
         <div className="flex items-center gap-3 text-slate-600 dark:text-slate-400">
-          <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -243,7 +247,8 @@ export default function FixHistory({ scanId, onRefresh }) {
     <div className="p-7">
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="w-full flex items-center justify-between mb-5 hover:opacity-80 transition-opacity group"
+        className="w-full flex items-center justify-between mb-5 hover:opacity-80 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 group"
+        aria-pressed={!isCollapsed}
       >
         <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
           Fix History
@@ -251,14 +256,22 @@ export default function FixHistory({ scanId, onRefresh }) {
             {history.length}
           </span>
         </h3>
-        <svg
-          className={`w-6 h-6 text-slate-500 dark:text-slate-400 transition-transform ${isCollapsed ? "" : "rotate-180"}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
+        <span
+          className={`inline-flex items-center justify-center rounded-full w-10 h-10 transition-all ${
+            isCollapsed
+              ? "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+              : "bg-slate-100 text-slate-500 dark:bg-slate-800/60 dark:text-slate-400"
+          }`}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+          <svg
+            className={`w-5 h-5 transition-transform ${isCollapsed ? "" : "rotate-180"}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </span>
       </button>
 
       {!isCollapsed && (
@@ -283,6 +296,7 @@ export default function FixHistory({ scanId, onRefresh }) {
                       className="w-5 h-5 text-emerald-600 dark:text-emerald-400"
                       fill="currentColor"
                       viewBox="0 0 20 20"
+                      aria-hidden="true"
                     >
                       <path
                         fillRule="evenodd"
@@ -296,13 +310,13 @@ export default function FixHistory({ scanId, onRefresh }) {
                   </div>
                 </div>
 
-                {item.fixedFile && (
+                {item.fixedFile && item.canPreview && (
                   <div className="flex flex-col sm:flex-row gap-2">
                     <button
                       onClick={() => handlePreview(item)}
                       className="flex items-center gap-2 px-4 py-2.5 text-base font-semibold text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 rounded-lg transition-colors"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -318,7 +332,7 @@ export default function FixHistory({ scanId, onRefresh }) {
                         onClick={() => handleDownload(item.fixedFile)}
                         className="flex items-center gap-2 px-4 py-2.5 text-base font-semibold text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-lg transition-colors"
                       >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"

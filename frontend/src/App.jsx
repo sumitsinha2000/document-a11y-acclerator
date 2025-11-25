@@ -2,12 +2,12 @@ import { useState, useEffect, lazy, Suspense, useCallback, startTransition } fro
 import axios from "axios"
 import "./App.css"
 import LoadingScreen from "./components/LoadingScreen"
-import UploadArea from "./components/UploadArea"
 import ThemeToggle from "./components/ThemeToggle"
 import { NotificationProvider, useNotification } from "./contexts/NotificationContext"
 import NotificationContainer from "./components/NotificationContainer"
 import API_BASE_URL from "./config/api"
 import ErrorBoundary from "./components/ErrorBoundary"
+import amperaLogo from "./assets/ampera_logo_icon.png"
 
 const History = lazy(() => import("./components/History"))
 const ReportViewer = lazy(() => import("./components/ReportViewer"))
@@ -28,12 +28,15 @@ function AppContent() {
   console.log("[v0] AppContent rendering")
 
   // const [isLoading, setIsLoading] = useState(true)
-  const [currentView, setCurrentView] = useState("upload")
+  const [currentView, setCurrentView] = useState("dashboard")
   const [scanHistory, setScanHistory] = useState([])
   const [scanResults, setScanResults] = useState([])
   const [currentBatch, setCurrentBatch] = useState(null)
   const [loading, setLoading] = useState(false)
   const [selectedGroupId, setSelectedGroupId] = useState(null)
+  const [isUploadPanelOpen, setUploadPanelOpen] = useState(false)
+  const [latestUploadContext, setLatestUploadContext] = useState(null)
+  const [folderNavigationContext, setFolderNavigationContext] = useState(null)
   const transitionToView = useCallback(
     (view) => {
       startTransition(() => {
@@ -57,6 +60,12 @@ function AppContent() {
     console.log("[v0] AppContent mounted, fetching scan history")
     fetchScanHistory()
   }, [fetchScanHistory])
+
+  useEffect(() => {
+    if (currentView !== "dashboard") {
+      setUploadPanelOpen(false)
+    }
+  }, [currentView])
 
   // const handleLoadingComplete = () => {
   //   console.log("[v0] Loading complete")
@@ -103,10 +112,10 @@ function AppContent() {
 
   const handleUploadDeferred = (details) => {
     const count = details?.scanIds?.length ?? 0
-    const hasBatch = Boolean(details?.batchId)
+    const hasFolder = Boolean(details?.batchId)
     const message =
       count > 1
-        ? `${count} files uploaded${hasBatch ? " in the batch" : ""}. Begin scanning whenever you're ready from the dashboard or history view.`
+        ? `${count} files uploaded${hasFolder ? " in the folder" : ""}. Begin scanning whenever you're ready from the dashboard or history view.`
         : count === 1
           ? "File uploaded successfully. Start the scan when you're ready from the dashboard or history view."
           : "Upload completed. Start scanning whenever you're ready from the dashboard or history view."
@@ -114,8 +123,37 @@ function AppContent() {
     fetchScanHistory()
   }
 
+  const handleDashboardUploadComplete = (scans) => {
+    handleScanComplete(scans)
+    setUploadPanelOpen(false)
+  }
+
+  const handleDashboardUploadDeferred = (details) => {
+    handleUploadDeferred(details)
+    setUploadPanelOpen(false)
+    const folderId = details?.batchId
+    if (folderId) {
+      setLatestUploadContext({
+        groupId: details?.groupId,
+        folderId,
+        folderName: details?.folderName,
+      })
+    } else {
+      setLatestUploadContext(null)
+    }
+  }
+
   const handleViewHistory = () => {
     transitionToView("history")
+  }
+
+  const handleOpenUploadPanel = () => {
+    setUploadPanelOpen(true)
+    transitionToView("dashboard")
+  }
+
+  const handleCloseUploadPanel = () => {
+    setUploadPanelOpen(false)
   }
 
   const handleSelectScan = async (scan) => {
@@ -133,7 +171,22 @@ function AppContent() {
     try {
       setLoading(true)
       const response = await axios.get(`${API_BASE_URL}/api/scan/${encodeURIComponent(scanIdentifier)}`)
-      setScanResults([response.data])
+      const scanData = response.data
+      setScanResults([scanData])
+      const folderId = scanData.batchId || scanData.folderId
+      if (folderId) {
+        setCurrentBatch((prevBatch) => {
+          if (prevBatch?.batchId === folderId) {
+            return prevBatch
+          }
+          return {
+            batchId: folderId,
+            scans: [],
+          }
+        })
+      } else {
+        setCurrentBatch(null)
+      }
       setCurrentView("report")
     } catch (error) {
       console.error("Error loading scan details:", error)
@@ -153,17 +206,37 @@ function AppContent() {
       })
       setCurrentView("batch")
     } catch (error) {
-      console.error("Error loading batch details:", error)
-      showError("Failed to load batch details: " + (error.response?.data?.error || error.message))
+      console.error("Error loading folder details:", error)
+      showError("Failed to load folder details: " + (error.response?.data?.error || error.message))
     } finally {
       setLoading(false)
     }
   }
 
   const handleBackToUpload = () => {
-    setCurrentView("upload")
     setScanResults([])
     setCurrentBatch(null)
+    handleOpenUploadPanel()
+  }
+
+  const handleReturnToBatchFromReport = () => {
+    const scan = scanResults[0]
+    const folderId = scan?.batchId || scan?.folderId || currentBatch?.batchId
+    const folderName = scan?.batchName || scan?.folderName
+    const groupId = scan?.groupId
+    if (folderId && groupId) {
+      setScanResults([])
+      setCurrentBatch(null)
+      setSelectedGroupId(groupId)
+      setFolderNavigationContext({
+        groupId,
+        folderId,
+        folderName,
+      })
+      transitionToView("dashboard")
+    } else {
+      handleBackToUpload()
+    }
   }
 
   const handleViewGenerator = () => {
@@ -178,7 +251,7 @@ function AppContent() {
         scans: response.data.scans || [],
       })
     } catch (error) {
-      console.error("Error refreshing batch data:", error)
+      console.error("Error refreshing folder data:", error)
     }
   }
 
@@ -196,18 +269,8 @@ function AppContent() {
             {/* Logo and Brand */}
             <div className="flex items-center gap-8 min-w-0">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-indigo shadow-md flex-shrink-0">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-6 w-6 text-white"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    aria-hidden="true"
-                  >
-                    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-                    <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-                  </svg>
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl shadow-md flex-shrink-0 overflow-hidden">
+                  <img src={amperaLogo} alt="Ampera logo" className="h-full w-full object-contain p-1" />
                 </div>
                 <div className="min-w-0">
                   <p className="text-xl font-bold text-slate-900 dark:text-white truncate">Doc A11y Accelerator</p>
@@ -217,39 +280,17 @@ function AppContent() {
 
               {/* Navigation Links */}
               <nav className="hidden md:flex items-center gap-1 flex-shrink-0">
-                <button
-                  onClick={handleBackToUpload}
-                  className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
-                    currentView === "upload"
-                      ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
-                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                        aria-hidden="true"
-                      />
-                    </svg>
-                    Upload
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => transitionToView("dashboard")}
-                  className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
-                    currentView === "dashboard"
-                      ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
-                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
+              <button
+                onClick={() => transitionToView("dashboard")}
+                className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
+                  currentView === "dashboard"
+                    ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
+                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
@@ -277,7 +318,7 @@ function AppContent() {
                         d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
                       />
                     </svg>
-                    Groups
+                    Projects
                   </span>
                 </button>
 
@@ -301,41 +342,11 @@ function AppContent() {
                     History
                   </span>
                 </button>
-
-           {/* /     <button
-                  onClick={handleViewGenerator}
-                  className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
-                    currentView === "generator"
-                      ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
-                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                      />
-                    </svg>
-                    Generator
-                  </span>
-                </button> */}
               </nav>
             </div>
 
             {/* Right Side Actions */}
             <div className="flex items-center gap-3 flex-shrink-0">
-              {/* Beta Badge */}
-              <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-lg">
-
-                <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path d="M21.6,9.84A4.57,4.57,0,0,1,21.18,9,4,4,0,0,1,21,8.07a4.21,4.21,0,0,0-.64-2.16,4.25,4.25,0,0,0-1.87-1.28,4.77,4.77,0,0,1-.85-.43A5.11,5.11,0,0,1,17,3.54a4.2,4.2,0,0,0-1.8-1.4A4.22,4.22,0,0,0,13,2.07,4.2,4.2,0,0,0,11,2.14,4.2,4.2,0,0,0,9,2.07,4.22,4.22,0,0,0,6.76,2.14,4.2,4.2,0,0,0,4.96,3.54a5.11,5.11,0,0,1-.66.66,4.77,4.77,0,0,1-.85.43A4.25,4.25,0,0,0,1.58,5.91,4.21,4.21,0,0,0,.94,8.07,4,4,0,0,1,.76,9a4.57,4.57,0,0,1-.42.82A4.3,4.3,0,0,0,.57,12a4.3,4.3,0,0,0,.77,2.16,4,4,0,0,1,.42.82,4.11,4.11,0,0,1,.15.95,4.19,4.19,0,0,0,.64,2.16,4.25,4.25,0,0,0,1.87,1.28,4.77,4.77,0,0,1,.85.43,5.11,5.11,0,0,1,.66.66,4.12,4.12,0,0,0,1.8,1.4,3,3,0,0,0,.87.13A6.66,6.66,0,0,0,9.94,21.81a4,4,0,0,1,1.94,0,4.33,4.33,0,0,0,2.24.06,4.12,4.12,0,0,0,1.8-1.4,5.11,5.11,0,0,1,.66-.66,4.77,4.77,0,0,1,.85-.43,4.25,4.25,0,0,0,1.87-1.28A4.19,4.19,0,0,0,19.94,15.94a4.11,4.11,0,0,1,.15-.95,4.57,4.57,0,0,1,.42-.82A4.3,4.3,0,0,0,21.28,12,4.3,4.3,0,0,0,21.6,9.84Zm-4.89.87-5,5a1,1,0,0,1-1.42,0l-3-3a1,1,0,1,1,1.42-1.42L11,13.59l4.29-4.3a1,1,0,0,1,1.42,1.42Z" />
-                </svg>
-                <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">Beta 1.0</span>
-              </div>
-
               {/* Theme Toggle */}
               <ThemeToggle />
 
@@ -355,18 +366,22 @@ function AppContent() {
       <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 max-w-full">
         <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-full">
 
-          {currentView === "upload" && (
-            <UploadArea onScanComplete={handleScanComplete} onUploadDeferred={handleUploadDeferred} />
-          )}
           {currentView === "groups" && <GroupMaster onBack={handleBackToUpload} onOpenGroupDashboard={handleOpenGroupDashboard} />}
           {currentView === "dashboard" && (
             <GroupDashboard
               onSelectScan={handleSelectScan}
               onSelectBatch={handleSelectBatch}
-              onBack={handleBackToUpload}
+              onUploadRequest={handleOpenUploadPanel}
+              uploadSectionOpen={isUploadPanelOpen}
+              onCloseUploadSection={handleCloseUploadPanel}
+              onScanComplete={handleDashboardUploadComplete}
+              onUploadDeferred={handleDashboardUploadDeferred}
               initialGroupId={selectedGroupId}
+              scanHistory={scanHistory}
+              latestUploadContext={latestUploadContext}
+              onUploadContextAcknowledged={() => setLatestUploadContext(null)}
+              folderNavigationContext={folderNavigationContext}
             />
-
           )}
           {currentView === "history" && (
             <Suspense fallback={<ComponentLoader />}>
@@ -389,7 +404,12 @@ function AppContent() {
             </Suspense>
           )}
           {currentView === "report" && scanResults.length > 0 && (
-            <ReportViewer scans={scanResults} onBack={handleBackToUpload} sidebarOpen={false} />
+            <ReportViewer
+              scans={scanResults}
+              onBack={handleBackToUpload}
+              onBackToFolder={handleReturnToBatchFromReport}
+              sidebarOpen={false}
+            />
           )}
         </div>
       </main>

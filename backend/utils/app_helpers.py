@@ -30,10 +30,41 @@ from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
 from backend.fix_progress_tracker import create_progress_tracker, get_progress_tracker
 from backend.utils.wcag_mapping import annotate_wcag_mappings
+from backend.utils.criteria_summary import build_criteria_summary
 
 load_dotenv()
 
 logger = logging.getLogger('doca11y-backend')
+
+FILE_STATUS_LABELS: Dict[str, str] = {
+    "uploaded": "Uploaded",
+    "scanned": "Scanned",
+    "partially_fixed": "Partially Fixed",
+    "fixed": "Fixed",
+    "error": "Error",
+}
+
+LEGACY_STATUS_CODE_MAP: Dict[str, str] = {
+    "": "uploaded",
+    "uploaded": "uploaded",
+    "uploading": "uploaded",
+    "unprocessed": "uploaded",
+    "processing": "uploaded",
+    "queued": "uploaded",
+    "pending": "uploaded",
+    "scanned": "scanned",
+    "completed": "scanned",
+    "finished": "scanned",
+    "processed": "partially_fixed",
+    "partially_fixed": "partially_fixed",
+    "ai_fix_started": "partially_fixed",
+    "fixing": "partially_fixed",
+    "fixed": "fixed",
+    "compliant": "fixed",
+    "error": "error",
+}
+
+SUMMARY_PENDING_STATUSES = {"queued", "pending", "uploading", "processing"}
 
 NEON_DATABASE_URL = os.getenv('NEON_DATABASE_URL')
 DB_SCHEMA = os.getenv('DB_SCHEMA', 'public')
@@ -74,6 +105,89 @@ class SafeJSONResponse(JSONResponse):
     def render(self, content: any) -> bytes:
         safe = to_json_safe(content)
         return json.dumps(safe, ensure_ascii=False).encode("utf-8")
+
+def _coerce_int(value: Any) -> Optional[int]:
+    """Best-effort conversion to int."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float, Decimal)):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return int(float(stripped))
+        except ValueError:
+            return None
+    return None
+
+def normalize_file_status(raw_status: Optional[str]) -> str:
+    """Map legacy status strings into the canonical status code."""
+    if raw_status is None:
+        return "uploaded"
+    normalized = raw_status.strip().lower()
+    return LEGACY_STATUS_CODE_MAP.get(normalized, normalized or "uploaded")
+
+def derive_file_status(
+    raw_status: Optional[str],
+    *,
+    has_fix_history: bool = False,
+    issues_remaining: Optional[int] = None,
+    summary_status: Optional[str] = None,
+) -> Tuple[str, str]:
+    """
+    Determine the canonical status code + label for a scan based on legacy
+    status fields, fix history, and remaining issue counts.
+    """
+    normalized = normalize_file_status(raw_status)
+    remaining = _coerce_int(issues_remaining)
+    summary_normalized = (
+        normalize_file_status(summary_status)
+        if summary_status is not None
+        else None
+    )
+
+    if has_fix_history:
+        normalized = "fixed" if (remaining is not None and remaining <= 0) else "partially_fixed"
+    elif normalized not in FILE_STATUS_LABELS or normalized == "uploaded":
+        if (
+            summary_normalized
+            and summary_normalized not in SUMMARY_PENDING_STATUSES
+            and summary_normalized in {"scanned", "partially_fixed", "fixed"}
+        ):
+            normalized = "scanned"
+
+    if remaining is not None and remaining <= 0 and normalized != "uploaded":
+        normalized = "fixed"
+
+    if normalized not in FILE_STATUS_LABELS:
+        normalized = "uploaded"
+
+    return normalized, FILE_STATUS_LABELS[normalized]
+
+def remap_status_counts(raw_counts: Optional[Dict[str, int]]) -> Dict[str, int]:
+    """Normalize aggregated status counts into the canonical buckets."""
+    normalized_counts: Dict[str, int] = {
+        "uploaded": 0,
+        "scanned": 0,
+        "partially_fixed": 0,
+        "fixed": 0,
+    }
+    if not raw_counts:
+        return normalized_counts
+
+    for status_key, count in raw_counts.items():
+        if not count:
+            continue
+        code = normalize_file_status(status_key)
+        if code not in normalized_counts:
+            continue
+        normalized_counts[code] += count
+
+    return normalized_counts
 
 def _init_storage_dir(env_value: Optional[str], default_suffix: str) -> Path:
     """
@@ -161,6 +275,7 @@ def execute_query(query: str, params: Optional[tuple] = None, fetch: bool = Fals
             cur.execute(query, params or ())
             if fetch:
                 result = cur.fetchall()
+                conn.commit()
                 conn.close()
                 return result
             else:
@@ -325,11 +440,10 @@ def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(summary, dict) and verapdf_status:
         summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
         summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
-        summary.setdefault("pdfaCompliance", verapdf_status.get("pdfaCompliance"))
+        # PDF/A compliance is intentionally omitted; we aggregate only WCAG and PDF/UA scores now.
         combined_score = _combine_compliance_scores(
             summary.get("wcagCompliance"),
             summary.get("pdfuaCompliance"),
-            summary.get("pdfaCompliance"),
         )
         if combined_score is not None:
             summary["complianceScore"] = combined_score
@@ -618,6 +732,38 @@ def _extract_version_from_path(path_obj: Path):
             return None
     return None
 
+def _fixed_metadata_path(pdf_path: Path) -> Path:
+    return pdf_path.with_suffix(pdf_path.suffix + ".json")
+
+
+def _write_fixed_metadata(pdf_path: Path, metadata: Dict[str, Any]):
+    meta_path = _fixed_metadata_path(pdf_path)
+    if not metadata:
+        if meta_path.exists():
+            try:
+                meta_path.unlink()
+            except Exception:
+                logger.warning("[Backend] Failed to remove metadata for %s", pdf_path)
+        return
+    try:
+        with meta_path.open("w", encoding="utf-8") as meta_file:
+            json.dump(metadata, meta_file)
+    except Exception:
+        logger.warning("[Backend] Failed to record metadata for %s", pdf_path)
+
+
+def _read_fixed_metadata(pdf_path: Path) -> Dict[str, Any]:
+    meta_path = _fixed_metadata_path(pdf_path)
+    if not meta_path.exists():
+        return {}
+    try:
+        with meta_path.open("r", encoding="utf-8") as meta_file:
+            return json.load(meta_file)
+    except Exception:
+        logger.warning("[Backend] Failed to read metadata for %s", pdf_path)
+        return {}
+
+
 def get_versioned_files(scan_id: str):
     scan_dir = _fixed_scan_dir(scan_id, ensure_exists=False)
     if not scan_dir.exists():
@@ -632,6 +778,7 @@ def get_versioned_files(scan_id: str):
             stat = path.stat()
         except FileNotFoundError:
             continue
+        metadata = _read_fixed_metadata(path)
         entries.append(
             {
                 "version": version_number,
@@ -640,11 +787,83 @@ def get_versioned_files(scan_id: str):
                 "filename": path.name,
                 "size": stat.st_size,
                 "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "remote_path": metadata.get("remote_path"),
             }
         )
     # sort by version asc
     entries.sort(key=lambda e: e["version"])
     return entries
+
+
+def lookup_remote_fixed_entry(
+    scan_id: str, target_relative: Optional[str] = None, version: Optional[int] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Inspect fix history for remote storage references when local fixed files are unavailable.
+    """
+    try:
+        rows = execute_query(
+            """
+            SELECT fixed_filename, fix_metadata
+            FROM fix_history
+            WHERE scan_id = %s
+            ORDER BY applied_at DESC
+            LIMIT 50
+            """,
+            (scan_id,),
+            fetch=True,
+        )
+    except Exception:
+        logger.exception("[Backend] lookup_remote_fixed_entry failed for %s", scan_id)
+        return None
+
+    if not rows:
+        return None
+
+    normalized_target = None
+    target_filename = None
+    if target_relative:
+        normalized_target = str(Path(target_relative).as_posix())
+        target_filename = Path(target_relative).name
+
+    for row in rows:
+        metadata_raw = row.get("fix_metadata")
+        metadata = {}
+        if isinstance(metadata_raw, str):
+            try:
+                metadata = json.loads(metadata_raw)
+            except Exception:
+                metadata = {}
+        elif isinstance(metadata_raw, dict):
+            metadata = metadata_raw
+
+        relative_path = metadata.get("relativePath")
+        remote_path = metadata.get("remotePath")
+        entry_version = metadata.get("version")
+        filename = (
+            Path(relative_path).name
+            if relative_path
+            else row.get("fixed_filename")
+        )
+
+        if version is not None and entry_version != version:
+            continue
+        if normalized_target and relative_path:
+            if relative_path != normalized_target:
+                continue
+        elif target_filename and filename:
+            if filename != target_filename:
+                continue
+
+        if remote_path or relative_path:
+            return {
+                "remote_path": remote_path,
+                "relative_path": relative_path,
+                "filename": filename,
+                "version": entry_version,
+            }
+
+    return None
 
 def _uploads_root() -> Path:
     return UPLOAD_FOLDER_PATH
@@ -671,11 +890,18 @@ def _mirror_file_to_remote(local_path: Path, folder: str) -> Optional[str]:
     if not local_path or not local_path.exists():
         return None
     try:
-        result = upload_file_with_fallback(str(local_path), local_path.name, folder=folder)
-        remote_path = result.get("url")
-        if remote_path:
-            return remote_path
-        return result.get("path")
+        result = upload_file_with_fallback(
+            str(local_path), local_path.name, folder=folder
+        )
+        storage_type = result.get("storage")
+        remote_identifier = (
+            result.get("key") or result.get("path") or result.get("url")
+        )
+        if storage_type == "local" or not remote_identifier:
+            raise RuntimeError(
+                "Remote storage upload failed or is not configured properly"
+            )
+        return remote_identifier
     except Exception:
         logger.exception(
             "[Storage] Failed to mirror %s to remote folder '%s'",
@@ -733,11 +959,9 @@ def build_placeholder_scan_payload(filename: Optional[str] = None) -> Dict[str, 
         "lowSeverity": 0,
         "wcagCompliance": base_status.get("wcagCompliance"),
         "pdfuaCompliance": base_status.get("pdfuaCompliance"),
-        "pdfaCompliance": base_status.get("pdfaCompliance"),
         "complianceScore": _combine_compliance_scores(
             base_status.get("wcagCompliance"),
             base_status.get("pdfuaCompliance"),
-            base_status.get("pdfaCompliance"),
         )
         or 0,
         "status": "queued",
@@ -749,6 +973,7 @@ def build_placeholder_scan_payload(filename: Optional[str] = None) -> Dict[str, 
         "summary": summary,
         "verapdfStatus": base_status,
         "fixes": [],
+        "criteriaSummary": {},
     }
 
 def should_scan_now(
@@ -835,11 +1060,14 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
         logger.exception("generate_fix_suggestions failed")
         fix_suggestions = []
 
+    criteria_summary = build_criteria_summary(scan_results)
+
     return {
         "results": scan_results,
         "summary": summary if isinstance(summary, dict) else {},
         "verapdfStatus": verapdf_status,
         "fixes": fix_suggestions,
+        "criteriaSummary": criteria_summary,
     }
 
 def _fetch_scan_record(scan_id: str) -> Optional[Dict[str, Any]]:
@@ -883,38 +1111,105 @@ def _resolve_scan_file_path(
     """
     Try common filename patterns to find the uploaded PDF on disk.
     """
+    if not scan_record and NEON_DATABASE_URL:
+        scan_record = _fetch_scan_record(scan_id)
+
+    remote_candidates: List[Tuple[str, str]] = []
+
+    latest_fixed = get_fixed_version(scan_id)
+    if latest_fixed:
+        fixed_path = latest_fixed.get("absolute_path")
+        if fixed_path:
+            path_obj = Path(fixed_path)
+            if path_obj.exists():
+                return path_obj
+        remote_reference = latest_fixed.get("remote_path")
+        if remote_reference:
+            remote_candidates.append(("fixed_version", remote_reference))
+
+    remote_history_entry = lookup_remote_fixed_entry(scan_id)
+    if remote_history_entry:
+        remote_reference = remote_history_entry.get("remote_path")
+        if remote_reference:
+            remote_candidates.append(("fix_history", remote_reference))
+
+    remote_references: List[str] = []
+
+    for label, remote_identifier in remote_candidates:
+        if not remote_identifier:
+            continue
+        logger.info(
+            "[Storage] Attempting remote resolution for %s via %s: %s",
+            scan_id,
+            label,
+            remote_identifier,
+        )
+        try:
+            downloaded = _download_remote_to_temp(remote_identifier, scan_id)
+        except Exception:
+            logger.exception(
+                "[Storage] Remote resolution failed for %s via %s",
+                scan_id,
+                label,
+            )
+            downloaded = None
+        if downloaded and downloaded.exists():
+            return downloaded
+        remote_references.append(remote_identifier)
+
     upload_dir = _uploads_root()
     candidates: List[Path] = [
         upload_dir / f"{scan_id}.pdf",
         upload_dir / scan_id,
     ]
-    remote_references: List[str] = []
 
     if scan_record:
         filename = scan_record.get("filename")
         if filename:
             candidates.append(upload_dir / filename)
 
-        stored_path = scan_record.get("path") or scan_record.get("file_path")
-        if not stored_path:
-            parsed_results = _parse_scan_results_json(
-                scan_record.get("scan_results")
-            )
-            if isinstance(parsed_results, dict):
-                stored_path = (
-                    parsed_results.get("filePath")
-                    or parsed_results.get("file_path")
-                )
-        if stored_path:
-            stored_str = str(stored_path)
-            if stored_str.lower().startswith(("http://", "https://")):
-                remote_references.append(stored_str)
-            else:
-                path_obj = Path(stored_str)
-                candidates.append(path_obj)
-                # If the stored path does not currently exist locally, treat it as remote key
-                if not path_obj.exists():
-                    remote_references.append(stored_str)
+        stored_values: List[str] = []
+        file_path_value = scan_record.get("file_path")
+        if file_path_value:
+            stored_values.append(str(file_path_value))
+        legacy_path = scan_record.get("path")
+        if legacy_path:
+            stored_values.append(str(legacy_path))
+        parsed_results = _parse_scan_results_json(scan_record.get("scan_results"))
+        if isinstance(parsed_results, dict):
+            for candidate_key in ("filePath", "file_path", "path"):
+                candidate_value = parsed_results.get(candidate_key)
+                if candidate_value:
+                    stored_values.append(str(candidate_value))
+
+        seen_values: Set[str] = set()
+
+        def _looks_like_remote_identifier(value: str) -> bool:
+            normalized = value.strip()
+            if not normalized:
+                return False
+            lowered = normalized.lower()
+            if lowered.startswith(("http://", "https://")):
+                return True
+            if lowered.startswith(("uploads/", "fixed/")):
+                return True
+            return False
+
+        def _process_stored_reference(reference: str):
+            cleaned = reference.strip()
+            if not cleaned or cleaned in seen_values:
+                return
+            seen_values.add(cleaned)
+            if _looks_like_remote_identifier(cleaned):
+                remote_references.append(cleaned)
+                return
+            path_obj = Path(cleaned)
+            candidates.append(path_obj)
+            if not path_obj.exists() and not path_obj.is_absolute():
+                remote_references.append(cleaned)
+
+        for stored_value in stored_values:
+            _process_stored_reference(stored_value)
 
     seen = set()
     for candidate in candidates:
@@ -944,6 +1239,20 @@ def resolve_uploaded_file_path(
 ) -> Optional[Path]:
     """Compatibility wrapper used by legacy code paths."""
     return _resolve_scan_file_path(scan_id, scan_record)
+
+
+def update_scan_file_reference(scan_id: str, reference: Optional[str]):
+    """
+    Persist the canonical file reference (usually a remote storage key) for a scan.
+    """
+    try:
+        execute_query(
+            "UPDATE scans SET file_path = %s WHERE id = %s",
+            (reference, scan_id),
+            fetch=False,
+        )
+    except Exception:
+        logger.exception("[Backend] Failed to update file reference for scan %s", scan_id)
 
 def scan_results_changed(
     *,
@@ -993,6 +1302,12 @@ def archive_fixed_pdf_version(
     except FileNotFoundError:
         return None
 
+    remote_path = _mirror_file_to_remote(dest_path, folder=f"fixed/{scan_id}")
+    if not remote_path:
+        raise RuntimeError("Remote storage reference missing for fixed PDF")
+    metadata = {"remote_path": remote_path}
+    _write_fixed_metadata(dest_path, metadata)
+
     relative_path = dest_path.relative_to(_fixed_root())
     return {
         "version": next_version,
@@ -1001,6 +1316,7 @@ def archive_fixed_pdf_version(
         "relative_path": str(relative_path),
         "size": stat.st_size,
         "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        "remote_path": remote_path,
     }
 
 def get_fixed_version(scan_id: str, version: Optional[int] = None) -> Optional[Dict[str, Any]]:
@@ -1014,6 +1330,7 @@ def get_fixed_version(scan_id: str, version: Optional[int] = None) -> Optional[D
                 "filename": latest.get("filename"),
                 "absolute_path": latest.get("absolute_path"),
                 "relative_path": latest.get("relative_path"),
+                "remote_path": latest.get("remote_path"),
             }
         match = next((entry for entry in version_entries if entry.get("version") == version), None)
         if match:
@@ -1022,6 +1339,7 @@ def get_fixed_version(scan_id: str, version: Optional[int] = None) -> Optional[D
                 "filename": match.get("filename"),
                 "absolute_path": match.get("absolute_path"),
                 "relative_path": match.get("relative_path"),
+                "remote_path": match.get("remote_path"),
             }
 
     fixed_dir = _fixed_root()
@@ -1029,11 +1347,13 @@ def get_fixed_version(scan_id: str, version: Optional[int] = None) -> Optional[D
         candidate = fixed_dir / f"{scan_id}{ext}"
         if candidate.exists():
             relative = candidate.relative_to(fixed_dir)
+            metadata = _read_fixed_metadata(candidate)
             return {
                 "version": 1,
                 "filename": candidate.name,
                 "absolute_path": str(candidate),
                 "relative_path": str(relative),
+                "remote_path": metadata.get("remote_path"),
             }
     return None
 
@@ -1054,16 +1374,20 @@ def prune_fixed_versions(scan_id: str, keep_latest: bool = True) -> Dict[str, An
 
     to_remove = entries[: len(entries) - to_keep]
     for entry in to_remove:
-        path = entry.get("absolute_path")
-        if not path:
+        path_value = entry.get("absolute_path")
+        if not path_value:
             continue
         try:
-            os.remove(path)
-            removed_files.append(entry.get("filename", os.path.basename(path)))
+            path_obj = Path(path_value)
+            os.remove(path_obj)
+            meta_path = _fixed_metadata_path(path_obj)
+            if meta_path.exists():
+                meta_path.unlink()
+            removed_files.append(entry.get("filename", os.path.basename(path_value)))
         except FileNotFoundError:
             continue
         except Exception:
-            logger.exception("[Backend] Failed to remove fixed version %s", path)
+            logger.exception("[Backend] Failed to remove fixed version %s", path_value)
 
     remaining = get_versioned_files(scan_id)
     return {
@@ -1141,6 +1465,58 @@ def _perform_automated_fix(
                 "scanId": scan_id,
             }
 
+        archive_info = None
+        temp_fixed_path = result.get("fixedTempPath")
+        if temp_fixed_path:
+            temp_path_obj = Path(temp_fixed_path)
+            if temp_path_obj.exists():
+                try:
+                    archive_info = archive_fixed_pdf_version(
+                        scan_id=scan_id,
+                        original_filename=scan_row.get("filename"),
+                        source_path=temp_path_obj,
+                    )
+                except Exception as archive_exc:
+                    logger.exception(
+                        "[Backend] Failed to archive fixed PDF for %s", scan_id
+                    )
+                    if tracker:
+                        tracker.fail_all(str(archive_exc))
+                    return 500, {
+                        "success": False,
+                        "error": str(archive_exc),
+                        "scanId": scan_id,
+                    }
+                if archive_info:
+                    result["fixedFile"] = archive_info.get("relative_path")
+                    result["fixedFileRemote"] = archive_info.get("remote_path")
+                    result["fixedVersion"] = archive_info.get("version")
+                    try:
+                        temp_path_obj.unlink(missing_ok=True)
+                    except Exception:
+                        logger.warning(
+                            "[Backend] Could not remove temp fixed file %s",
+                            temp_path_obj,
+                        )
+                else:
+                    logger.warning(
+                        "[Backend] Failed to archive fixed PDF for %s; leaving temp file at %s",
+                        scan_id,
+                        temp_path_obj,
+                    )
+                if archive_info and archive_info.get("remote_path"):
+                    try:
+                        update_scan_file_reference(
+                            scan_id, archive_info.get("remote_path")
+                        )
+                    except Exception:
+                        logger.exception(
+                            "[Backend] Failed to persist remote reference for %s",
+                            scan_id,
+                        )
+
+        result.pop("fixedTempPath", None)
+
         if tracker:
             tracker.complete_all()
 
@@ -1177,6 +1553,18 @@ def _perform_automated_fix(
         )
 
         fixes_applied = result.get("fixesApplied", [])
+        fix_metadata = {"automated": True}
+        if archive_info:
+            fix_metadata.update(
+                {
+                    "version": archive_info.get("version"),
+                    "versionLabel": f"V{archive_info.get('version')}",
+                    "relativePath": archive_info.get("relative_path"),
+                    "storedFilename": archive_info.get("filename"),
+                    "fileSize": archive_info.get("size"),
+                    "remotePath": archive_info.get("remote_path"),
+                }
+            )
         try:
             save_fix_history(
                 scan_id=scan_id,
@@ -1191,7 +1579,7 @@ def _perform_automated_fix(
                 compliance_before=initial_summary.get("complianceScore"),
                 compliance_after=summary.get("complianceScore"),
                 fix_suggestions=scan_results_payload.get("fixes"),
-                fix_metadata={"automated": True},
+                fix_metadata=fix_metadata,
                 batch_id=scan_row.get("batch_id"),
                 group_id=scan_row.get("group_id"),
                 total_issues_before=total_issues_before,
@@ -1218,6 +1606,8 @@ def _perform_automated_fix(
             "verapdfStatus": scan_results_payload.get("verapdfStatus"),
             "fixesApplied": fixes_applied,
             "fixedFile": result.get("fixedFile"),
+            "fixedFileRemote": result.get("fixedFileRemote"),
+            "fixedVersion": result.get("fixedVersion"),
             "successCount": result.get("successCount", len(fixes_applied)),
             "message": result.get("message", "Automated fixes applied"),
         }
@@ -1291,6 +1681,10 @@ def _delete_scan_with_files(scan_id: str) -> Dict[str, Any]:
             if path.exists():
                 if path.is_file():
                     path.unlink()
+                    if path.suffix.lower() == ".pdf":
+                        meta_path = _fixed_metadata_path(path)
+                        if meta_path.exists():
+                            meta_path.unlink()
                 elif path.is_dir():
                     shutil.rmtree(path, ignore_errors=True)
                 return True
@@ -1361,9 +1755,6 @@ def _delete_batch_with_files(batch_id: str) -> Dict[str, Any]:
     scans = execute_query(
         "SELECT id FROM scans WHERE batch_id = %s", (batch_id,), fetch=True
     ) or []
-
-    if not scans:
-        raise LookupError("No scans found for this batch")
 
     deleted_scans = 0
     deleted_files = 0
@@ -1444,12 +1835,18 @@ __all__ = [
     "get_scan_by_id",
     "_resolve_scan_file_path",
     "resolve_uploaded_file_path",
+    "update_scan_file_reference",
     "scan_results_changed",
     "archive_fixed_pdf_version",
     "get_fixed_version",
+    "lookup_remote_fixed_entry",
     "prune_fixed_versions",
     "_delete_scan_with_files",
     "_delete_batch_with_files",
     "_perform_automated_fix",
     "_write_uploadfile_to_disk",
+    "FILE_STATUS_LABELS",
+    "normalize_file_status",
+    "derive_file_status",
+    "remap_status_counts",
 ]

@@ -1,11 +1,18 @@
 // API configuration
-const DEFAULT_API_BASE_URL = "https://document-a11y-acclerator.onrender.com" || "http://localhost:5000"
+const DEFAULT_API_BASE_URL = "http://localhost:5000"
 const sanitize = (value) => {
   if (!value) return null
   return value.replace(/\/+$/, "")
 }
-const rawBaseUrl =
-  typeof process !== "undefined" ? process.env.NEXT_PUBLIC_API_BASE_URL : null
+const rawBaseUrl = (() => {
+  if (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL
+  }
+  if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL
+  }
+  return null
+})()
 const API_BASE_URL = sanitize(rawBaseUrl) || sanitize(DEFAULT_API_BASE_URL)
 
 export const API_ENDPOINTS = {
@@ -25,13 +32,7 @@ export const API_ENDPOINTS = {
   applyFixes: (scanId) => `${API_BASE_URL}/api/apply-fixes/${scanId}`,
   fixHistory: (scanId) => `${API_BASE_URL}/api/fix-history/${scanId}`,
   downloadFixed: (filename) => `${API_BASE_URL}/api/download-fixed/${filename}`,
-  previewPdf: (scanId, version) => {
-    const base = `${API_BASE_URL}/api/pdf-file/${scanId}`
-    if (version || version === 0) {
-      return `${base}?version=${encodeURIComponent(version)}`
-    }
-    return base
-  },
+  previewPdf: (scanId) => `${API_BASE_URL}/api/pdf-file/${scanId}`,
   export: (scanId) => `${API_BASE_URL}/api/export/${scanId}`,
   aiAnalyze: (scanId) => `${API_BASE_URL}/api/ai-analyze/${scanId}`,
   aiFixStrategy: (scanId) => `${API_BASE_URL}/api/ai-fix-strategy/${scanId}`,
