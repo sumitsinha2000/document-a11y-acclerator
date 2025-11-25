@@ -319,13 +319,14 @@ class PDFAccessibilityAnalyzer:
                     self.issues["missingAltText"].extend(missing_alt_issues)
                 
                 if not self.issues["tableIssues"] and total_tables > 0 and not tables_reviewed:
-                    self.issues["tableIssues"].append({
+                    table_issue = {
                         "severity": "high",
                         "description": f"Found {total_tables} table(s) that may lack proper header markup",
                         "count": total_tables,
                         "pages": pages_with_tables[:10],
                         "recommendation": "Ensure all tables have properly marked header rows and columns.",
-                    })
+                    }
+                    self.issues["tableIssues"].append(table_issue)
                 elif tables_reviewed and total_tables > 0:
                     print(f"[Analyzer] Skipping {total_tables} table(s) - already reviewed and structured")
                 
@@ -349,6 +350,7 @@ class PDFAccessibilityAnalyzer:
                     self._contrast_manual_note_added = True
                 
                 print(f"[Analyzer] pdfplumber analysis: {total_images} images, {total_tables} tables, {total_form_fields} form fields")
+                self._sync_table_issues_to_pdfua()
                 
         except Exception as e:
             print(f"[Analyzer] Error in pdfplumber analysis: {e}")
@@ -489,6 +491,40 @@ class PDFAccessibilityAnalyzer:
             return None
         text = str(name)
         return text[1:] if text.startswith('/') else text
+
+    def _sync_table_issues_to_pdfua(self):
+        """Mirror generic table issues into PDF/UA clause 7.5 findings for reporting."""
+        table_issues = self.issues.get("tableIssues") or []
+        if not table_issues:
+            return
+
+        existing = set()
+        for issue in self.issues.get("pdfuaIssues", []):
+            clause = issue.get("clause")
+            desc = issue.get("description")
+            if not clause or not desc:
+                continue
+            existing.add((desc, clause))
+
+        for issue in table_issues:
+            if not isinstance(issue, dict):
+                continue
+            desc = issue.get("description")
+            if not desc:
+                continue
+            key = (desc, "ISO 14289-1:7.5")
+            if key in existing:
+                continue
+            pdfua_issue = {
+                "description": desc,
+                "clause": "ISO 14289-1:7.5",
+                "severity": issue.get("severity", "medium"),
+                "remediation": issue.get("recommendation", "Ensure table headers are identified and associated with data cells."),
+                "pages": issue.get("pages"),
+                "category": "pdfua",
+            }
+            self.issues["pdfuaIssues"].append(pdfua_issue)
+            existing.add(key)
 
     def _analyze_contrast_basic(self, pdf_path: str):
         """

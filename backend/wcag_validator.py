@@ -885,26 +885,23 @@ class WCAGValidator:
         return self._figure_alt_lookup
     
     def _validate_table_structure(self):
-        """Validate WCAG 1.3.1 (Info and Relationships) for tables - Level A."""
+        """
+        Validate WCAG 1.3.1 / PDF/UA §7.5 table structure semantics.
+        Ensures tables expose header cells and associate data cells with headers.
+        """
         try:
             if '/StructTreeRoot' not in self.pdf.Root:
                 return
-            
-            # Look for Table structure elements
+
             tables_found = self._find_structure_elements('Table')
-            
-            for table in tables_found:
-                # Check for table headers (TH elements)
-                if not self._has_table_headers(table):
-                    self._add_wcag_issue(
-                        'Table lacks proper header markup',
-                        '1.3.1',
-                        'A',
-                        'high',
-                        'Add TH (table header) elements to define table structure'
-                    )
-                    self.wcag_compliance['A'] = False
-                    
+            for table_index, table_element in enumerate(tables_found, start=1):
+                page_num = self._determine_page_number(table_element.get('/Pg'), table_element)
+                table_label = self._extract_element_label(table_element)
+                table_model = self._build_table_model(table_element, page_num)
+                if not table_model:
+                    continue
+                self._assess_table_model(table_model, table_index, table_label)
+
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating table structure: {str(e)}")
     
@@ -936,6 +933,410 @@ class WCAGValidator:
         # Look for TH elements in the table structure
         th_elements = self._find_structure_elements('TH', table_element)
         return len(th_elements) > 0
+
+    def _build_table_model(self, table_element: pikepdf.Dictionary, page_num: Optional[int]) -> Optional[Dict[str, Any]]:
+        """
+        Build a simple row/column model for a table, capturing TH/TD placement.
+        Returns None if the structure could not be interpreted.
+        """
+        if table_element is None:
+            return None
+
+        row_containers = self._collect_table_rows(table_element)
+        if not row_containers:
+            row_containers = [table_element]
+
+        rows: List[Dict[str, Any]] = []
+        headers: List[Dict[str, Any]] = []
+        data_cells: List[Dict[str, Any]] = []
+        headers_by_id: Dict[str, Dict[str, Any]] = {}
+        max_columns = 0
+
+        for row_index, row_element in enumerate(row_containers):
+            row_cells = self._collect_row_cells(row_element)
+            if not row_cells:
+                continue
+            row_data = {
+                'index': row_index,
+                'cells': [],
+            }
+            column_position = 0
+            for cell in row_cells:
+                cell_type = self._resolve_role_mapped_type(cell.get('/S'))
+                if cell_type not in ('TH', 'TD'):
+                    continue
+                col_span = self._extract_positive_int(cell, '/ColSpan', 1)
+                row_span = self._extract_positive_int(cell, '/RowSpan', 1)
+                scope = self._normalize_scope_value(cell.get('/Scope'))
+                header_ids = self._extract_header_ids(cell.get('/Headers'))
+                cell_id = self._normalize_id_value(cell.get('/ID'))
+                cell_info = {
+                    'element': cell,
+                    'type': cell_type,
+                    'row_index': row_index,
+                    'col_start': column_position,
+                    'col_end': column_position + col_span - 1,
+                    'col_span': col_span,
+                    'row_span': row_span,
+                    'scope': scope,
+                    'headers': header_ids,
+                    'id': cell_id,
+                    'page': page_num,
+                }
+                if cell_type == 'TH':
+                    headers.append(cell_info)
+                    if cell_id:
+                        headers_by_id[cell_id] = cell_info
+                else:
+                    data_cells.append(cell_info)
+
+                row_data['cells'].append(cell_info)
+                column_position += col_span
+
+            max_columns = max(max_columns, column_position)
+            rows.append(row_data)
+
+        if not rows:
+            return None
+
+        return {
+            'table': table_element,
+            'page': page_num,
+            'rows': rows,
+            'headers': headers,
+            'data_cells': data_cells,
+            'headers_by_id': headers_by_id,
+            'column_count': max_columns,
+        }
+
+    def _collect_table_rows(self, table_element: pikepdf.Dictionary) -> List[pikepdf.Dictionary]:
+        """Return a list of TR elements in reading order for the table."""
+        rows: List[pikepdf.Dictionary] = []
+
+        def _walk(node: Any):
+            node = _resolve_pdf_object(node)
+            if node is None:
+                return
+            if isinstance(node, pikepdf.Dictionary):
+                struct_type = self._resolve_role_mapped_type(node.get('/S'))
+                if struct_type == 'TR':
+                    rows.append(node)
+                    return
+                if '/K' in node:
+                    _walk(node.K)
+                return
+            if isinstance(node, (list, pikepdf.Array)):
+                for child in node:
+                    _walk(child)
+
+        try:
+            if '/K' in table_element:
+                _walk(table_element.K)
+        except Exception as exc:
+            logger.debug(f"[WCAGValidator] Failed collecting table rows: {exc}")
+        return rows
+
+    def _collect_row_cells(self, row_element: pikepdf.Dictionary) -> List[pikepdf.Dictionary]:
+        """Collect TH/TD structure elements under a row container."""
+        cells: List[pikepdf.Dictionary] = []
+
+        def _walk(node: Any):
+            node = _resolve_pdf_object(node)
+            if node is None:
+                return
+            if isinstance(node, pikepdf.Dictionary):
+                struct_type = self._resolve_role_mapped_type(node.get('/S'))
+                if struct_type in ('TH', 'TD'):
+                    cells.append(node)
+                    return
+                if '/K' in node:
+                    _walk(node.K)
+                return
+            if isinstance(node, (list, pikepdf.Array)):
+                for child in node:
+                    _walk(child)
+
+        try:
+            if isinstance(row_element, pikepdf.Dictionary) and '/K' in row_element:
+                _walk(row_element.K)
+            else:
+                _walk(row_element)
+        except Exception as exc:
+            logger.debug(f"[WCAGValidator] Failed collecting row cells: {exc}")
+        return cells
+
+    def _assess_table_model(self, table_model: Dict[str, Any], table_index: int, table_label: Optional[str]):
+        """Evaluate a parsed table model for structural issues."""
+        headers = table_model['headers']
+        data_cells = table_model['data_cells']
+        page_num = table_model['page']
+        page_text = str(page_num) if page_num is not None else 'unknown'
+        table_desc = self._describe_table_reference(table_index, page_text, table_label)
+
+        if not headers:
+            self._add_wcag_issue(
+                f'{table_desc} has no header cells (TH).',
+                '1.3.1',
+                'A',
+                'high',
+                'Add TH elements to define header rows or columns for this table.',
+                page=page_num,
+                context=table_label or table_desc
+            )
+            self._add_pdfua_issue(
+                f'{table_desc} has no header cells (TH).',
+                'ISO 14289-1:7.5',
+                'high',
+                'Define table headers using TH elements to satisfy PDF/UA table requirements.',
+                page=page_num
+            )
+            self.wcag_compliance['A'] = False
+            return
+
+        self._check_header_scopes(table_model, table_desc, table_label)
+        self._check_data_cell_associations(table_model, table_desc, table_label)
+
+    def _check_header_scopes(self, table_model: Dict[str, Any], table_desc: str, table_label: Optional[str]):
+        """Validate header scopes for obvious placement issues."""
+        headers = table_model['headers']
+        issues_reported = 0
+        max_scope_issues = 10
+        page_num = table_model.get('page')
+
+        for header in headers:
+            scope = header.get('scope')
+            if not scope:
+                continue
+            if self._is_scope_consistent(scope, header, table_model):
+                continue
+            if issues_reported >= max_scope_issues:
+                break
+            issues_reported += 1
+            scope_text = scope.lower()
+            context = table_label or table_desc
+            self._add_wcag_issue(
+                f'{table_desc} has a header cell with potentially invalid {scope_text} scope.',
+                '1.3.1',
+                'A',
+                'medium',
+                'Review TH scope placement to ensure row/column headers align with the data they describe.',
+                page=page_num,
+                context=context
+            )
+            self._add_pdfua_issue(
+                f'{table_desc} has a header cell with potentially invalid {scope_text} scope.',
+                'ISO 14289-1:7.5',
+                'medium',
+                'Ensure header cells correctly describe their row or column scope for table accessibility.',
+                page=page_num
+            )
+            self.wcag_compliance['A'] = False
+
+    def _check_data_cell_associations(self, table_model: Dict[str, Any], table_desc: str, table_label: Optional[str]):
+        """Ensure each data cell is associated with at least one header."""
+        headers_by_id = table_model['headers_by_id']
+        headers = table_model['headers']
+        data_cells = table_model['data_cells']
+        issues_reported = 0
+        max_data_issues = 25
+        page_num = table_model.get('page')
+        context = table_label or table_desc
+
+        for cell in data_cells:
+            associated = self._associate_headers_for_cell(cell, table_model, headers_by_id, headers)
+            if associated:
+                continue
+            if issues_reported >= max_data_issues:
+                break
+            issues_reported += 1
+            row_num = cell.get('row_index', 0) + 1
+            self._add_wcag_issue(
+                f'{table_desc} contains a data cell (row {row_num}) without associated headers.',
+                '1.3.1',
+                'A',
+                'high',
+                'Associate each TD with header cells using /Headers or clear TH scopes.',
+                page=page_num,
+                context=context
+            )
+            self._add_pdfua_issue(
+                f'{table_desc} contains a data cell (row {row_num}) without associated headers.',
+                'ISO 14289-1:7.5',
+                'high',
+                'Associate data cells with header cells per PDF/UA requirements (e.g., /Headers, TH scopes).',
+                page=page_num
+            )
+            self.wcag_compliance['A'] = False
+
+    def _associate_headers_for_cell(
+        self,
+        cell: Dict[str, Any],
+        table_model: Dict[str, Any],
+        headers_by_id: Dict[str, Dict[str, Any]],
+        headers: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Return a list of header cells associated with the given data cell."""
+        associated: List[Dict[str, Any]] = []
+
+        for header_id in cell.get('headers', []):
+            header = headers_by_id.get(header_id)
+            if header and header not in associated:
+                associated.append(header)
+        if associated:
+            return associated
+
+        column_matches = self._headers_sharing_column(cell, headers, scope_filter='Column')
+        if column_matches:
+            return column_matches
+
+        row_matches = self._headers_sharing_row(cell, headers, scope_filter='Row')
+        if row_matches:
+            return row_matches
+
+        inferred = self._infer_headers_from_layout(cell, table_model)
+        if inferred:
+            return inferred
+
+        return associated
+
+    def _headers_sharing_column(
+        self,
+        cell: Dict[str, Any],
+        headers: List[Dict[str, Any]],
+        scope_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Return headers that overlap the data cell's column range."""
+        matches: List[Dict[str, Any]] = []
+        for header in headers:
+            if scope_filter and header.get('scope') != scope_filter:
+                continue
+            if self._columns_overlap(cell, header):
+                matches.append(header)
+        return matches
+
+    def _headers_sharing_row(
+        self,
+        cell: Dict[str, Any],
+        headers: List[Dict[str, Any]],
+        scope_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Return headers that appear in the same row as the data cell."""
+        matches: List[Dict[str, Any]] = []
+        for header in headers:
+            if scope_filter and header.get('scope') != scope_filter:
+                continue
+            if header.get('row_index') == cell.get('row_index'):
+                matches.append(header)
+        return matches
+
+    def _infer_headers_from_layout(self, cell: Dict[str, Any], table_model: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Fallback heuristic: use first row or first column headers if available."""
+        headers = table_model['headers']
+        if not headers:
+            return []
+
+        first_row_index = min((header.get('row_index') for header in headers), default=None)
+        inferred: List[Dict[str, Any]] = []
+
+        if first_row_index is not None:
+            for header in headers:
+                if header.get('row_index') == first_row_index and self._columns_overlap(cell, header):
+                    inferred.append(header)
+            if inferred:
+                return inferred
+
+        for header in headers:
+            if header.get('col_start') == 0 and self._columns_overlap(cell, header):
+                inferred.append(header)
+        return inferred
+
+    def _is_scope_consistent(self, scope: str, header: Dict[str, Any], table_model: Dict[str, Any]) -> bool:
+        """Basic validation that TH scope roughly matches its placement."""
+        scope = scope.lower()
+        row_index = header.get('row_index')
+        if scope == 'column':
+            for row in table_model['rows']:
+                if row['index'] == row_index:
+                    continue
+                for cell in row['cells']:
+                    if cell.get('type') == 'TD' and self._columns_overlap(cell, header):
+                        return True
+            return False
+        if scope == 'row':
+            row = next((r for r in table_model['rows'] if r['index'] == row_index), None)
+            if not row:
+                return False
+            has_data_cells = any(c.get('type') == 'TD' for c in row['cells'])
+            spans_multiple = sum(c.get('col_span', 1) for c in row['cells']) > header.get('col_span', 1)
+            return has_data_cells and spans_multiple
+        return True
+
+    def _columns_overlap(self, cell_a: Dict[str, Any], cell_b: Dict[str, Any]) -> bool:
+        """Return True if two cells overlap in column space."""
+        return not (
+            cell_a.get('col_end', -1) < cell_b.get('col_start', 0) or
+            cell_b.get('col_end', -1) < cell_a.get('col_start', 0)
+        )
+
+    def _describe_table_reference(self, index: int, page_text: str, label: Optional[str]) -> str:
+        """Return a readable table reference for issue descriptions."""
+        if label:
+            return f'Table "{label}" on page {page_text}'
+        if index:
+            return f'Table {index} on page {page_text}'
+        return f'Table on page {page_text}'
+
+    def _normalize_scope_value(self, scope: Any) -> Optional[str]:
+        """Normalize TH scope values."""
+        if scope is None:
+            return None
+        text = str(scope).lstrip('/')
+        return text if text else None
+
+    def _extract_header_ids(self, headers_entry: Any) -> List[str]:
+        """Normalize /Headers entries to a list of IDs."""
+        results: List[str] = []
+
+        def _collect(value: Any):
+            value = _resolve_pdf_object(value)
+            if value is None:
+                return
+            if isinstance(value, (list, pikepdf.Array)):
+                for item in value:
+                    _collect(item)
+                return
+            normalized = self._normalize_id_value(value)
+            if normalized:
+                results.append(normalized)
+
+        _collect(headers_entry)
+        return results
+
+    def _normalize_id_value(self, value: Any) -> Optional[str]:
+        """Normalize ID/Headers tokens to comparable strings."""
+        if value is None:
+            return None
+        try:
+            text = str(value)
+        except Exception:
+            return None
+        text = text.strip()
+        if not text:
+            return None
+        return text.lstrip('/')
+
+    def _extract_positive_int(self, element: pikepdf.Dictionary, key: str, default: int = 1) -> int:
+        """Extract a positive integer entry from a structure element."""
+        if not isinstance(element, pikepdf.Dictionary):
+            return default
+        raw_value = element.get(key)
+        if raw_value is None:
+            return default
+        try:
+            value = int(str(raw_value))
+            return value if value > 0 else default
+        except Exception:
+            return default
     
     def _validate_heading_hierarchy(self):
         """Validate heading semantics for WCAG 1.3.1 / 2.4.6."""
