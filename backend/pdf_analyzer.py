@@ -12,6 +12,11 @@ import PyPDF2
 import pdfplumber
 
 try:
+    from PyPDF2.generic import ContentStream
+except Exception:
+    ContentStream = None
+
+try:
     import pikepdf
     PIKEPDF_AVAILABLE = True
 except ImportError:
@@ -66,6 +71,8 @@ class PDFAccessibilityAnalyzer:
             "pdfuaIssues": [],
             "pdfaIssues": [],
         }
+        self._contrast_manual_note_added = False
+        self._low_contrast_issue_count = 0
         
         self.pdf_extract_kit = None
         if PDF_EXTRACT_KIT_AVAILABLE:
@@ -108,6 +115,7 @@ class PDFAccessibilityAnalyzer:
             
             self._analyze_with_pypdf2(pdf_path)
             self._analyze_with_pdfplumber(pdf_path)
+            self._analyze_contrast_basic(pdf_path)
             
             if self.wcag_validator_available:
                 print("[Analyzer] Running built-in WCAG 2.1 and PDF/UA-1 validation")
@@ -338,6 +346,7 @@ class PDFAccessibilityAnalyzer:
                         "pages": pages_with_images[:5],
                         "recommendation": "Manually check that all text has sufficient contrast ratio (4.5:1 for normal text)",
                     })
+                    self._contrast_manual_note_added = True
                 
                 print(f"[Analyzer] pdfplumber analysis: {total_images} images, {total_tables} tables, {total_form_fields} form fields")
                 
@@ -480,6 +489,150 @@ class PDFAccessibilityAnalyzer:
             return None
         text = str(name)
         return text[1:] if text.startswith('/') else text
+
+    def _analyze_contrast_basic(self, pdf_path: str):
+        """
+        Perform a lightweight contrast analysis by inspecting text color commands.
+        Assumes a white background and only looks at rg/RG + Tj/TJ sequences.
+        """
+        if ContentStream is None:
+            self._ensure_manual_contrast_notice("PyPDF2 ContentStream helper unavailable")
+            return
+
+        try:
+            with open(pdf_path, 'rb') as file_handle:
+                reader = PyPDF2.PdfReader(file_handle)
+                total_checked = 0
+                for page_num, page in enumerate(reader.pages, start=1):
+                    checked, _flagged = self._scan_page_for_low_contrast(page, reader, page_num)
+                    total_checked += checked
+
+                if total_checked == 0:
+                    self._ensure_manual_contrast_notice("No analyzable text color data found")
+        except Exception as exc:
+            print(f"[Analyzer] Contrast analysis unavailable: {exc}")
+            self._ensure_manual_contrast_notice("Contrast parsing failed")
+
+    def _scan_page_for_low_contrast(self, page, reader, page_num: int) -> Tuple[int, int]:
+        """Scan a single page for text runs drawn with insufficient contrast."""
+        if ContentStream is None:
+            return (0, 0)
+
+        try:
+            contents = page.get_contents()
+            if contents is None:
+                return (0, 0)
+            content_stream = ContentStream(contents, reader)
+            operations = getattr(content_stream, "operations", [])
+        except Exception:
+            return (0, 0)
+
+        fill_color: Optional[Tuple[float, float, float]] = None
+        stroke_color: Optional[Tuple[float, float, float]] = None
+        checked_runs = 0
+        flagged_runs = 0
+        background = (1.0, 1.0, 1.0)
+        contrast_threshold = 4.5
+
+        for operands, operator in operations:
+            op_name = self._decode_operator(operator)
+            if op_name == 'rg':
+                color = self._extract_rgb_from_operands(operands)
+                if color:
+                    fill_color = color
+            elif op_name == 'RG':
+                color = self._extract_rgb_from_operands(operands)
+                if color:
+                    stroke_color = color
+            elif op_name in ('Tj', 'TJ'):
+                active_color = fill_color or stroke_color
+                if active_color is None:
+                    continue
+                checked_runs += 1
+                ratio = self._contrast_ratio(active_color, background)
+                if ratio < contrast_threshold:
+                    flagged_runs += 1
+                    self._record_low_contrast_issue(page_num, ratio)
+
+        return (checked_runs, flagged_runs)
+
+    def _extract_rgb_from_operands(self, operands: List[Any]) -> Optional[Tuple[float, float, float]]:
+        """Return normalized RGB tuple from PDF operator operands."""
+        if not operands or len(operands) < 3:
+            return None
+        values: List[float] = []
+        for operand in operands[:3]:
+            try:
+                values.append(max(0.0, min(1.0, float(operand))))
+            except Exception:
+                return None
+        if len(values) != 3:
+            return None
+        return (values[0], values[1], values[2])
+
+    def _relative_luminance(self, r: float, g: float, b: float) -> float:
+        """Calculate relative luminance using WCAG 2.1 formula."""
+        def _linearize(channel: float) -> float:
+            if channel <= 0.03928:
+                return channel / 12.92
+            return ((channel + 0.055) / 1.055) ** 2.4
+
+        r_lin = _linearize(r)
+        g_lin = _linearize(g)
+        b_lin = _linearize(b)
+        return 0.2126 * r_lin + 0.7152 * g_lin + 0.0722 * b_lin
+
+    def _contrast_ratio(self, fg: Tuple[float, float, float], bg: Tuple[float, float, float]) -> float:
+        """Return WCAG contrast ratio between two RGB tuples."""
+        fg_lum = self._relative_luminance(*fg)
+        bg_lum = self._relative_luminance(*bg)
+        light = max(fg_lum, bg_lum)
+        dark = min(fg_lum, bg_lum)
+        return (light + 0.05) / (dark + 0.05)
+
+    def _decode_operator(self, operator: Any) -> str:
+        """Decode an operator token from a ContentStream operation."""
+        if isinstance(operator, bytes):
+            try:
+                return operator.decode('latin1')
+            except Exception:
+                return operator.decode('utf-8', errors='ignore')
+        return str(operator)
+
+    def _record_low_contrast_issue(self, page_num: int, ratio: float):
+        """Append a low-contrast issue, limiting the total count."""
+        max_entries = 25
+        if self._low_contrast_issue_count >= max_entries:
+            return
+
+        self._low_contrast_issue_count += 1
+
+        self.issues["poorContrast"].append({
+            "severity": "high",
+            "criterion": "1.4.3",
+            "description": f"Text on page {page_num} has low contrast (~{ratio:.1f}:1) against assumed white background",
+            "pages": [page_num],
+            "contrastRatio": round(ratio, 2),
+            "recommendation": "Increase text color contrast to at least 4.5:1 (WCAG 1.4.3 / 1.4.6).",
+        })
+
+    def _ensure_manual_contrast_notice(self, reason: Optional[str] = None):
+        """Ensure we log at least one manual contrast review reminder."""
+        if self._contrast_manual_note_added:
+            return
+
+        description = "Document contrast requires manual review"
+        if reason:
+            description += f" ({reason})."
+        else:
+            description += "."
+
+        self.issues["poorContrast"].append({
+            "severity": "medium",
+            "description": description,
+            "recommendation": "Manually verify that text meets WCAG 1.4.3/1.4.6 contrast thresholds.",
+        })
+        self._contrast_manual_note_added = True
 
     def _use_simulated_analysis(
         self,
