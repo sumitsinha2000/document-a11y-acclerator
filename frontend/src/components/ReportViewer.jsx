@@ -6,6 +6,7 @@ import SidebarNav from "./SidebarNav"
 import Breadcrumb from "./Breadcrumb"
 import ExportDropdown from "./ExportDropdown"
 import FixHistory from "./FixHistory"
+import WcagCriteriaSummary from "./WcagCriteriaSummary"
 import AIFixStrategyModal from "./AIFixStrategyModal"
 import API_BASE_URL, { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
@@ -710,6 +711,10 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
 
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
                 <FixHistory key={`fix-history-${refreshKey}`} scanId={reportData.scanId} onRefresh={handleRefresh} />
+              </div>
+
+              <div id="criteria" key={`criteria-${refreshKey}`}>
+                <WcagCriteriaSummary results={reportData.results} />
               </div>
 
               <div id="issues" key={`issues-${refreshKey}`}>
