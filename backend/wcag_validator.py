@@ -7,7 +7,7 @@ without requiring external dependencies like veraPDF CLI.
 """
 
 import pikepdf
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Dict, List, Any, Tuple, Optional, Callable
 import logging
 from collections import defaultdict
 import re
@@ -236,6 +236,269 @@ class WCAGValidator:
         self.wcag_compliance = {'A': True, 'AA': True, 'AAA': True}
         self.pdfua_compliance = True
         self._figure_alt_lookup = None
+        self._page_lookup = None
+        self._role_map_cache = None
+        self._role_map_cache_initialized = False
+    
+    def _get_role_map(self):
+        """Return the PDF RoleMap dictionary, caching when possible."""
+        if self._role_map_cache_initialized:
+            return self._role_map_cache
+
+        self._role_map_cache_initialized = True
+        role_map = None
+
+        try:
+            if self.pdf and '/StructTreeRoot' in self.pdf.Root:
+                struct_tree_root = self.pdf.Root.StructTreeRoot
+                if '/RoleMap' in struct_tree_root:
+                    role_map = struct_tree_root.RoleMap
+        except Exception as exc:
+            logger.debug(f"[WCAGValidator] Could not read RoleMap: {exc}")
+
+        self._role_map_cache = role_map
+        return role_map
+
+    def _resolve_role_mapped_type(self, struct_type: Any) -> str:
+        """Return the effective structure type after applying RoleMap mappings."""
+        normalized = self._normalize_structure_type(struct_type)
+        if not normalized:
+            return ""
+
+        role_map = self._get_role_map()
+        if not role_map:
+            return normalized
+
+        visited = set()
+        current = normalized
+        while True:
+            if current in self.REQUIRED_STRUCTURE_TYPES:
+                return current
+            if current in visited:
+                return current
+            visited.add(current)
+
+            mapped = self._find_role_map_value(current, role_map)
+            if not mapped:
+                return current
+
+            mapped_norm = self._normalize_structure_type(mapped)
+            if not mapped_norm:
+                return current
+            current = mapped_norm
+
+    def _get_page_lookup(self) -> Dict[str, int]:
+        """Return mapping from page object references to 1-based page numbers."""
+        if self._page_lookup is not None:
+            return self._page_lookup
+
+        lookup: Dict[str, int] = {}
+        if self.pdf:
+            try:
+                for page_num, page in enumerate(self.pdf.pages, 1):
+                    key = _object_key(page)
+                    if key:
+                        lookup[key] = page_num
+            except Exception as exc:
+                logger.debug(f"[WCAGValidator] Failed to build page lookup: {exc}")
+
+        self._page_lookup = lookup
+        return lookup
+
+    def _resolve_page_number(self, page_ref: Any) -> Optional[int]:
+        """Resolve a page reference to its 1-based page number."""
+        if page_ref is None or self.pdf is None:
+            return None
+
+        lookup = self._get_page_lookup()
+        page_key = _object_key(page_ref)
+        if page_key and page_key in lookup:
+            return lookup[page_key]
+
+        try:
+            if isinstance(page_ref, int):
+                return int(page_ref)
+        except Exception:
+            return None
+
+        return None
+
+    def _determine_page_number(self, page_ref: Any, element: Optional[Any] = None) -> Optional[int]:
+        """Determine the best page number for an element, falling back to descendants."""
+        page_num = self._resolve_page_number(page_ref)
+        if page_num is not None:
+            return page_num
+
+        if element is not None:
+            return self._find_descendant_page_number(element, set())
+
+        return None
+
+    def _find_descendant_page_number(self, element: Any, visited: set) -> Optional[int]:
+        """Search descendants for a usable /Pg reference."""
+        element = _resolve_pdf_object(element)
+        if not isinstance(element, pikepdf.Dictionary):
+            return None
+
+        element_id = id(element)
+        if element_id in visited:
+            return None
+        visited.add(element_id)
+
+        if '/Pg' in element:
+            page_num = self._resolve_page_number(element.get('/Pg'))
+            if page_num is not None:
+                return page_num
+
+        for child in self._get_child_structure_elements(element):
+            page_num = self._find_descendant_page_number(child, visited)
+            if page_num is not None:
+                return page_num
+
+        return None
+
+    def _traverse_structure(self, visitor: Callable[[pikepdf.Dictionary, Any], None]):
+        """Traverse the structure tree depth-first and invoke visitor for structure elements."""
+        if not self.pdf or '/StructTreeRoot' not in self.pdf.Root:
+            return
+
+        struct_tree_root = self.pdf.Root.StructTreeRoot
+        if '/K' not in struct_tree_root:
+            return
+
+        def _walk(node: Any, current_page: Any):
+            node = _resolve_pdf_object(node)
+            if node is None:
+                return
+
+            if isinstance(node, pikepdf.Dictionary):
+                next_page = current_page
+                if '/Pg' in node:
+                    next_page = node.get('/Pg')
+
+                if '/S' in node:
+                    try:
+                        visitor(node, next_page)
+                    except Exception as exc:
+                        logger.debug(f"[WCAGValidator] Structure visitor error: {exc}")
+
+                if '/K' in node:
+                    _walk(node.K, next_page)
+                return
+
+            if isinstance(node, (list, pikepdf.Array)):
+                for child in node:
+                    _walk(child, current_page)
+
+        try:
+            _walk(struct_tree_root.K, None)
+        except Exception as exc:
+            logger.debug(f"[WCAGValidator] Failed to traverse structure tree: {exc}")
+
+    def _collect_headings_in_order(self) -> List[Dict[str, Any]]:
+        """Collect heading elements in reading order with level, text, and page info."""
+        headings: List[Dict[str, Any]] = []
+
+        def _visitor(element: pikepdf.Dictionary, page_ref: Any):
+            resolved_type = self._resolve_role_mapped_type(element.get('/S'))
+            level = self._get_heading_level(element, resolved_type)
+            if level is None:
+                return
+
+            headings.append({
+                'level': level,
+                'page': self._determine_page_number(page_ref, element),
+                'title': self._extract_element_label(element),
+                'struct_type': resolved_type or self._normalize_structure_type(element.get('/S'))
+            })
+
+        self._traverse_structure(_visitor)
+        return headings
+
+    def _get_heading_level(self, element: Any, resolved_type: Optional[str]) -> Optional[int]:
+        """Return heading level (1-6) when available."""
+        if not resolved_type:
+            return None
+
+        if resolved_type.startswith('H') and len(resolved_type) == 2 and resolved_type[1].isdigit():
+            try:
+                level = int(resolved_type[1])
+                if 1 <= level <= 6:
+                    return level
+            except Exception:
+                return None
+
+        if resolved_type == 'H':
+            for key in ('/Level', '/level', '/Lvl'):
+                raw_level = element.get(key) if isinstance(element, pikepdf.Dictionary) else None
+                if raw_level is None:
+                    continue
+                try:
+                    level = int(str(raw_level))
+                except Exception:
+                    continue
+                if 1 <= level <= 6:
+                    return level
+
+        return None
+
+    def _clean_text_snippet(self, value: Any, limit: int = 80) -> Optional[str]:
+        """Normalize a value to a short text snippet for reporting."""
+        if value is None:
+            return None
+
+        try:
+            snippet = re.sub(r'\s+', ' ', str(value)).strip()
+        except Exception:
+            return None
+
+        if not snippet:
+            return None
+        if len(snippet) > limit:
+            snippet = snippet[:limit - 1].rstrip() + '…'
+        return snippet
+
+    def _extract_element_label(self, element: Any) -> Optional[str]:
+        """Extract a human-readable label from a structure element."""
+        if not isinstance(element, pikepdf.Dictionary):
+            return None
+
+        for key in ('/ActualText', '/Alt', '/T'):
+            snippet = self._clean_text_snippet(element.get(key))
+            if snippet:
+                return snippet
+        return None
+
+    def _get_child_structure_elements(self, element: Any) -> List[pikepdf.Dictionary]:
+        """Return direct child structure elements under an element's /K entry."""
+        children: List[pikepdf.Dictionary] = []
+        if not isinstance(element, pikepdf.Dictionary):
+            return children
+        if '/K' not in element:
+            return children
+
+        def _collect(payload: Any):
+            payload = _resolve_pdf_object(payload)
+            if payload is None:
+                return
+
+            if isinstance(payload, pikepdf.Dictionary):
+                if '/S' in payload:
+                    children.append(payload)
+                elif '/K' in payload:
+                    _collect(payload.K)
+                return
+
+            if isinstance(payload, (list, pikepdf.Array)):
+                for entry in payload:
+                    _collect(entry)
+
+        try:
+            _collect(element.K)
+        except Exception as exc:
+            logger.debug(f"[WCAGValidator] Failed collecting child elements: {exc}")
+
+        return children
         
     def validate(self) -> Dict[str, Any]:
         """
@@ -584,7 +847,9 @@ class WCAGValidator:
                                     '1.1.1',
                                     'A',
                                     'high',
-                                    'Add Alt text to the Figure structure element'
+                                    'Add Alt text to the Figure structure element',
+                                    page=page_num,
+                                    context=str(name)
                                 )
                                 self.wcag_compliance['A'] = False
                                 
@@ -673,33 +938,44 @@ class WCAGValidator:
         return len(th_elements) > 0
     
     def _validate_heading_hierarchy(self):
-        """Validate WCAG 1.3.1 (Info and Relationships) for headings - Level A."""
+        """Validate heading semantics for WCAG 1.3.1 / 2.4.6."""
         try:
-            headings = []
-            for i in range(1, 7):
-                headings.extend(self._find_structure_elements(f'H{i}'))
-            
-            if not headings:
-                return  # No headings to validate
-            
-            # Check heading hierarchy (H1 should come before H2, etc.)
-            prev_level = 0
-            for heading in headings:
-                if '/S' in heading:
-                    heading_type = str(heading.S)
-                    match = re.match(r'H(\d)', heading_type)
-                    if match:
-                        level = int(match.group(1))
-                        if level > prev_level + 1:
-                            self._add_wcag_issue(
-                                f'Heading hierarchy skipped from H{prev_level} to H{level}',
-                                '1.3.1',
-                                'A',
-                                'medium',
-                                'Use sequential heading levels (H1, H2, H3, etc.)'
-                            )
-                            self.wcag_compliance['A'] = False
-                        prev_level = level
+            headings = self._collect_headings_in_order()
+            if len(headings) < 2:
+                return
+
+            previous = headings[0]
+            for entry in headings[1:]:
+                current_level = entry.get('level')
+                prev_level = previous.get('level')
+                if current_level is None or prev_level is None:
+                    previous = entry
+                    continue
+
+                if current_level > prev_level + 1:
+                    page_num = entry.get('page')
+                    page_text = str(page_num) if page_num is not None else 'unknown'
+                    current_label = entry.get('title')
+                    previous_label = previous.get('title')
+                    label_suffix = ""
+                    if current_label:
+                        label_suffix += f' ("{current_label}")'
+                    if previous_label:
+                        label_suffix += f' after "{previous_label}"'
+
+                    self._add_wcag_issue(
+                        f'Non-sequential heading level: H{prev_level} followed directly by H{current_level} on page {page_text}{label_suffix}.',
+                        '2.4.6',
+                        'AA',
+                        'medium',
+                        'Ensure headings increase by no more than one level at a time (e.g., H2 should follow H1).',
+                        page=page_num,
+                        context=current_label
+                    )
+                    self.wcag_compliance['AA'] = False
+                    self.wcag_compliance['AAA'] = False
+
+                previous = entry
                         
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating heading hierarchy: {str(e)}")
@@ -707,23 +983,77 @@ class WCAGValidator:
     def _validate_list_structure(self):
         """Validate WCAG 1.3.1 (Info and Relationships) for lists - Level A."""
         try:
-            lists = self._find_structure_elements('L')
-            
-            for list_elem in lists:
-                # Check if list has list items (LI elements)
-                list_items = self._find_structure_elements('LI', list_elem)
-                if not list_items:
-                    self._add_wcag_issue(
-                        'List structure lacks list items',
-                        '1.3.1',
-                        'A',
-                        'medium',
-                        'Add LI (list item) elements to list structure'
-                    )
-                    self.wcag_compliance['A'] = False
+            def _visitor(element: pikepdf.Dictionary, page_ref: Any):
+                resolved_type = self._resolve_role_mapped_type(element.get('/S'))
+                if resolved_type == 'L':
+                    self._validate_single_list(element, page_ref)
+                elif resolved_type == 'LI':
+                    self._validate_list_item(element, page_ref)
+
+            self._traverse_structure(_visitor)
                     
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating list structure: {str(e)}")
+
+    def _validate_single_list(self, list_element: pikepdf.Dictionary, page_ref: Any):
+        """Ensure list containers expose LI children."""
+        list_children = [
+            child for child in self._get_child_structure_elements(list_element)
+            if self._resolve_role_mapped_type(child.get('/S')) == 'LI'
+        ]
+        if list_children:
+            return
+
+        page_num = self._determine_page_number(page_ref, list_element)
+        page_text = str(page_num) if page_num is not None else 'unknown'
+
+        self._add_wcag_issue(
+            f'List on page {page_text} lacks list items (LI).',
+            '1.3.1',
+            'A',
+            'medium',
+            'Ensure each list (<L>) element contains one or more list item (<LI>) children.',
+            page=page_num
+        )
+        self.wcag_compliance['A'] = False
+
+    def _validate_list_item(self, list_item: pikepdf.Dictionary, page_ref: Any):
+        """Ensure list items contain both labels (Lbl) and bodies (LBody)."""
+        children = self._get_child_structure_elements(list_item)
+        has_label = any(self._resolve_role_mapped_type(child.get('/S')) == 'Lbl' for child in children)
+        has_body = any(self._resolve_role_mapped_type(child.get('/S')) == 'LBody' for child in children)
+
+        if has_label and has_body:
+            return
+
+        page_num = self._determine_page_number(page_ref, list_item)
+        page_text = str(page_num) if page_num is not None else 'unknown'
+        item_label = self._extract_element_label(list_item)
+        item_suffix = f' ("{item_label}")' if item_label else ''
+
+        if not has_label:
+            self._add_wcag_issue(
+                f'List item{item_suffix} is missing a label (Lbl) on page {page_text}.',
+                '1.3.1',
+                'A',
+                'medium',
+                'Add an <Lbl> child to each list item to expose the bullet, number, or descriptor.',
+                page=page_num,
+                context=item_label
+            )
+            self.wcag_compliance['A'] = False
+
+        if not has_body:
+            self._add_wcag_issue(
+                f'List item{item_suffix} is missing a body (LBody) on page {page_text}.',
+                '1.3.1',
+                'A',
+                'medium',
+                'Include an <LBody> child for each list item to contain the list content.',
+                page=page_num,
+                context=item_label
+            )
+            self.wcag_compliance['A'] = False
     
     def _validate_contrast_ratios(self):
         """
@@ -892,9 +1222,20 @@ class WCAGValidator:
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating artifacts: {str(e)}")
     
-    def _add_wcag_issue(self, description: str, criterion: str, level: str, severity: str, remediation: str):
-        """Add a WCAG issue to the results."""
-        self.issues['wcag'].append({
+    def _add_wcag_issue(
+        self,
+        description: str,
+        criterion: str,
+        level: str,
+        severity: str,
+        remediation: str,
+        *,
+        page: Optional[int] = None,
+        pages: Optional[List[int]] = None,
+        context: Optional[str] = None,
+    ):
+        """Add a WCAG issue to the results with optional context."""
+        issue = {
             'description': description,
             'criterion': criterion,
             'level': level,
@@ -902,18 +1243,39 @@ class WCAGValidator:
             'remediation': remediation,
             'specification': f'WCAG 2.1 Level {level}',
             'category': 'wcag'
-        })
-    
-    def _add_pdfua_issue(self, description: str, clause: str, severity: str, remediation: str):
+        }
+        if page is not None:
+            issue['page'] = page
+        if pages:
+            issue['pages'] = pages
+        if context:
+            issue['context'] = context
+        self.issues['wcag'].append(issue)
+
+    def _add_pdfua_issue(
+        self,
+        description: str,
+        clause: str,
+        severity: str,
+        remediation: str,
+        *,
+        page: Optional[int] = None,
+        pages: Optional[List[int]] = None,
+    ):
         """Add a PDF/UA issue to the results."""
-        self.issues['pdfua'].append({
+        issue = {
             'description': description,
             'clause': clause,
             'severity': severity,
             'remediation': remediation,
             'specification': 'PDF/UA-1 (ISO 14289-1)',
             'category': 'pdfua'
-        })
+        }
+        if page is not None:
+            issue['page'] = page
+        if pages:
+            issue['pages'] = pages
+        self.issues['pdfua'].append(issue)
     
     def _calculate_wcag_score(self) -> int:
         """Calculate WCAG compliance score (0-100)."""

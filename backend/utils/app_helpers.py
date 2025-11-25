@@ -30,6 +30,7 @@ from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
 from backend.fix_progress_tracker import create_progress_tracker, get_progress_tracker
 from backend.utils.wcag_mapping import annotate_wcag_mappings
+from backend.utils.criteria_summary import build_criteria_summary
 
 load_dotenv()
 
@@ -972,6 +973,7 @@ def build_placeholder_scan_payload(filename: Optional[str] = None) -> Dict[str, 
         "summary": summary,
         "verapdfStatus": base_status,
         "fixes": [],
+        "criteriaSummary": {},
     }
 
 def should_scan_now(
@@ -1058,11 +1060,14 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
         logger.exception("generate_fix_suggestions failed")
         fix_suggestions = []
 
+    criteria_summary = build_criteria_summary(scan_results)
+
     return {
         "results": scan_results,
         "summary": summary if isinstance(summary, dict) else {},
         "verapdfStatus": verapdf_status,
         "fixes": fix_suggestions,
+        "criteriaSummary": criteria_summary,
     }
 
 def _fetch_scan_record(scan_id: str) -> Optional[Dict[str, Any]]:

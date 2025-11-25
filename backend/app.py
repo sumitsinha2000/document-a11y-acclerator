@@ -1087,6 +1087,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
             "summary": summary_after,
             "verapdfStatus": scan_results_after.get("verapdfStatus"),
             "fixes": result.get("suggestions", []),
+            "criteriaSummary": scan_results_after.get("criteriaSummary", {}),
         }
 
         try:
@@ -1617,6 +1618,7 @@ async def apply_manual_fix(request: Request):
             "summary": summary,
             "verapdfStatus": verapdf_status,
             "fixes": suggestions,
+            "criteriaSummary": rescan_data.get("criteriaSummary", {}),
         }
 
         remote_file_path = _mirror_file_to_remote(

@@ -391,17 +391,32 @@ class PDFGenerator:
                 )
                 clause = issue.get("clause") or issue.get("criterion")
                 recommendation = issue.get("recommendation") or issue.get("remediation")
+                issue_type = issue.get("categoryLabel") or pretty_name
+                page_num = issue.get("page")
                 pages = issue.get("pages")
+                context = issue.get("context") or issue.get("title")
+
+                normalized_pages: List[str] = []
+                if isinstance(pages, list):
+                    normalized_pages = [str(p) for p in pages if p is not None]
+                elif pages is not None:
+                    normalized_pages = [str(pages)]
+
                 bullet = f"{idx}. {description}"
                 pdf.multi_cell(0, 6, bullet)
                 detail_bits = [
                     f"Severity: {severity}",
+                    f"Issue Type: {issue_type}",
                 ]
+                if page_num is not None:
+                    detail_bits.append(f"Page: {page_num}")
+                if normalized_pages:
+                    detail_bits.append(f"Pages: {', '.join(normalized_pages)}")
                 if clause:
                     detail_bits.append(f"Clause: {clause}")
-                if pages:
-                    detail_bits.append(f"Pages: {', '.join(str(p) for p in pages)}")
                 pdf.multi_cell(0, 6, "; ".join(detail_bits))
+                if context and context != description:
+                    pdf.multi_cell(0, 6, f"Context: {context}")
                 if recommendation:
                     pdf.set_text_color(20, 85, 40)
                     pdf.multi_cell(0, 6, f"Recommendation: {recommendation}")

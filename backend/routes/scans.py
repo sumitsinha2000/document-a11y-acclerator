@@ -83,6 +83,7 @@ async def get_scans():
             parsed_payload = _parse_scan_results_json(raw_payload)
             summary = parsed_payload.get("summary", {}) or {}
             results = parsed_payload.get("results", parsed_payload) or {}
+            criteria_summary = parsed_payload.get("criteriaSummary") or {}
 
             scan_identifier = row_dict.get("id")
             issues_remaining = (
@@ -110,6 +111,7 @@ async def get_scans():
                     "filePath": row_dict.get("file_path"),
                     "summary": summary,
                     "results": results if isinstance(results, dict) else {},
+                    "criteriaSummary": criteria_summary,
                     "verapdfStatus": parsed_payload.get("verapdfStatus"),
                     "totalIssues": summary.get(
                         "totalIssues", row_dict.get("total_issues", 0)
@@ -258,6 +260,7 @@ async def scan_pdf(
             "groupId": group_id,
             "summary": formatted_results["summary"],
             "results": scan_results,
+            "criteriaSummary": formatted_results.get("criteriaSummary", {}),
             "fixes": fix_suggestions,
             "timestamp": datetime.now().isoformat(),
             "verapdfStatus": verapdf_status,
@@ -475,6 +478,7 @@ async def scan_batch(
                         "statusCode": status_code,
                         "summary": record_payload.get("summary", {}),
                         "results": record_payload.get("results", {}),
+                        "criteriaSummary": record_payload.get("criteriaSummary", {}),
                         "fixes": record_payload.get("fixes", []),
                         "verapdfStatus": record_payload.get("verapdfStatus"),
                         "uploadDate": datetime.utcnow().isoformat(),

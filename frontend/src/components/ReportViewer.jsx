@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react"
 import axios from "axios"
-import IssuesList from "./IssuesList"
 import FixSuggestions from "./FixSuggestions"
 import SidebarNav from "./SidebarNav"
 import Breadcrumb from "./Breadcrumb"
 import ExportDropdown from "./ExportDropdown"
 import FixHistory from "./FixHistory"
 import WcagCriteriaSummary from "./WcagCriteriaSummary"
+import PdfUaCriteriaSummary from "./PdfUaCriteriaSummary"
 import AIFixStrategyModal from "./AIFixStrategyModal"
 import API_BASE_URL, { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
@@ -27,7 +27,6 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [selectedCategory, setSelectedCategory] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [aiLoading, setAiLoading] = useState(false)
   const [showAiModal, setShowAiModal] = useState(false)
@@ -713,15 +712,14 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                 <FixHistory key={`fix-history-${refreshKey}`} scanId={reportData.scanId} onRefresh={handleRefresh} />
               </div>
 
-              <div id="criteria" key={`criteria-${refreshKey}`}>
-                <WcagCriteriaSummary results={reportData.results} />
-              </div>
-
-              <div id="issues" key={`issues-${refreshKey}`}>
-                <IssuesList
+              <div id="criteria" key={`criteria-${refreshKey}`} className="space-y-6">
+                <WcagCriteriaSummary
+                  criteriaSummary={reportData.criteriaSummary?.wcag}
                   results={reportData.results}
-                  selectedCategory={selectedCategory}
-                  onSelectCategory={setSelectedCategory}
+                />
+                <PdfUaCriteriaSummary
+                  criteriaSummary={reportData.criteriaSummary?.pdfua}
+                  results={reportData.results}
                 />
               </div>
 
