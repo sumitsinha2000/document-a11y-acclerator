@@ -1464,22 +1464,10 @@ async def serve_pdf_file(scan_id: str, request: Request):
         uploads_dir = _uploads_root()
         fixed_dir = _fixed_root()
 
-        version_param = request.query_params.get("version")
         file_path: Optional[Path] = None
         remote_identifier: Optional[str] = None
-        requested_version: Optional[int] = None
 
-        version_info = None
-        if version_param:
-            try:
-                requested_version = int(version_param)
-            except (ValueError, TypeError):
-                return JSONResponse(
-                    {"error": "Invalid version parameter"}, status_code=400
-                )
-            version_info = get_fixed_version(scan_id, requested_version)
-        else:
-            version_info = get_fixed_version(scan_id)
+        version_info = get_fixed_version(scan_id)
 
         if version_info:
             remote_identifier = version_info.get("remote_path")
@@ -1490,10 +1478,7 @@ async def serve_pdf_file(scan_id: str, request: Request):
                     file_path = candidate_path
 
         if not file_path and not remote_identifier:
-            history_entry = lookup_remote_fixed_entry(
-                scan_id,
-                version=requested_version,
-            )
+            history_entry = lookup_remote_fixed_entry(scan_id)
             if history_entry:
                 remote_identifier = history_entry.get("remote_path")
 

@@ -111,6 +111,10 @@ export default function FixHistory({ scanId, onRefresh }) {
           item.fixedFilePath ?? item.fixedFile ?? item.fixed_filename ?? item.fixed_filename
 
         const isLatestEntry = index === 0
+        const canPreview =
+          typeof item.previewable === "boolean"
+            ? item.previewable
+            : isLatestVersion || isLatestEntry
         return {
           id: item.id || item.scan_id || index,
           timestamp: parsedTimestamp ? parsedTimestamp.toISOString() : null,
@@ -121,6 +125,7 @@ export default function FixHistory({ scanId, onRefresh }) {
           successCount: fixesApplied.length,
           version: versionNumber,
           versionLabel,
+          canPreview,
           downloadable:
             typeof item.downloadable === "boolean"
               ? item.downloadable
@@ -140,12 +145,11 @@ export default function FixHistory({ scanId, onRefresh }) {
   }
 
   const handlePreview = (item) => {
-    if (!item || !item.fixedFile) {
+    if (!item || !item.fixedFile || !item.canPreview) {
       return
     }
 
-    const versionParam = typeof item.version === "number" ? item.version : undefined
-    const previewUrl = API_ENDPOINTS.previewPdf(scanId, versionParam)
+    const previewUrl = API_ENDPOINTS.previewPdf(scanId)
     window.open(previewUrl, "_blank", "noopener,noreferrer")
   }
 
@@ -306,7 +310,7 @@ export default function FixHistory({ scanId, onRefresh }) {
                   </div>
                 </div>
 
-                {item.fixedFile && (
+                {item.fixedFile && item.canPreview && (
                   <div className="flex flex-col sm:flex-row gap-2">
                     <button
                       onClick={() => handlePreview(item)}
