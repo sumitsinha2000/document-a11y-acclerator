@@ -741,9 +741,8 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
             >
               <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Ready to Scan</h2>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                Start the scan from the dashboard, history, or batch views to generate accessibility results for this
-                file. Once the scan finishes, you will see detailed issue breakdowns, automated fix options, and export
-                actions here.
+                Start the scan from the folder dashboard or from the scan button above in this dashboard to generate
+                accessibility results.
               </p>
             </div>
           )}
