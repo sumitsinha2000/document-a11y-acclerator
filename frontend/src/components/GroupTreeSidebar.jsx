@@ -61,6 +61,7 @@ export default function GroupTreeSidebar({
   const [folderFiles, setFolderFiles] = useState([]);
   const [folderFilesLoading, setFolderFilesLoading] = useState(false);
   const [folderFilesError, setFolderFilesError] = useState(null);
+  const [refreshingGroupId, setRefreshingGroupId] = useState(null);
   const handledFolderNavigationRef = useRef(null);
 
   useEffect(() => {
@@ -981,6 +982,23 @@ export default function GroupTreeSidebar({
     }
   };
 
+  const handleRefreshGroupFolders = async (groupId) => {
+    const normalizedId = normalizeId(groupId);
+    if (!normalizedId) {
+      return;
+    }
+    setRefreshingGroupId(normalizedId);
+    try {
+      await fetchGroupData(groupId, null);
+      setStatusMessage("Folders updated");
+    } catch (error) {
+      console.error("[GroupTreeSidebar] Failed to refresh folders:", error);
+      setStatusMessage("Failed to refresh folders");
+    } finally {
+      setRefreshingGroupId(null);
+    }
+  };
+
   if (loading) {
     return (
       <aside className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 dashboard-panel border border-gray-200 dark:border-gray-700 p-4">
@@ -1135,7 +1153,7 @@ export default function GroupTreeSidebar({
 
   return (
     <aside
-      className="w-full max-w-sm flex-shrink-0 dashboard-panel border border-slate-200 bg-white p-6 text-slate-900 shadow-xl shadow-slate-200/60 flex flex-col space-y-6 dark:border-slate-800 dark:bg-gradient-to-b dark:from-slate-950 dark:via-[#0b1120] dark:to-[#070b16] dark:text-slate-100 dark:shadow-[0_35px_80px_-40px_rgba(15,23,42,0.95)]"
+      className="w-full max-w-sm flex-shrink-0 rounded-3xl border border-slate-100 bg-[#f7f9ff] p-6 text-slate-900 shadow-[0_20px_60px_rgba(15,23,42,0.08)] flex flex-col space-y-6 dark:border-slate-800 dark:bg-gradient-to-b dark:from-slate-950 dark:via-[#0b1120] dark:to-[#070b16] dark:text-slate-100 dark:shadow-[0_35px_80px_-40px_rgba(15,23,42,0.95)]"
       aria-label="Group navigation"
     >
       <div className="flex items-center justify-between">
@@ -1223,6 +1241,7 @@ export default function GroupTreeSidebar({
               editingGroupId && normalizeId(editingGroupId) === normalizedGroupId;
             const isDeletingGroup =
               deletingGroupId && normalizeId(deletingGroupId) === normalizedGroupId;
+            const isRefreshingFolders = refreshingGroupId === normalizedGroupId;
 
             return (
               <div key={group.id} className="space-y-2">
@@ -1289,10 +1308,10 @@ export default function GroupTreeSidebar({
                     <>
                 <button
                   type="button"
-                  className={`w-full text-left rounded-2xl border transition group flex items-center gap-3 p-3 ${
+                  className={`w-full text-left rounded-2xl border transition group flex items-center gap-3 p-3 shadow-sm ${
                     isSelected
-                      ? "border-indigo-500/80 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
-                      : "border-transparent bg-slate-50 text-slate-800 hover:border-indigo-100 hover:bg-indigo-50 dark:bg-[#121b33] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#182248]"
+                      ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
+                      : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#121b33] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#182248]"
                   }`}
                   onClick={() => {
                     void handleGroupSelection(group);
@@ -1374,7 +1393,34 @@ export default function GroupTreeSidebar({
                     id={`group-${group.id}-panel`}
                     className="pl-4 pt-2 pb-3 space-y-3"
                   >
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-[#0f1a30]">
+                    <div className="flex items-center justify-between pr-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <span>Folders</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRefreshGroupFolders(group.id)}
+                        disabled={isRefreshingFolders}
+                        className="rounded-xl border border-indigo-100 bg-white px-2 py-1 text-indigo-600 transition hover:bg-indigo-50 hover:text-indigo-800 disabled:opacity-60 disabled:cursor-not-allowed dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-200 dark:hover:bg-indigo-500/20 dark:hover:text-white"
+                        title="Refresh folders"
+                        aria-label="Refresh folders"
+                        aria-busy={isRefreshingFolders || undefined}
+                      >
+                        <svg
+                          className={`h-3.5 w-3.5 ${isRefreshingFolders ? "animate-spin" : ""}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-inner shadow-slate-100 dark:border-slate-800 dark:bg-[#0f1a30]">
                       {batches.length === 0 ? (
                         <p className="text-xs text-slate-500 dark:text-slate-400" role="status" aria-live="polite">
                           No folders available
@@ -1456,10 +1502,10 @@ export default function GroupTreeSidebar({
                                   <>
                                   <button
                                     type="button"
-                                  className={`group w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 ${
+                                  className={`group w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 shadow-sm ${
                                     isBatchSelected
-                                      ? "border-indigo-500/80 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
-                                      : "border-transparent bg-white text-slate-800 hover:border-indigo-100 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
+                                      ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
+                                      : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
                                   }`}
                                       onClick={() => handleFolderButtonClick(group, batch)}
                                       aria-current={isBatchSelected ? "true" : undefined}
@@ -1485,9 +1531,9 @@ export default function GroupTreeSidebar({
                                           {batch.name || `Batch ${batch.batchId}`}
                                         </span>
                                         <span
-                                          className={`text-sm text-slate-500 dark:text-slate-400 ${
-                                            isBatchSelected ? "text-slate-200 dark:text-slate-200" : ""
-                                          } group-focus-within:text-slate-200 dark:group-focus-within:text-slate-200`}
+                                          className={`text-sm ${
+                                            isBatchSelected ? "text-indigo-100 dark:text-white/90" : "text-slate-500 dark:text-slate-400"
+                                          } group-focus-within:text-indigo-100 dark:group-focus-within:text-white/90`}
                                         >
                                           {batch.fileCount} files
                                         </span>
