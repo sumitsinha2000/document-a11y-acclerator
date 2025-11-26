@@ -496,9 +496,9 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 onClick={handleApplyTraditionalFixes}
                 disabled={applyingTraditional}
                 aria-busy={applyingTraditional}
-                aria-label={applyingTraditional ? "Applying traditional fixes" : "Apply traditional automated fixes"}
+                aria-label={applyingTraditional ? "Applying auto fixes" : "Apply auto fixes"}
               >
-                {applyingTraditional ? "Applying..." : "Apply Traditional Fixes"}
+                {applyingTraditional ? "Applying..." : "Apply Auto Fixes"}
               </button>
               {/* AI-powered automated fixes currently share the same backend pipeline, so the dedicated button is temporarily disabled */}
               {/*
@@ -588,13 +588,9 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 onClick={handleApplyTraditionalSemiFixes}
                 disabled={applyingTraditionalSemi}
                 aria-busy={applyingTraditionalSemi}
-                aria-label={
-                  applyingTraditionalSemi
-                    ? "Applying traditional semi-automated fixes"
-                    : "Apply traditional semi-automated fixes"
-                }
+                aria-label={applyingTraditionalSemi ? "Applying auto fixes" : "Apply auto fixes"}
               >
-                {applyingTraditionalSemi ? "Applying..." : "Apply Traditional Fixes"}
+                {applyingTraditionalSemi ? "Applying..." : "Apply Auto Fixes"}
               </button>
               {/* AI semi-automated fixes share the same backend pipeline and are not currently distinct, so the extra button is commented out */}
               {/*
