@@ -28,11 +28,17 @@ export default function UploadArea({
   const [selectedFiles, setSelectedFiles] = useState([])
   const [previewFile, setPreviewFile] = useState(null)
   const [previewUrl, setPreviewUrl] = useState(null)
+  const previewDialogRef = useRef(null)
   useEffect(() => {
     return () => {
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl)
       }
+    }
+  }, [previewUrl])
+  useEffect(() => {
+    if (previewUrl && previewDialogRef.current) {
+      previewDialogRef.current.focus()
     }
   }, [previewUrl])
   useEffect(() => {
@@ -536,6 +542,8 @@ export default function UploadArea({
       </div>
       {previewFile && previewUrl && (
         <div
+          ref={previewDialogRef}
+          tabIndex={-1}
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 px-4 py-6"
           role="dialog"
           aria-modal="true"
@@ -559,6 +567,7 @@ export default function UploadArea({
                 type="button"
                 className="text-sm font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
                 onClick={handleClosePreview}
+                aria-label="Close preview dialog"
               >
                 Close
               </button>
