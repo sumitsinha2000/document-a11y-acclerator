@@ -22,7 +22,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [showAIPanel, setShowAIPanel] = useState(false)
   const [showProgressStepper, setShowProgressStepper] = useState(false)
   const [currentFixType, setCurrentFixType] = useState("")
-  const [pendingProgressResult, setPendingProgressResult] = useState(null)
 
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" })
   const [expandedFixes, setExpandedFixes] = useState({
@@ -99,7 +98,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyTraditionalFixes = async () => {
     setApplyingTraditional(true)
     setShowProgressStepper(true)
-    setPendingProgressResult(null)
     setCurrentFixType("Traditional Automated Fixes")
 
     try {
@@ -120,7 +118,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyAIFixes = async () => {
     setApplyingAI(true)
     setShowProgressStepper(true)
-    setPendingProgressResult(null)
     setCurrentFixType("AI-Powered Automated Fixes")
 
     try {
@@ -141,7 +138,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyTraditionalSemiFixes = async () => {
     setApplyingTraditionalSemi(true)
     setShowProgressStepper(true)
-    setPendingProgressResult(null)
     setCurrentFixType("Traditional Semi-Automated Fixes")
 
     try {
@@ -162,7 +158,6 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const handleApplyAISemiFixes = async () => {
     setApplyingAISemi(true)
     setShowProgressStepper(true)
-    setPendingProgressResult(null)
     setCurrentFixType("AI-Powered Semi-Automated Fixes")
 
     try {
@@ -186,6 +181,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     newResults,
     newVerapdfStatus = null,
     newFixSuggestions = null,
+    newCriteriaSummary = null,
   ) => {
     console.log("[v0] FixSuggestions - Fix applied in editor:", appliedFix)
     console.log("[v0] FixSuggestions - New summary received:", newSummary)
@@ -200,7 +196,13 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     if (onRefresh) {
       console.log("[v0] FixSuggestions - Calling onRefresh with new data...")
       try {
-        await onRefresh(newSummary, newResults, newVerapdfStatus, newFixSuggestions)
+        await onRefresh(
+          newSummary,
+          newResults,
+          newVerapdfStatus,
+          newFixSuggestions,
+          newCriteriaSummary,
+        )
         console.log("[v0] FixSuggestions - onRefresh completed successfully")
       } catch (error) {
         console.error("[v0] FixSuggestions - Error during refresh:", error)
@@ -251,6 +253,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             newScanData?.results || newScanData?.scanResults?.results,
             newScanData?.verapdfStatus,
             newScanData?.fixes || newScanData?.scanResults?.fixes,
+            newScanData?.criteriaSummary || newScanData?.scanResults?.criteriaSummary,
           )
           console.log("[v0] FixSuggestions - Refresh completed successfully")
 
@@ -307,29 +310,11 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     console.log("[v0] FixSuggestions - Progress complete:", { success, hasNewData: !!newScanData })
     const outcome = { success, newScanData }
 
-    if (showProgressStepper) {
-      setPendingProgressResult(outcome)
-      return
-    }
-
-    setPendingProgressResult(null)
     await processProgressOutcome(outcome)
   }
 
   const handleProgressModalClose = async () => {
     setShowProgressStepper(false)
-
-    if (!pendingProgressResult) {
-      return
-    }
-
-    const outcome = pendingProgressResult
-
-    try {
-      await processProgressOutcome(outcome)
-    } finally {
-      setPendingProgressResult(null)
-    }
   }
 
   const validAutomated = Array.isArray(fixes?.automated) ? fixes.automated.map(cleanFix).filter(Boolean) : []

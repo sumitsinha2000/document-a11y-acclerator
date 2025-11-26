@@ -7,6 +7,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from backend.utils.wcag_mapping import WCAG_CRITERIA_DETAILS, CATEGORY_CRITERIA_MAP
 
 
+LANGUAGE_FIX_NOTE = "Note: this tool will set the document language to 'en-US' by default when fixing this issue."
+
 SEVERITY_SCORES = {
     "critical": 3,
     "high": 3,
@@ -90,13 +92,10 @@ def build_criteria_summary(results: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _build_wcag_criteria(results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    wcag_issues = _collect_unique_issues(results.get("wcagIssues"), key_field="criterion")
-    if not wcag_issues:
-        wcag_issues = _collect_fallback_wcag_issues(results)
+    wcag_issues = _collect_unique_issues(_collect_all_wcag_sources(results), key_field="criterion")
 
     grouped = _group_issues_by_code(wcag_issues, code_key="criterion")
     if not grouped and not wcag_issues:
-        # Still create empty entries for known criteria so the UI shows a baseline state.
         grouped = {}
 
     items = _build_items(
@@ -111,8 +110,15 @@ def _build_wcag_criteria(results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def _collect_fallback_wcag_issues(results: Dict[str, Any]) -> List[Dict[str, Any]]:
-    fallback: List[Dict[str, Any]] = []
+def _collect_all_wcag_sources(results: Dict[str, Any]) -> List[Dict[str, Any]]:
+    collected: List[Dict[str, Any]] = []
+    direct_issues = results.get("wcagIssues")
+    if isinstance(direct_issues, list):
+        for issue in direct_issues:
+            prepared = _copy_issue(issue)
+            _append_language_note(prepared)
+            collected.append(prepared)
+
     for category, codes in CATEGORY_CRITERIA_MAP.items():
         raw_issues = results.get(category)
         if not isinstance(raw_issues, list):
@@ -122,9 +128,10 @@ def _collect_fallback_wcag_issues(results: Dict[str, Any]) -> List[Dict[str, Any
                 continue
             for code in codes:
                 prepared = _copy_issue(issue)
-                prepared.setdefault("criterion", code)
-                fallback.append(prepared)
-    return _collect_unique_issues(fallback, key_field="criterion")
+                prepared["criterion"] = code
+                _append_language_note(prepared)
+                collected.append(prepared)
+    return collected
 
 
 def _build_pdfua_criteria(results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -207,6 +214,18 @@ def _copy_issue(issue: Dict[str, Any]) -> Dict[str, Any]:
     return copied
 
 
+def _append_language_note(issue: Dict[str, Any]) -> None:
+    if not isinstance(issue, dict):
+        return
+    if str(issue.get("criterion") or "").strip() != "3.1.1":
+        return
+    recommendation = str(issue.get("recommendation", "")).strip()
+    if LANGUAGE_FIX_NOTE in recommendation:
+        return
+    separator = " " if recommendation else ""
+    issue["recommendation"] = f"{recommendation}{separator}{LANGUAGE_FIX_NOTE}".strip()
+
+
 def _group_issues_by_code(issues: List[Dict[str, Any]], code_key: str) -> Dict[str, List[Dict[str, Any]]]:
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     for issue in issues:
@@ -260,15 +279,7 @@ def _build_items(
 def _determine_status(issues: List[Dict[str, Any]]) -> str:
     if not issues:
         return STATUS_PASS
-
-    highest = 0
-    for issue in issues:
-        severity = str(issue.get("severity", "")).lower().strip()
-        highest = max(highest, SEVERITY_SCORES.get(severity, 2))
-
-    if highest >= 3:
-        return STATUS_FAIL
-    return STATUS_PARTIAL
+    return STATUS_FAIL
 
 
 def _count_statuses(items: List[Dict[str, Any]]) -> Dict[str, int]:

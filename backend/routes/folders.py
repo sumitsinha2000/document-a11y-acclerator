@@ -30,6 +30,7 @@ from backend.utils.app_helpers import (
     get_versioned_files,
     update_batch_statistics,
 )
+from backend.utils.criteria_summary import build_criteria_summary
 
 logger = logging.getLogger("doca11y-folders")
 
@@ -51,19 +52,32 @@ class FolderUpdatePayload(BaseModel):
 
 
 def _serialize_folder(row) -> dict:
-    """Normalize batches rows into folder responses."""
+    """Normalize batches rows into folder responses with project aliases."""
+    total_files = row.get("total_files") or row.get("totalFiles") or 0
+    unprocessed_files = row.get("unprocessed_files") or row.get("unprocessedFiles") or 0
+    total_issues = row.get("total_issues") or row.get("totalIssues") or 0
+    fixed_issues = row.get("fixed_issues") or row.get("fixedIssues") or 0
+    remaining_issues = row.get("remaining_issues") or row.get("remainingIssues") or 0
+    group_id = row.get("group_id") or row.get("groupId") or row.get("projectId")
+    name = row.get("name") or row.get("folderName") or row.get("batchName")
+    folder_id = row.get("id") or row.get("folderId") or row.get("batchId")
+
     return {
-        "folderId": row.get("id"),
-        "name": row.get("name"),
-        "groupId": row.get("group_id"),
-        "groupName": row.get("group_name"),
+        "folderId": folder_id,
+        "batchId": folder_id,
+        "folderName": name,
+        "name": name,
+        "groupId": group_id,
+        "projectId": group_id,
+        "groupName": row.get("group_name") or row.get("groupName") or row.get("projectName"),
         "status": row.get("status"),
-        "createdAt": row.get("created_at"),
-        "totalFiles": row.get("total_files"),
-        "unprocessedFiles": row.get("unprocessed_files"),
-        "totalIssues": row.get("total_issues"),
-        "fixedIssues": row.get("fixed_issues"),
-        "remainingIssues": row.get("remaining_issues"),
+        "createdAt": row.get("created_at") or row.get("createdAt"),
+        "fileCount": total_files,
+        "totalFiles": total_files,
+        "unprocessedFiles": unprocessed_files,
+        "totalIssues": total_issues,
+        "fixedIssues": fixed_issues,
+        "remainingIssues": remaining_issues,
     }
 
 
@@ -88,15 +102,31 @@ async def list_folders(groupId: Optional[str] = None, status: Optional[str] = No
             g.name AS group_name,
             b.status,
             b.created_at,
-            b.total_files,
-            b.unprocessed_files,
-            b.total_issues,
-            b.fixed_issues,
-            b.remaining_issues
+            COALESCE(stats.total_files, b.total_files, 0) AS total_files,
+            COALESCE(stats.unprocessed_files, b.unprocessed_files, 0) AS unprocessed_files,
+            COALESCE(stats.total_issues, b.total_issues, 0) AS total_issues,
+            COALESCE(stats.fixed_issues, b.fixed_issues, 0) AS fixed_issues,
+            COALESCE(stats.remaining_issues, b.remaining_issues, 0) AS remaining_issues
         FROM batches b
         LEFT JOIN groups g ON b.group_id = g.id
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*)::int AS total_files,
+                COALESCE(SUM(s.total_issues), 0)::int AS total_issues,
+                COALESCE(SUM(s.issues_remaining), 0)::int AS remaining_issues,
+                COALESCE(SUM(s.issues_fixed), 0)::int AS fixed_issues,
+                SUM(
+                    CASE
+                        WHEN COALESCE(s.status, 'uploaded') IN ('unprocessed', 'processing', 'uploaded', 'queued', 'pending')
+                            THEN 1
+                        ELSE 0
+                    END
+                )::int AS unprocessed_files
+            FROM scans s
+            WHERE s.batch_id = b.id
+        ) stats ON TRUE
         {where_clause}
-        ORDER BY COALESCE(b.created_at, b.id) DESC
+        ORDER BY b.created_at DESC NULLS LAST, b.id DESC
     """
     rows = execute_query(query, tuple(params) or None, fetch=True) or []
     return SafeJSONResponse({"folders": [_serialize_folder(dict(row)) for row in rows]})
@@ -195,6 +225,9 @@ async def get_folder(folder_id: str):
 
         initial_summary = scan_results.get("summary", {}) if isinstance(scan_results, dict) else {}
         results = scan_results.get("results", scan_results) or {}
+        criteria_summary = scan_results.get("criteriaSummary")
+        if not isinstance(criteria_summary, dict):
+            criteria_summary = build_criteria_summary(results if isinstance(results, dict) else {})
 
         has_fix_history = bool(scan.get("fix_id"))
         if has_fix_history:
@@ -232,6 +265,8 @@ async def get_folder(folder_id: str):
             issues_remaining=current_issues,
             summary_status=initial_summary.get("status"),
         )
+        if status_code == "uploaded":
+            current_compliance = 0
 
         current_issues = current_issues or 0
         current_compliance = current_compliance or 0
@@ -286,6 +321,7 @@ async def get_folder(folder_id: str):
                     "complianceScore": initial_summary.get("complianceScore", 0),
                 },
                 "results": results if isinstance(results, dict) else {},
+                "criteriaSummary": criteria_summary,
                 "latestVersion": latest_version_entry.get("version") if latest_version_entry else None,
                 "latestFixedFile": latest_version_entry.get("relative_path") if latest_version_entry else None,
                 "versionHistory": version_history,

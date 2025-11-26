@@ -11,7 +11,7 @@ import traceback
 import tempfile
 from pathlib import Path
 from typing import Iterator, Optional
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 from datetime import datetime
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
@@ -299,6 +299,86 @@ def _resolve_remote_identifier(identifier: str) -> str:
             "Backblaze storage is not configured; cannot resolve remote identifier"
         )
     return _build_backblaze_file_url(identifier)
+
+
+def _derive_storage_key(identifier: str) -> Optional[str]:
+    if not identifier:
+        return None
+    normalized = identifier.strip()
+    if not normalized:
+        return None
+    lowered = normalized.lower()
+    if lowered.startswith(("http://", "https://")):
+        if not B2_BUCKET_NAME:
+            return None
+        parsed = urlparse(normalized)
+        token = f"/file/{B2_BUCKET_NAME}/"
+        if token not in parsed.path:
+            return None
+        key_part = parsed.path.split(token, 1)[1]
+        return unquote(key_part).lstrip("/") or None
+    if os.path.isabs(normalized) or normalized.startswith("./") or normalized.startswith("../"):
+        return None
+    normalized = normalized.lstrip("/")
+    if normalized.lower().startswith("b2://"):
+        normalized = normalized[5:]
+    return normalized or None
+
+
+def _lookup_b2_file_id(storage_key: str, auth: dict) -> Optional[str]:
+    try:
+        lookup_response = requests.post(
+            f"{auth['apiUrl']}/b2api/v2/b2_list_file_names",
+            headers={"Authorization": auth["authorizationToken"]},
+            json={
+                "bucketId": auth["bucketId"],
+                "startFileName": storage_key,
+                "prefix": storage_key,
+                "maxFileCount": 1,
+            },
+            timeout=10,
+        )
+        lookup_response.raise_for_status()
+        files = lookup_response.json().get("files", [])
+        for entry in files:
+            if entry.get("fileName") == storage_key:
+                return entry.get("fileId")
+    except Exception:
+        logger.warning("[Storage] Failed to look up Backblaze id for %s", storage_key)
+        logger.debug(traceback.format_exc())
+    return None
+
+
+def delete_remote_file(identifier: str) -> bool:
+    """Delete a remote file reference if Backblaze storage is configured."""
+    if not identifier or not has_backblaze_storage():
+        return False
+    storage_key = _derive_storage_key(identifier)
+    if not storage_key:
+        logger.debug("[Storage] Could not derive storage key from %s", identifier)
+        return False
+    try:
+        auth = _get_b2_authorization()
+        file_id = _lookup_b2_file_id(storage_key, auth)
+        if not file_id:
+            logger.info("[Storage] Remote key %s not found in bucket", storage_key)
+            return False
+        delete_response = requests.post(
+            f"{auth['apiUrl']}/b2api/v2/b2_delete_file_version",
+            headers={"Authorization": auth["authorizationToken"]},
+            json={
+                "fileName": storage_key,
+                "fileId": file_id,
+            },
+            timeout=10,
+        )
+        delete_response.raise_for_status()
+        logger.info("[Storage] Deleted remote file %s", storage_key)
+        return True
+    except Exception:
+        logger.warning("[Storage] Failed to delete remote file %s", identifier)
+        logger.debug(traceback.format_exc())
+        return False
 
 
 def _sanitize_path_component(value: Optional[str]) -> str:

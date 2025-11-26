@@ -102,9 +102,6 @@ async def get_group_details(group_id: str):
             summary = scan_results.get("summary", {})
             results = scan_results.get("results", {})
 
-            total_issues += summary.get("totalIssues", 0)
-            total_compliance += summary.get("complianceScore", 0)
-
             issues_remaining = summary.get(
                 "issuesRemaining", summary.get("remainingIssues")
             )
@@ -114,6 +111,12 @@ async def get_group_details(group_id: str):
                 summary_status=summary.get("status"),
             )
             status_counts[status_code] = status_counts.get(status_code, 0) + 1
+
+            total_issues += summary.get("totalIssues", 0)
+            compliance_score = summary.get("complianceScore", 0) or 0
+            if status_code == "uploaded":
+                compliance_score = 0
+            total_compliance += compliance_score
 
             scan_issues_fixed = scan.get("issues_fixed")
             if scan_issues_fixed is None:

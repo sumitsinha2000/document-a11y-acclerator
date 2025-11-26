@@ -37,6 +37,21 @@ function AppContent() {
   const [isUploadPanelOpen, setUploadPanelOpen] = useState(false)
   const [latestUploadContext, setLatestUploadContext] = useState(null)
   const [folderNavigationContext, setFolderNavigationContext] = useState(null)
+  const [folderStatusSignal, setFolderStatusSignal] = useState({
+    key: 0,
+    folderId: null,
+    groupId: null,
+  })
+  const handleFolderStatusUpdate = useCallback(({ folderId, groupId }) => {
+    if (!folderId || !groupId) {
+      return
+    }
+    setFolderStatusSignal((prev) => ({
+      key: prev.key + 1,
+      folderId,
+      groupId,
+    }))
+  }, [])
   const transitionToView = useCallback(
     (view) => {
       startTransition(() => {
@@ -381,6 +396,8 @@ function AppContent() {
               latestUploadContext={latestUploadContext}
               onUploadContextAcknowledged={() => setLatestUploadContext(null)}
               folderNavigationContext={folderNavigationContext}
+              folderStatusSignal={folderStatusSignal}
+              onFolderStatusUpdate={handleFolderStatusUpdate}
             />
           )}
           {currentView === "history" && (

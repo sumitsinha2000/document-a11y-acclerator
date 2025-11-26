@@ -14,6 +14,7 @@ from backend.fix_suggestions import generate_fix_suggestions
 from backend.multi_tier_storage import upload_file_with_fallback
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.utils.wcag_mapping import annotate_wcag_mappings
+from backend.utils.criteria_summary import build_criteria_summary
 from backend.utils.app_helpers import (
     SafeJSONResponse,
     NEON_DATABASE_URL,
@@ -761,6 +762,9 @@ async def get_scan(scan_id: str):
             results = {}
 
         summary = scan_results.get("summary", {}) or {}
+        criteria_summary = scan_results.get("criteriaSummary")
+        if not isinstance(criteria_summary, dict):
+            criteria_summary = build_criteria_summary(results if isinstance(results, dict) else {})
         verapdf_status = scan_results.get("verapdfStatus")
         if verapdf_status is None:
             verapdf_status = build_verapdf_status(results)
@@ -888,6 +892,7 @@ async def get_scan(scan_id: str):
             "uploadDate": scan.get("upload_date") or scan.get("created_at"),
             "summary": summary,
             "results": results_dict,
+            "criteriaSummary": criteria_summary,
             "fixes": scan_results.get("fixes", []),
             "verapdfStatus": response_verapdf,
         }
