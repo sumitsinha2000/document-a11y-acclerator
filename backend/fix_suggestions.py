@@ -3,6 +3,66 @@ Standalone fix suggestions generator that doesn't require pikepdf.
 Generates fix suggestions based on detected issues without actually modifying PDFs.
 """
 
+from collections import defaultdict
+
+
+def _apply_unique_fix_ids(fix_groups):
+    counters = defaultdict(int)
+    existing_ids = set()
+    force_suffix_prefixes = {
+        "fix-contrast",
+        "fix-tables",
+        "fix-table",
+        "set-language",
+        "fix-language",
+    }
+
+    for group in fix_groups:
+        for fix in group:
+            base_id = fix.get("id") or "fix"
+            normalized = base_id
+            if base_id == "set-language":
+                normalized = "fix-language"
+            counters[normalized] += 1
+            needs_suffix = normalized in force_suffix_prefixes or counters[normalized] > 1
+            candidate_id = f"{normalized}-{counters[normalized]}" if needs_suffix else normalized
+            while candidate_id in existing_ids:
+                counters[normalized] += 1
+                candidate_id = f"{normalized}-{counters[normalized]}"
+            fix["id"] = candidate_id
+            existing_ids.add(candidate_id)
+
+
+def _dedupe_semi_automated(automated, semi_automated):
+    def signature(fix):
+        if fix.get("criterion"):
+            return ("criterion", str(fix["criterion"]).strip().lower())
+        if fix.get("clause"):
+            return ("clause", str(fix["clause"]).strip().lower())
+        desc = fix.get("description")
+        if desc:
+            return ("description", desc.strip().lower())
+        return ("id", fix.get("id"))
+
+    automated_sigs = {signature(fix) for fix in automated}
+    filtered = []
+    for fix in semi_automated:
+        if signature(fix) in automated_sigs:
+            continue
+        filtered.append(fix)
+    return filtered
+
+
+def _recalculate_estimated_time(fix_groups):
+    total = 0
+    for group in fix_groups:
+        for fix in group:
+            time_value = fix.get("estimatedTime")
+            if isinstance(time_value, (int, float)):
+                total += time_value
+    return total
+
+
 def generate_fix_suggestions(issues):
     """
     Generate fix suggestions based on detected accessibility issues.
@@ -73,6 +133,8 @@ def generate_fix_suggestions(issues):
                     "instructions": "Use PDF editor to create structure tree and define reading order"
                 })
                 estimated_time += 20
+            elif criterion == "3.1.1":
+                continue
             else:
                 # Default to semi-automated for other WCAG issues
                 semi_automated.append({
@@ -172,19 +234,21 @@ def generate_fix_suggestions(issues):
             })
         estimated_time += len(issues["missingMetadata"])
     
-    if issues.get("missingLanguage") and len(issues["missingLanguage"]) > 0:
-        for issue in issues["missingLanguage"]:
-            automated.append({
-                "id": "set-language",
-                "title": "Set document language",
-                "description": issue.get("description", "Automatically set document language to English (en-US)"),
-                "action": "Set document language to English",
-                "severity": issue.get("severity", "medium"),
-                "estimatedTime": 1,
-                "category": "language",
-                "page": issue.get("page", 1),
-                "location": {"page": issue.get("page", 1)}
-            })
+    language_issues = issues.get("missingLanguage")
+    if language_issues and len(language_issues) > 0:
+        issue = language_issues[0]
+        automated.append({
+            "id": "fix-language",
+            "title": "Set document language",
+            "description": "Automatically sets the PDF document language to 'en-US' by default.",
+            "action": "Apply document language 'en-US' to the PDF catalog",
+            "severity": issue.get("severity", "medium"),
+            "estimatedTime": 1,
+            "category": "language",
+            "criterion": "3.1.1",
+            "page": issue.get("page", 1),
+            "location": {"page": issue.get("page", 1)}
+        })
         estimated_time += 1
     
     # Semi-automated fixes (require some user input)
@@ -313,6 +377,10 @@ def generate_fix_suggestions(issues):
             })
         estimated_time += 20
     
+    semi_automated = _dedupe_semi_automated(automated, semi_automated)
+    _apply_unique_fix_ids([automated, semi_automated, manual])
+    estimated_time = _recalculate_estimated_time([automated, semi_automated, manual])
+
     return {
         "automated": automated,
         "semiAutomated": semi_automated,

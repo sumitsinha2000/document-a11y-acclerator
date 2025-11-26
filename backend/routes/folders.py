@@ -30,6 +30,7 @@ from backend.utils.app_helpers import (
     get_versioned_files,
     update_batch_statistics,
 )
+from backend.utils.criteria_summary import build_criteria_summary
 
 logger = logging.getLogger("doca11y-folders")
 
@@ -224,6 +225,9 @@ async def get_folder(folder_id: str):
 
         initial_summary = scan_results.get("summary", {}) if isinstance(scan_results, dict) else {}
         results = scan_results.get("results", scan_results) or {}
+        criteria_summary = scan_results.get("criteriaSummary")
+        if not isinstance(criteria_summary, dict):
+            criteria_summary = build_criteria_summary(results if isinstance(results, dict) else {})
 
         has_fix_history = bool(scan.get("fix_id"))
         if has_fix_history:
@@ -315,6 +319,7 @@ async def get_folder(folder_id: str):
                     "complianceScore": initial_summary.get("complianceScore", 0),
                 },
                 "results": results if isinstance(results, dict) else {},
+                "criteriaSummary": criteria_summary,
                 "latestVersion": latest_version_entry.get("version") if latest_version_entry else None,
                 "latestFixedFile": latest_version_entry.get("relative_path") if latest_version_entry else None,
                 "versionHistory": version_history,

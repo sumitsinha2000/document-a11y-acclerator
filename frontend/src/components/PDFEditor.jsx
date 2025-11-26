@@ -113,6 +113,7 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
           response.data.results,
           response.data.verapdfStatus,
           response.data.fixSuggestions,
+          response.data.criteriaSummary,
         )
         console.log("[v0] PDFEditor - onFixApplied callback completed")
       } else {

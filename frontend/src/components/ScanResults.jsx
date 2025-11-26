@@ -8,7 +8,7 @@ const ScanResults = ({ scanId, filename }) => {
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   const handleRefresh = useCallback(
-    async (newSummary, newResults) => {
+    async (newSummary, newResults, _newVerapdfStatus, _newFixes, _newCriteriaSummary) => {
       console.log("[v0] ScanResults - handleRefresh called")
       console.log("[v0] ScanResults - newSummary:", newSummary)
       console.log("[v0] ScanResults - newResults:", newResults)

@@ -4,6 +4,8 @@ Helpers for annotating analyzer issues with WCAG 2.1 success criterion details.
 
 from typing import Any, Dict, Iterable, List, Optional
 
+LANGUAGE_FIX_NOTE = "Note: this tool will set the document language to 'en-US' by default when fixing this issue."
+
 WCAG_CRITERIA_DETAILS: Dict[str, Dict[str, str]] = {
     "1.1.1": {
         "name": "Non-text Content",
@@ -105,6 +107,19 @@ def _annotate_direct_wcag_issue(issue: Dict[str, Any]) -> None:
         issue["wcagCriteria"] = formatted
 
 
+def _append_language_fix_note(issue: Dict[str, Any]) -> None:
+    if not isinstance(issue, dict):
+        return
+    criterion = str(issue.get("criterion") or "").strip()
+    if criterion != "3.1.1":
+        return
+    recommendation = str(issue.get("recommendation", "")).strip()
+    if LANGUAGE_FIX_NOTE in recommendation:
+        return
+    separator = " " if recommendation else ""
+    issue["recommendation"] = f"{recommendation}{separator}{LANGUAGE_FIX_NOTE}".strip()
+
+
 def annotate_wcag_mappings(results: Any) -> Any:
     """
     Ensure issue lists contain human-friendly WCAG mapping metadata.
@@ -126,6 +141,7 @@ def annotate_wcag_mappings(results: Any) -> Any:
             for issue in issues:
                 if isinstance(issue, dict):
                     _annotate_direct_wcag_issue(issue)
+                    _append_language_fix_note(issue)
             continue
 
         mapped_codes = CATEGORY_CRITERIA_MAP.get(category)
@@ -139,5 +155,7 @@ def annotate_wcag_mappings(results: Any) -> Any:
         for issue in issues:
             if isinstance(issue, dict) and not issue.get("wcagCriteria"):
                 issue["wcagCriteria"] = mapping_text
+            if isinstance(issue, dict):
+                _append_language_fix_note(issue)
 
     return results

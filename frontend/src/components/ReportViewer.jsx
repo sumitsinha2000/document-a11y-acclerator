@@ -123,6 +123,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
     updatedResults = undefined,
     updatedVerapdfStatus = undefined,
     updatedFixes = undefined,
+    updatedCriteriaSummary = undefined,
   ) => {
     setIsRefreshing(true)
     try {
@@ -134,7 +135,8 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
         updatedSummary !== undefined ||
         updatedResults !== undefined ||
         updatedVerapdfStatus !== undefined ||
-        updatedFixes !== undefined
+        updatedFixes !== undefined ||
+        updatedCriteriaSummary !== undefined
 
       if (hasFreshData && reportData) {
         setReportData((prev) => {
@@ -146,6 +148,8 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
             verapdfStatus:
               updatedVerapdfStatus !== undefined ? updatedVerapdfStatus : prev.verapdfStatus,
             fixes: updatedFixes !== undefined ? updatedFixes : prev.fixes,
+            criteriaSummary:
+              updatedCriteriaSummary !== undefined ? updatedCriteriaSummary : prev.criteriaSummary,
           }
         })
         setRefreshKey((prev) => prev + 1)
