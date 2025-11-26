@@ -279,7 +279,7 @@ function AppContent() {
               </div>
 
               {/* Navigation Links */}
-              <nav className="hidden md:flex items-center gap-1 flex-shrink-0">
+              {/* <nav className="hidden md:flex items-center gap-1 flex-shrink-0">
               <button
                 onClick={() => transitionToView("dashboard")}
                 className={`px-4 py-2.5 rounded-lg text-base font-semibold transition-all ${
@@ -342,7 +342,7 @@ function AppContent() {
                     History
                   </span>
                 </button>
-              </nav>
+              </nav> */}
             </div>
 
             {/* Right Side Actions */}

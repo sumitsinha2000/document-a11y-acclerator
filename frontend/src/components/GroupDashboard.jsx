@@ -543,7 +543,7 @@ export default function GroupDashboard({
                       <div className="flex-shrink-0 flex items-center gap-2">
                         {nodeData?.type === "batch" && (
                           <>
-                            {folderBatchId && (
+                            {/* {folderBatchId && (
                               <button
                                 type="button"
                                 onClick={() => onSelectBatch(folderBatchId)}
@@ -551,7 +551,7 @@ export default function GroupDashboard({
                               >
                                 View Full Report
                               </button>
-                            )}
+                            )} */}
                             {folderBatchId && (
                               <button
                                 type="button"
