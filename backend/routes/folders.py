@@ -265,6 +265,8 @@ async def get_folder(folder_id: str):
             issues_remaining=current_issues,
             summary_status=initial_summary.get("status"),
         )
+        if status_code == "uploaded":
+            current_compliance = 0
 
         current_issues = current_issues or 0
         current_compliance = current_compliance or 0

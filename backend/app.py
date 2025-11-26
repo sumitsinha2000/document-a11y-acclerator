@@ -86,6 +86,7 @@ from backend.utils.app_helpers import (
     archive_fixed_pdf_version,
     save_fix_history,
     update_scan_status,
+    derive_file_status,
     get_scan_by_id,
     update_scan_file_reference,
     _fixed_root,
@@ -583,6 +584,15 @@ async def get_batch_details(batch_id: str):
             current_compliance = initial_summary.get("complianceScore", 0)
             current_high = initial_summary.get("highSeverity", 0)
             current_status = scan.get("status") or "scanned"
+
+        status_code, _ = derive_file_status(
+            scan.get("status"),
+            has_fix_history=bool(scan.get("fix_id")),
+            issues_remaining=current_issues,
+            summary_status=initial_summary.get("status"),
+        )
+        if status_code == "uploaded":
+            current_compliance = 0
 
         current_issues = current_issues or 0
         current_compliance = current_compliance or 0
