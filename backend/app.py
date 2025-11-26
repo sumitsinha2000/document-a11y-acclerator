@@ -143,6 +143,8 @@ origins = [
     "https://document-a11y-acclerator.vercel.app",  # your Vercel frontend
     "https://document-a11y-acclerator.onrender.com",  # backend Render domain
     "http://localhost:3000",  # local dev
+    "https://document-a11y-acclerator-cwgk.onrender.com"    # New deployment
+
 ]
 
 app.add_middleware(
