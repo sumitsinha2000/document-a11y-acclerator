@@ -487,10 +487,12 @@ export default function GroupDashboard({
     (nodeData?.results && nodeData.results.fixes) ??
     nodeData?.results?.fixSuggestions ??
     nodeData?.fixSuggestions
+  const folderScans = Array.isArray(nodeData?.scans) ? nodeData.scans : []
+  const folderFileCount = nodeData?.file_count ?? nodeData?.totalFiles ?? folderScans.length ?? 0
   const folderReadyToScan =
     nodeData?.type === "batch" &&
-    ((nodeData?.scans?.length || 0) === 0 ||
-      nodeData?.scans?.every((scan) => isScannableStatus(scan)))
+    folderFileCount > 0 &&
+    folderScans.every((scan) => isScannableStatus(scan))
   const folderBatchId = nodeData?.type === "batch" ? nodeData.batchId || selectedNode?.id : null
   const activeDashboardName =
     nodeData?.type === "group"
@@ -584,15 +586,15 @@ export default function GroupDashboard({
                                 View Full Report
                               </button>
                             )} */}
-                            {folderBatchId && (
-                              <button
-                                type="button"
-                                onClick={handleBeginFolderScan}
-                                disabled={startingFolderScan}
-                                aria-disabled={startingFolderScan}
-                                aria-busy={startingFolderScan}
-                                className="inline-flex items-center justify-center rounded-lg border border-transparent bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                              >
+                        {folderBatchId && (
+                          <button
+                            type="button"
+                            onClick={handleBeginFolderScan}
+                            disabled={startingFolderScan || !folderReadyToScan}
+                            aria-disabled={startingFolderScan || !folderReadyToScan}
+                            aria-busy={startingFolderScan}
+                            className="inline-flex items-center justify-center rounded-lg border border-transparent bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
                                 {scanFolderLabel}
                               </button>
                             )}
