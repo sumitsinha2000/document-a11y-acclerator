@@ -23,7 +23,7 @@ COPY . .
 
 # Install Python dependencies
 RUN pip install --upgrade pip setuptools wheel
-RUN pip install -r requirements.txt
+RUN pip install -r backend/requirements.txt
 
 # Expose port
 EXPOSE 5000
