@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { resolveEntityStatus } from "../utils/statuses";
+import { useNotification } from "../contexts/NotificationContext";
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id));
 const FILE_STATUS_STYLES = {
   uploaded: "bg-gray-100 text-gray-700",
@@ -62,7 +63,9 @@ export default function GroupTreeSidebar({
   const [folderFilesLoading, setFolderFilesLoading] = useState(false);
   const [folderFilesError, setFolderFilesError] = useState(null);
   const [refreshingGroupId, setRefreshingGroupId] = useState(null);
+  const [deletingFileId, setDeletingFileId] = useState(null);
   const handledFolderNavigationRef = useRef(null);
+  const { confirm, showError, showSuccess } = useNotification();
 
   useEffect(() => {
     if (!statusMessage) {
@@ -605,6 +608,69 @@ export default function GroupTreeSidebar({
     );
   };
 
+  const handleDeleteFile = async (file, event) => {
+    event?.stopPropagation?.();
+    const fileId = file.scanId || file.id || file.fileId;
+    const fileName = file.filename || file.fileName || "file";
+
+    if (!fileId) {
+      showError("Unable to determine which file to delete.");
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: "Delete file",
+      message: `Delete "${fileName}" and permanently remove it from this project? This cannot be undone.`,
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      type: "danger",
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingFileId(fileId);
+    try {
+      await axios.delete(`${API_BASE_URL}/api/scan/${fileId}`);
+      showSuccess(`Deleted "${fileName}"`);
+      setStatusMessage(`${fileName} deleted`);
+
+      const folderMeta = activeFolderView;
+      if (folderMeta) {
+        const normalizedGroupId = normalizeId(folderMeta.groupId);
+        const targetGroup = groups.find((group) => normalizeId(group.id) === normalizedGroupId);
+        if (targetGroup) {
+          try {
+            await fetchGroupData(targetGroup.id, groupBatches[normalizedGroupId] || null);
+          } catch (refreshError) {
+            console.error(
+              "[GroupTreeSidebar] Failed to refresh group data after file delete:",
+              refreshError
+            );
+          }
+          await openFolderView(targetGroup, {
+            batchId: folderMeta.folderId,
+            id: folderMeta.folderId,
+            name: folderMeta.folderName,
+          });
+        }
+      }
+
+      if (
+        selectedNode?.type === "batch" &&
+        normalizeId(selectedNode.id) === normalizeId(folderMeta?.folderId)
+      ) {
+        await handleNodeClick(selectedNode);
+      }
+    } catch (error) {
+      console.error("[GroupTreeSidebar] Failed to delete file:", error);
+      showError(error?.response?.data?.error || "Failed to delete file");
+    } finally {
+      setDeletingFileId(null);
+    }
+  };
+
   useEffect(() => {
     const uploadContext = latestUploadContext;
     if (!uploadContext?.folderId || !activeFolderView) {
@@ -1093,56 +1159,103 @@ export default function GroupTreeSidebar({
               No files in this folder yet.
             </div>
           ) : (
-            folderFiles.map((file) => {
+            folderFiles.map((file, index) => {
               const fileId = file.scanId || file.id || file.fileId;
+              const fileName = file.filename || file.fileName || "Untitled file";
+              const fileKey = fileId || fileName || `file-${index}`;
               const selected = isFileSelected(fileId);
               const statusInfo = resolveEntityStatus(file);
               const badgeColorClasses =
                 STATUS_BADGE_STYLES[statusInfo.code] || STATUS_BADGE_STYLES.uploaded;
+              const normalizedDeletingId = normalizeId(deletingFileId);
+              const normalizedFileId = normalizeId(fileId);
+              const isDeletingThisFile = normalizedDeletingId && normalizedDeletingId === normalizedFileId;
               return (
-                <button
-                  key={fileId || file.filename}
-                  type="button"
-                  className={`group w-full rounded-2xl border px-4 py-4 text-left transition focus-visible:border-indigo-500 focus-visible:bg-indigo-600 focus-visible:text-white focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
-                    selected
-                      ? "border-indigo-500 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:border-indigo-500/60 dark:bg-indigo-600/90 dark:text-white"
-                      : "border-indigo-100 bg-white text-gray-800 hover:border-indigo-200 hover:bg-indigo-50 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-200"
-                  }`}
-                  onClick={() => {
-                    if (!fileId) {
-                      return;
-                    }
-                    void handleNodeClick(
-                      {
-                        type: "file",
-                        id: fileId,
-                        data: {
-                          ...file,
-                          filename: file.filename || file.fileName,
-                        },
-                      },
-                      { moveFocus: true }
-                    );
-                  }}
-                >
-                  <p
-                    className={`text-lg font-semibold truncate ${
-                      selected ? "text-white" : "text-gray-800 dark:text-gray-100"
-                    } group-focus-within:text-white`}
-                  >
-                    {file.filename || file.fileName || "Untitled file"}
-                  </p>
-                  <span
-                    className={`mt-2 inline-flex rounded-full border px-3 py-0.5 text-[11px] font-semibold uppercase tracking-wide transition ${
-                      selected ? SELECTED_STATUS_BADGE_CLASSES : badgeColorClasses
+                <div key={fileKey} className="relative group/file-entry">
+                  <button
+                    type="button"
+                    className={`group w-full rounded-2xl border px-4 py-4 pr-12 text-left transition focus-visible:border-indigo-500 focus-visible:bg-indigo-600 focus-visible:text-white focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
+                      selected
+                        ? "border-indigo-500 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:border-indigo-500/60 dark:bg-indigo-600/90 dark:text-white"
+                        : "border-indigo-100 bg-white text-gray-800 hover:border-indigo-200 hover:bg-indigo-50 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-200"
                     }`}
+                    onClick={() => {
+                      if (!fileId) {
+                        return;
+                      }
+                      void handleNodeClick(
+                        {
+                          type: "file",
+                          id: fileId,
+                          data: {
+                            ...file,
+                            filename: file.filename || file.fileName,
+                          },
+                        },
+                        { moveFocus: true }
+                      );
+                    }}
                   >
-                    {statusInfo.label.toUpperCase()}
-                  </span>
-                </button>
+                    <p
+                      className={`text-lg font-semibold truncate ${
+                        selected ? "text-white" : "text-gray-800 dark:text-gray-100"
+                      } group-focus-within:text-white`}
+                    >
+                      {fileName}
+                    </p>
+                    <span
+                      className={`mt-2 inline-flex rounded-full border px-3 py-0.5 text-[11px] font-semibold uppercase tracking-wide transition ${
+                        selected ? SELECTED_STATUS_BADGE_CLASSES : badgeColorClasses
+                      }`}
+                    >
+                      {statusInfo.label.toUpperCase()}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => handleDeleteFile(file, event)}
+                    disabled={isDeletingThisFile}
+                    aria-label={`Delete ${fileName}`}
+                    className={`absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-white text-rose-600 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 dark:bg-slate-900 dark:text-rose-400 ${
+                      selected
+                        ? "border-white/60 shadow-lg shadow-indigo-500/30"
+                        : "border-rose-100 shadow-sm dark:border-rose-800"
+                    } ${isDeletingThisFile ? "opacity-60 cursor-wait" : "hover:bg-rose-50 dark:hover:bg-rose-500/10"}`}
+                  >
+                    {isDeletingThisFile ? (
+                      <svg
+                        className="h-4 w-4 animate-spin text-rose-500"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                      >
+                        <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="2" />
+                        <path
+                          className="opacity-75"
+                          d="M4 12a8 8 0 018-8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        className="h-4 w-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m5 0V4h4v3m-6 0h6" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 11h6" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
               );
             })
-          )}
+            )}
         </div>
         <div role="status" aria-live="polite" className="sr-only">
           {statusMessage}

@@ -543,7 +543,7 @@ export default function GroupDashboard({
                       <div className="flex-shrink-0 flex items-center gap-2">
                         {nodeData?.type === "batch" && (
                           <>
-                            {folderBatchId && (
+                            {/* {folderBatchId && (
                               <button
                                 type="button"
                                 onClick={() => onSelectBatch(folderBatchId)}
@@ -551,7 +551,7 @@ export default function GroupDashboard({
                               >
                                 View Full Report
                               </button>
-                            )}
+                            )} */}
                             {folderBatchId && (
                               <button
                                 type="button"
@@ -613,7 +613,7 @@ export default function GroupDashboard({
           ) : nodeData ? (
             <>
               {nodeData.type === "group" && (
-                <div className="space-y-6">
+                <div className="px-6 py-6 space-y-6">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
                       <div className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
@@ -690,7 +690,7 @@ export default function GroupDashboard({
               )}
 
               {nodeData.type === "batch" && (
-                <div className="space-y-6">
+                <div className="px-6 py-6 space-y-6">
                   <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-[#111b36]">
                     <div className="grid grid-cols-4 gap-4">
                       <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
