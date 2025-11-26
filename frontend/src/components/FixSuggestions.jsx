@@ -373,8 +373,10 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           </span> */}
           <button
             onClick={() => setShowAIPanel(true)}
-            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-            aria-label="Get AI-powered remediation insights"
+            disabled
+            aria-disabled="true"
+            className="px-4 py-2 bg-slate-200 text-slate-500 text-sm font-medium rounded-lg transition-all flex items-center gap-2 focus:outline-none cursor-not-allowed"
+            aria-label="AI-powered remediation insights not currently available"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -389,8 +391,10 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           {(hasSemiAutomated || hasManual) && (
             <button
               onClick={() => setShowEditor(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-              aria-label="Open PDF editor to apply manual fixes"
+              disabled
+              aria-disabled="true"
+              className="px-4 py-2 bg-slate-200 text-slate-500 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none cursor-not-allowed"
+              aria-label="PDF editor currently unavailable"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path
