@@ -29,6 +29,8 @@ export default function GroupDashboard({
   latestUploadContext = null,
   onUploadContextAcknowledged = () => {},
   folderNavigationContext = null,
+  folderStatusSignal = null,
+  onFolderStatusUpdate = () => {},
 }) {
   const { showError, showSuccess } = useNotification()
 
@@ -50,6 +52,31 @@ export default function GroupDashboard({
 
   const latestRequestRef = useRef(0)
   const cacheRef = useRef(new Map())
+
+  const notifyFolderStatusUpdate = (folderIdOverride, groupIdOverride) => {
+    const resolvedFolderId =
+      folderIdOverride ??
+      nodeData?.batchId ??
+      selectedNode?.id ??
+      uploadContext.folderId ??
+      null
+    const resolvedGroupId =
+      groupIdOverride ??
+      nodeData?.groupId ??
+      selectedNode?.data?.groupId ??
+      selectedNode?.data?.group_id ??
+      uploadContext.groupId ??
+      null
+
+    if (!resolvedFolderId || !resolvedGroupId) {
+      return
+    }
+
+    onFolderStatusUpdate({
+      folderId: resolvedFolderId,
+      groupId: resolvedGroupId,
+    })
+  }
 
   useEffect(() => {
     loadInitialData()
@@ -379,10 +406,12 @@ export default function GroupDashboard({
       }
 
       const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${folderId}`)
-      setNodeData({
+      const refreshedNodeData = {
         type: "batch",
         ...refreshed.data,
-      })
+      }
+      setNodeData(refreshedNodeData)
+      notifyFolderStatusUpdate(refreshedNodeData.batchId ?? folderId, refreshedNodeData.groupId)
     } catch (error) {
       console.error("[v0] Error starting folder scan:", error)
       const errorMsg = error.response?.data?.error || error.message || "Failed to start folder scan"
@@ -428,10 +457,12 @@ export default function GroupDashboard({
 
     try {
       const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${folderId}`)
-      setNodeData({
+      const refreshedNodeData = {
         type: "batch",
         ...refreshed.data,
-      })
+      }
+      setNodeData(refreshedNodeData)
+      notifyFolderStatusUpdate(refreshedNodeData.batchId ?? folderId, refreshedNodeData.groupId)
     } catch (refreshError) {
       console.error("[v0] Error refreshing folder after remediation:", refreshError)
     }
@@ -489,6 +520,7 @@ export default function GroupDashboard({
             latestUploadContext={latestUploadContext}
             onUploadContextAcknowledged={onUploadContextAcknowledged}
             folderNavigationContext={folderNavigationContext}
+            folderStatusUpdateSignal={folderStatusSignal}
           />
         </div>
 

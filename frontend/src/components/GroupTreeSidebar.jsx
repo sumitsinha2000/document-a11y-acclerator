@@ -34,6 +34,7 @@ export default function GroupTreeSidebar({
   latestUploadContext = null,
   onUploadContextAcknowledged = () => {},
   folderNavigationContext = null,
+  folderStatusUpdateSignal = null,
 }) {
   const [groups, setGroups] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
@@ -66,6 +67,7 @@ export default function GroupTreeSidebar({
   const [deletingFileId, setDeletingFileId] = useState(null);
   const [refreshingFolderCounts, setRefreshingFolderCounts] = useState({});
   const handledFolderNavigationRef = useRef(null);
+  const folderStatusRefreshKeyRef = useRef(null);
   const { confirm, showError, showSuccess } = useNotification();
   const mapFolderToSidebarEntry = (folder) => {
     if (!folder) {
@@ -901,6 +903,52 @@ export default function GroupTreeSidebar({
     groupBatches,
     onUploadContextAcknowledged,
   ]);
+
+  useEffect(() => {
+    const signal = folderStatusUpdateSignal;
+    if (!signal?.key) {
+      return;
+    }
+    const normalizedFolderId = normalizeId(signal.folderId);
+    const normalizedGroupId = normalizeId(signal.groupId);
+    if (!normalizedFolderId || !normalizedGroupId) {
+      return;
+    }
+    if (folderStatusRefreshKeyRef.current === signal.key) {
+      return;
+    }
+    folderStatusRefreshKeyRef.current = signal.key;
+
+    const targetGroup = groups.find((group) => normalizeId(group.id) === normalizedGroupId);
+    if (!targetGroup) {
+      return;
+    }
+
+    const refreshFolderAfterSignal = async () => {
+      try {
+        await fetchGroupData(targetGroup.id, groupBatches[normalizedGroupId] || null, {
+          forceBatchRefresh: true,
+        });
+        const isActiveFolder =
+          normalizeId(activeFolderView?.folderId) === normalizedFolderId;
+        if (isActiveFolder) {
+          await openFolderView(targetGroup, {
+            batchId: signal.folderId,
+            id: signal.folderId,
+            name: activeFolderView?.folderName || `Folder ${signal.folderId}`,
+          });
+        }
+      } catch (refreshError) {
+        console.error(
+          "[GroupTreeSidebar] Failed to refresh folder after status update:",
+          refreshError
+        );
+      }
+    };
+
+    void refreshFolderAfterSignal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folderStatusUpdateSignal, activeFolderView, groups, groupBatches]);
 
   useEffect(() => {
     const context = folderNavigationContext;
