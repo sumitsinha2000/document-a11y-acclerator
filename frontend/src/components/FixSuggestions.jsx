@@ -7,6 +7,8 @@ import FixProgressStepper from "./FixProgressStepper"
 import AlertModal from "./AlertModal"
 import { API_ENDPOINTS } from "../config/api"
 
+const SEMI_AUTOMATED_REMEDIATION_DISABLED = true
+
 const showAlert =
   (setAlertModal) =>
   (title, message, type = "info") => {
@@ -22,6 +24,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [showAIPanel, setShowAIPanel] = useState(false)
   const [showProgressStepper, setShowProgressStepper] = useState(false)
   const [currentFixType, setCurrentFixType] = useState("")
+
+  const isSemiAutomatedButtonDisabled = SEMI_AUTOMATED_REMEDIATION_DISABLED || applyingTraditionalSemi
 
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" })
   const [expandedFixes, setExpandedFixes] = useState({
@@ -584,11 +588,19 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             )}
             <div className="space-y-2 mt-auto">
               <button
-                className="w-full px-4 py-2 bg-amber-800 hover:bg-amber-900 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                className="w-full px-4 py-2 bg-amber-800 hover:bg-amber-900 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 dark:focus:ring-offset-gray-800 cursor-not-allowed"
                 onClick={handleApplyTraditionalSemiFixes}
-                disabled={applyingTraditionalSemi}
+                disabled={isSemiAutomatedButtonDisabled}
+                aria-disabled="true"
                 aria-busy={applyingTraditionalSemi}
-                aria-label={applyingTraditionalSemi ? "Applying auto fixes" : "Apply auto fixes"}
+                aria-label={
+                  isSemiAutomatedButtonDisabled
+                    ? "Semi-automated remediation currently unavailable"
+                    : applyingTraditionalSemi
+                      ? "Applying auto fixes"
+                      : "Apply auto fixes"
+                }
+                title="Semi-automated remediation is not available yet"
               >
                 {applyingTraditionalSemi ? "Applying..." : "Apply Auto Fixes"}
               </button>
