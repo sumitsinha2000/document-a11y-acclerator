@@ -24,7 +24,7 @@ from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 import threading
 
-from backend.multi_tier_storage import download_remote_file, upload_file_with_fallback
+from backend.multi_tier_storage import download_remote_file, upload_file_with_fallback, delete_remote_file
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
@@ -1670,11 +1670,57 @@ def _delete_scan_with_files(scan_id: str) -> Dict[str, Any]:
 
     resolved_id = scan_record.get("id") or scan_id
     group_id = scan_record.get("group_id")
+    batch_id = scan_record.get("batch_id")
     original_filename = scan_record.get("filename")
 
     uploads_dir = _uploads_root()
     fixed_dir = _fixed_root()
-    deleted_files = 0
+    deleted_local_files = 0
+    deleted_remote_files = 0
+    remote_references: Set[str] = set()
+
+    def _looks_remote_reference(value: Optional[str]) -> bool:
+        if not value:
+            return False
+        normalized = str(value).strip()
+        if not normalized:
+            return False
+        lowered = normalized.lower()
+        if lowered.startswith(("http://", "https://", "s3://", "gs://", "b2://")):
+            return True
+        if normalized.startswith("uploads/") or normalized.startswith("fixed/"):
+            return True
+        if not os.path.isabs(normalized) and "/" in normalized:
+            return True
+        return False
+
+    def _register_remote_reference(value: Optional[str]):
+        if not value:
+            return
+        normalized = str(value).strip()
+        if not normalized:
+            return
+        remote_references.add(normalized)
+
+    def _collect_remote_refs_from_metadata(payload: Any) -> Set[str]:
+        refs: Set[str] = set()
+
+        def _walk(node: Any, key_hint: str = ""):
+            if isinstance(node, dict):
+                for key, child in node.items():
+                    next_hint = f"{key_hint}.{key}" if key_hint else str(key)
+                    _walk(child, next_hint)
+            elif isinstance(node, (list, tuple, set)):
+                for child in node:
+                    _walk(child, key_hint)
+            elif isinstance(node, str):
+                hint = key_hint.lower()
+                if "remote" in hint or _looks_remote_reference(node):
+                    refs.add(node)
+
+        if isinstance(payload, (dict, list, tuple, set)):
+            _walk(payload)
+        return refs
 
     def _delete_path(path: Path) -> bool:
         try:
@@ -1696,17 +1742,61 @@ def _delete_scan_with_files(scan_id: str) -> Dict[str, Any]:
     if original_filename:
         candidate_names.add(original_filename)
 
+    file_path_reference = scan_record.get("file_path")
+    if file_path_reference and _looks_remote_reference(file_path_reference):
+        _register_remote_reference(file_path_reference)
+
+    version_entries = get_versioned_files(resolved_id)
+    for version_entry in version_entries:
+        remote_path = version_entry.get("remote_path")
+        if remote_path and _looks_remote_reference(remote_path):
+            _register_remote_reference(remote_path)
+
+    fix_history_rows: List[Dict[str, Any]] = []
+    try:
+        fix_history_rows = execute_query(
+            "SELECT fix_metadata FROM fix_history WHERE scan_id = %s AND fix_metadata IS NOT NULL",
+            (resolved_id,),
+            fetch=True,
+        )
+    except Exception:
+        logger.exception("[Backend] Failed to fetch fix history metadata for %s", scan_id)
+        fix_history_rows = []
+
+    for row in fix_history_rows:
+        metadata_raw = row.get("fix_metadata")
+        metadata: Dict[str, Any] = {}
+        if isinstance(metadata_raw, str):
+            try:
+                metadata = json.loads(metadata_raw)
+            except Exception:
+                metadata = {}
+        elif isinstance(metadata_raw, dict):
+            metadata = metadata_raw
+        for remote_candidate in _collect_remote_refs_from_metadata(metadata):
+            if _looks_remote_reference(remote_candidate):
+                _register_remote_reference(remote_candidate)
+
+    for remote_reference in sorted(remote_references):
+        try:
+            if delete_remote_file(remote_reference):
+                deleted_remote_files += 1
+        except Exception:
+            logger.exception(
+                "[Backend] Unexpected error deleting remote reference %s", remote_reference
+            )
+
     for folder in (uploads_dir, fixed_dir):
         for name in candidate_names:
             if not name:
                 continue
             candidate = folder / name
             if _delete_path(candidate):
-                deleted_files += 1
+                deleted_local_files += 1
             if not name.lower().endswith(".pdf"):
                 pdf_candidate = folder / f"{name}.pdf"
                 if _delete_path(pdf_candidate):
-                    deleted_files += 1
+                    deleted_local_files += 1
 
     version_dirs = {fixed_dir / str(resolved_id), fixed_dir / str(scan_id)}
     for version_dir in version_dirs:
@@ -1715,7 +1805,7 @@ def _delete_scan_with_files(scan_id: str) -> Dict[str, Any]:
                 1 for child in version_dir.glob("**/*") if child.is_file()
             )
             if _delete_path(version_dir):
-                deleted_files += removed_count
+                deleted_local_files += removed_count
 
     primary_id = scan_record.get("id")
 
@@ -1731,16 +1821,30 @@ def _delete_scan_with_files(scan_id: str) -> Dict[str, Any]:
         fetch=False,
     )
 
+    if batch_id:
+        try:
+            update_batch_statistics(batch_id)
+        except Exception:
+            logger.exception("[Backend] Failed to refresh batch %s after scan delete", batch_id)
+
     if group_id:
         update_group_file_count(group_id)
 
+    total_deleted_files = deleted_local_files + deleted_remote_files
     logger.info(
-        "[Backend] ✓ Deleted scan %s (removed %d files)", scan_id, deleted_files
+        "[Backend] ✓ Deleted scan %s (removed %d files: %d local, %d remote)",
+        scan_id,
+        total_deleted_files,
+        deleted_local_files,
+        deleted_remote_files,
     )
     return {
         "scanId": primary_id or resolved_id,
         "groupId": group_id,
-        "deletedFiles": deleted_files,
+        "deletedFiles": total_deleted_files,
+        "deletedLocalFiles": deleted_local_files,
+        "deletedRemoteFiles": deleted_remote_files,
+        "batchId": batch_id,
     }
 
 

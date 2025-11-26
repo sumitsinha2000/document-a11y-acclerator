@@ -64,8 +64,93 @@ export default function GroupTreeSidebar({
   const [folderFilesError, setFolderFilesError] = useState(null);
   const [refreshingGroupId, setRefreshingGroupId] = useState(null);
   const [deletingFileId, setDeletingFileId] = useState(null);
+  const [refreshingFolderCounts, setRefreshingFolderCounts] = useState({});
   const handledFolderNavigationRef = useRef(null);
   const { confirm, showError, showSuccess } = useNotification();
+  const mapFolderToSidebarEntry = (folder) => {
+    if (!folder) {
+      return null;
+    }
+    const fileCount = folder.totalFiles ?? folder.total_files ?? folder.fileCount ?? 0;
+    return {
+      batchId: folder.folderId || folder.batchId || folder.id,
+      folderId: folder.folderId || folder.batchId || folder.id,
+      name: folder.name || folder.folderName || `Folder ${folder.folderId || folder.id}`,
+      groupId: folder.groupId || folder.group_id,
+      status: folder.status,
+      createdAt: folder.createdAt || folder.created_at,
+      fileCount,
+      totalFiles: fileCount,
+      totalIssues: folder.totalIssues ?? folder.total_issues ?? 0,
+      fixedIssues: folder.fixedIssues ?? folder.fixed_issues ?? 0,
+      remainingIssues: folder.remainingIssues ?? folder.remaining_issues ?? 0,
+      unprocessedFiles: folder.unprocessedFiles ?? folder.unprocessed_files ?? 0,
+    };
+  };
+
+  const syncFolderCountWithSidebar = (groupId, folderId, fileCount) => {
+    const normalizedGroupId = normalizeId(groupId);
+    const normalizedFolderId = normalizeId(folderId);
+    if (!normalizedGroupId || !normalizedFolderId) {
+      return;
+    }
+
+    setGroupBatches((prev) => {
+      const targetList = prev[normalizedGroupId];
+      if (!Array.isArray(targetList) || targetList.length === 0) {
+        return prev;
+      }
+
+      let changed = false;
+      const updatedList = targetList.map((batch) => {
+        if (normalizeId(batch.batchId) !== normalizedFolderId) {
+          return batch;
+        }
+        const currentCount = batch.fileCount ?? batch.totalFiles ?? batch.total_files;
+        if (currentCount === fileCount) {
+          return batch;
+        }
+        changed = true;
+        return {
+          ...batch,
+          fileCount,
+          totalFiles: fileCount,
+          total_files: fileCount,
+        };
+      });
+
+      return changed
+        ? {
+            ...prev,
+            [normalizedGroupId]: updatedList,
+          }
+        : prev;
+    });
+  };
+
+  const setFolderCountRefreshingState = (folderId, refreshing) => {
+    const normalizedId = normalizeId(folderId);
+    if (!normalizedId) {
+      return;
+    }
+    setRefreshingFolderCounts((prev) => {
+      if (refreshing) {
+        if (prev[normalizedId]) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [normalizedId]: true,
+        };
+      }
+      if (!prev[normalizedId]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[normalizedId];
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!statusMessage) {
@@ -169,6 +254,22 @@ export default function GroupTreeSidebar({
     return true;
   };
 
+  const fetchFoldersForGroup = async (groupId = null) => {
+    const params = groupId ? { groupId } : undefined;
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/folders`, {
+        params,
+      });
+      const folders = response.data?.folders || [];
+      return folders
+        .map((folder) => mapFolderToSidebarEntry(folder))
+        .filter((entry) => entry && normalizeId(entry.groupId));
+    } catch (error) {
+      console.error("[v0] Error fetching folders:", error);
+      return [];
+    }
+  };
+
   const fetchGroups = async () => {
     try {
       setLoading(true);
@@ -203,22 +304,20 @@ export default function GroupTreeSidebar({
       }, {});
 
       try {
-        const historyResponse = await axios.get(`${API_BASE_URL}/api/history`);
-        const allBatches = historyResponse.data.batches || [];
-
-        batchesByGroup = allBatches.reduce((acc, batch) => {
-          const groupKey = normalizeId(batch.groupId);
+        const allFolders = await fetchFoldersForGroup();
+        batchesByGroup = allFolders.reduce((acc, folder) => {
+          const groupKey = normalizeId(folder.groupId);
           if (!groupKey) {
             return acc;
           }
           if (!acc[groupKey]) {
             acc[groupKey] = [];
           }
-          acc[groupKey].push(batch);
+          acc[groupKey].push(folder);
           return acc;
         }, batchesByGroup);
-      } catch (historyError) {
-        console.error("[v0] Error fetching batch history:", historyError);
+      } catch (folderError) {
+        console.error("[v0] Error loading folders for groups:", folderError);
       }
 
       setGroupBatches(batchesByGroup);
@@ -228,6 +327,7 @@ export default function GroupTreeSidebar({
         return {
           ...group,
           batchCount: batchesByGroup[key]?.length || group.batchCount || 0,
+          folderCount: batchesByGroup[key]?.length || group.folderCount || 0,
         };
       });
 
@@ -306,7 +406,8 @@ export default function GroupTreeSidebar({
     void loadTargetGroup();
   }, [initialGroupId, groups]);
 
-  const fetchGroupData = async (groupId, prefetchedBatches = null) => {
+  const fetchGroupData = async (groupId, prefetchedBatches = null, options = {}) => {
+    const { forceBatchRefresh = false } = options;
     const normalizedId = normalizeId(groupId);
 
     try {
@@ -318,13 +419,14 @@ export default function GroupTreeSidebar({
         [normalizedId]: files,
       }));
 
-      let batchesForGroup = Array.isArray(prefetchedBatches) ? prefetchedBatches : null;
+      let batchesForGroup = !forceBatchRefresh && Array.isArray(prefetchedBatches)
+        ? prefetchedBatches
+        : null;
 
       if (!batchesForGroup) {
-        const historyResponse = await axios.get(`${API_BASE_URL}/api/history`);
-        const allBatches = historyResponse.data.batches || [];
-        batchesForGroup = allBatches.filter(
-          (batch) => normalizeId(batch.groupId) === normalizedId
+        const fetchedFolders = await fetchFoldersForGroup(groupId);
+        batchesForGroup = fetchedFolders.filter(
+          (folder) => normalizeId(folder.groupId) === normalizedId
         );
       }
 
@@ -580,6 +682,11 @@ export default function GroupTreeSidebar({
           fixed: folderDetails.fixed_issues ?? folderDetails.fixedIssues,
         },
       }));
+      const accurateCount =
+        folderDetails.total_files ??
+        folderDetails.totalFiles ??
+        scans.length;
+      syncFolderCountWithSidebar(group.id, folderMeta.folderId, accurateCount);
     } catch (folderError) {
       console.error("[GroupTreeSidebar] Failed to load folder files:", folderError);
       setFolderFilesError(folderError?.response?.data?.error || "Failed to load folder files");
@@ -611,6 +718,7 @@ export default function GroupTreeSidebar({
   const handleDeleteFile = async (file, event) => {
     event?.stopPropagation?.();
     const fileId = file.scanId || file.id || file.fileId;
+    const normalizedFileId = normalizeId(fileId);
     const fileName = file.filename || file.fileName || "file";
 
     if (!fileId) {
@@ -637,23 +745,89 @@ export default function GroupTreeSidebar({
       setStatusMessage(`${fileName} deleted`);
 
       const folderMeta = activeFolderView;
-      if (folderMeta) {
-        const normalizedGroupId = normalizeId(folderMeta.groupId);
-        const targetGroup = groups.find((group) => normalizeId(group.id) === normalizedGroupId);
-        if (targetGroup) {
-          try {
-            await fetchGroupData(targetGroup.id, groupBatches[normalizedGroupId] || null);
-          } catch (refreshError) {
-            console.error(
-              "[GroupTreeSidebar] Failed to refresh group data after file delete:",
-              refreshError
-            );
+      const normalizedFolderId = normalizeId(folderMeta?.folderId);
+      const normalizedGroupId = normalizeId(folderMeta?.groupId);
+
+      if (folderMeta && normalizedFolderId) {
+        const resolveFileIdentifier = (item) =>
+          normalizeId(item?.scanId || item?.id || item?.fileId);
+
+        setFolderFiles((prev) =>
+          prev.filter((entry) => resolveFileIdentifier(entry) !== normalizedFileId)
+        );
+
+        setActiveFolderView((prev) => {
+          if (!prev || normalizeId(prev.folderId) !== normalizedFolderId) {
+            return prev;
           }
-          await openFolderView(targetGroup, {
-            batchId: folderMeta.folderId,
-            id: folderMeta.folderId,
-            name: folderMeta.folderName,
+          const currentTotalRaw = prev.totalFiles;
+          const currentTotal =
+            typeof currentTotalRaw === "number"
+              ? currentTotalRaw
+              : parseInt(currentTotalRaw, 10);
+          const nextTotal = Math.max(0, (Number.isFinite(currentTotal) ? currentTotal : 0) - 1);
+          return {
+            ...prev,
+            totalFiles: nextTotal,
+          };
+        });
+
+        if (normalizedGroupId) {
+          setGroupBatches((prev) => {
+            const existingList = prev[normalizedGroupId];
+            if (!Array.isArray(existingList) || existingList.length === 0) {
+              return prev;
+            }
+            let hasChanges = false;
+            const updatedList = existingList.map((batch) => {
+              if (normalizeId(batch.batchId) !== normalizedFolderId) {
+                return batch;
+              }
+              hasChanges = true;
+              const rawCount = batch.fileCount ?? batch.totalFiles ?? batch.total_files ?? 0;
+              const numericCount =
+                typeof rawCount === "number" ? rawCount : parseInt(rawCount, 10);
+              const nextCount = Math.max(
+                0,
+                (Number.isFinite(numericCount) ? numericCount : 0) - 1
+              );
+              return {
+                ...batch,
+                fileCount: nextCount,
+              };
+            });
+            return hasChanges
+              ? {
+                  ...prev,
+                  [normalizedGroupId]: updatedList,
+                }
+              : prev;
           });
+        }
+
+        const targetGroup = normalizedGroupId
+          ? groups.find((group) => normalizeId(group.id) === normalizedGroupId)
+          : null;
+
+        if (targetGroup) {
+          setFolderCountRefreshingState(normalizedFolderId, true);
+          void (async () => {
+            try {
+              await fetchGroupData(targetGroup.id, null, { forceBatchRefresh: true });
+              await openFolderView(targetGroup, {
+                batchId: folderMeta.folderId,
+                id: folderMeta.folderId,
+                name: folderMeta.folderName,
+              });
+            } catch (refreshError) {
+              console.error(
+                "[GroupTreeSidebar] Failed to refresh group data after file delete:",
+                refreshError
+              );
+            } finally {
+              setFolderCountRefreshingState(normalizedFolderId, false);
+            }
+          })();
         }
       }
 
@@ -693,7 +867,9 @@ export default function GroupTreeSidebar({
     onUploadContextAcknowledged?.();
 
     const refreshFolderData = async () => {
-      await fetchGroupData(targetGroup.id, groupBatches[targetGroupId] || null);
+      await fetchGroupData(targetGroup.id, groupBatches[targetGroupId] || null, {
+        forceBatchRefresh: true,
+      });
       await openFolderView(targetGroup, {
         batchId: uploadContext.folderId,
         id: uploadContext.folderId,
@@ -812,14 +988,25 @@ export default function GroupTreeSidebar({
         groupId: group.id,
       });
       const folderPayload = response.data?.folder || {};
-      const mappedFolder = {
-        batchId: folderPayload.folderId || folderPayload.batchId || folderPayload.id,
-        name: folderPayload.name || folderName,
-        groupId: folderPayload.groupId || folderPayload.group_id || group.id,
-        fileCount: folderPayload.totalFiles ?? folderPayload.total_files ?? 0,
-        status: folderPayload.status || "uploaded",
-        createdAt: folderPayload.createdAt || folderPayload.created_at,
-      };
+      const mappedFolder =
+        mapFolderToSidebarEntry({
+          ...folderPayload,
+          folderId: folderPayload.folderId || folderPayload.batchId || folderPayload.id,
+          groupId: folderPayload.groupId || folderPayload.group_id || group.id,
+          totalFiles: folderPayload.totalFiles ?? folderPayload.total_files ?? 0,
+        }) || {
+          batchId: folderPayload.folderId || folderPayload.batchId || folderPayload.id,
+          name: folderPayload.name || folderName,
+          groupId: folderPayload.groupId || folderPayload.group_id || group.id,
+          fileCount: folderPayload.totalFiles ?? folderPayload.total_files ?? 0,
+          status: folderPayload.status || "uploaded",
+          createdAt: folderPayload.createdAt || folderPayload.created_at,
+          totalFiles: folderPayload.totalFiles ?? folderPayload.total_files ?? 0,
+          totalIssues: folderPayload.totalIssues ?? folderPayload.total_issues ?? 0,
+          fixedIssues: folderPayload.fixedIssues ?? folderPayload.fixed_issues ?? 0,
+          remainingIssues: folderPayload.remainingIssues ?? folderPayload.remaining_issues ?? 0,
+          unprocessedFiles: folderPayload.unprocessedFiles ?? folderPayload.unprocessed_files ?? 0,
+        };
       setGroupBatches((prev) => {
         const list = prev[key] || [];
         return {
@@ -1550,6 +1737,9 @@ export default function GroupTreeSidebar({
                             const isDeletingBatch =
                               deletingBatchInfo.id &&
                               normalizeId(deletingBatchInfo.id) === normalizedBatchId;
+                            const isFolderRefreshing = Boolean(
+                              refreshingFolderCounts[normalizedBatchId]
+                            );
 
                             return (
                               <li key={batch.batchId} className="relative group/folder">
@@ -1645,10 +1835,35 @@ export default function GroupTreeSidebar({
                                         </span>
                                         <span
                                           className={`text-sm ${
-                                            isBatchSelected ? "text-indigo-100 dark:text-white/90" : "text-slate-500 dark:text-slate-400"
+                                            isBatchSelected
+                                              ? "text-indigo-100 dark:text-white/90"
+                                              : "text-slate-500 dark:text-slate-400"
                                           } group-focus-within:text-indigo-100 dark:group-focus-within:text-white/90`}
                                         >
-                                          {batch.fileCount} files
+                                          <span className="inline-flex items-center gap-1">
+                                            {isFolderRefreshing && (
+                                              <svg
+                                                className={`h-3.5 w-3.5 animate-spin ${
+                                                  isBatchSelected
+                                                    ? "text-indigo-100"
+                                                    : "text-indigo-500 dark:text-indigo-300"
+                                                }`}
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                aria-hidden="true"
+                                              >
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"></circle>
+                                                <path
+                                                  className="opacity-75"
+                                                  d="M4 12a8 8 0 018-8"
+                                                  strokeWidth="4"
+                                                  strokeLinecap="round"
+                                                ></path>
+                                              </svg>
+                                            )}
+                                            <span>{batch.fileCount} files</span>
+                                          </span>
                                         </span>
                                       </span>
                                 </button>
