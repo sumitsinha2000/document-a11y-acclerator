@@ -33,8 +33,20 @@ const UploadArea = forwardRef(function UploadArea(
   const [previewFile, setPreviewFile] = useState(null)
   const [previewUrl, setPreviewUrl] = useState(null)
   const previewDialogRef = useRef(null)
+  const isMountedRef = useRef(true)
   const hiddenFileInputId = useId()
   const hiddenFileInputLabelId = `${hiddenFileInputId}-label`
+  const safeSetState = (updater) => {
+    if (isMountedRef.current) {
+      updater()
+    }
+  }
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
   useEffect(() => {
     return () => {
       if (previewUrl) {
@@ -98,16 +110,20 @@ const UploadArea = forwardRef(function UploadArea(
     e.preventDefault()
     setIsDragging(false)
     const files = Array.from(e.dataTransfer.files)
-    if (files.length > 0) {
-      handleFileSelection(files)
+    if (files.length === 0) {
+      setSrAnnouncement("No files selected.")
+      return
     }
+    handleFileSelection(files)
   }
 
   const handleFileInput = (e) => {
     const files = Array.from(e.target.files)
-    if (files.length > 0) {
-      handleFileSelection(files)
+    if (files.length === 0) {
+      setSrAnnouncement("No files selected.")
+      return
     }
+    handleFileSelection(files)
   }
 
   const handleClick = () => {
@@ -201,82 +217,88 @@ const UploadArea = forwardRef(function UploadArea(
     if (!files || files.length === 0) {
       return
     }
-    setError(null)
-    setIsScanning(true)
+    safeSetState(() => setError(null))
+    safeSetState(() => setIsScanning(true))
 
     const isBatch = files.length > 1
     const groupId = resolveGroupId()
     const folderId = autoSelectFolderId
-    setSrAnnouncement(
-      `Uploading ${files.length} PDF file${files.length === 1 ? '' : 's'} without scanning`,
+    safeSetState(() =>
+      setSrAnnouncement(`Uploading ${files.length} PDF file${files.length === 1 ? "" : "s"} without scanning`),
     )
 
     const initialProgress = files.map((file, index) => ({
       id: `upload-${Date.now()}-${index}`,
       filename: file.name,
-      status: 'uploading',
+      status: "uploading",
       progress: 0,
     }))
-    setUploadProgress(initialProgress)
+    safeSetState(() => setUploadProgress(initialProgress))
 
     const finalize = () => {
-      setIsScanning(false)
-      setSelectedFiles([])
-      setTimeout(() => setUploadProgress([]), 3000)
+      safeSetState(() => setIsScanning(false))
+      safeSetState(() => setSelectedFiles([]))
+      setTimeout(() => safeSetState(() => setUploadProgress([])), 3000)
     }
 
     const handleError = (message) => {
-      setError(message)
-      setSrAnnouncement(`Error: ${message}`)
-      setUploadProgress((prev) =>
-        prev.map((item) => ({
-          ...item,
-          status: 'error',
-          progress: 0,
-          error: message,
-        })),
+      safeSetState(() => setError(message))
+      safeSetState(() => setSrAnnouncement(`Error: ${message}`))
+      safeSetState(() =>
+        setUploadProgress((prev) =>
+          prev.map((item) => ({
+            ...item,
+            status: "error",
+            progress: 0,
+            error: message,
+          })),
+        ),
       )
     }
 
     if (isBatch) {
       try {
         const formData = new FormData()
-        files.forEach((file) => formData.append('files', file))
+        files.forEach((file) => formData.append("files", file))
         if (groupId) {
-          formData.append('group_id', groupId)
+          formData.append("group_id", groupId)
         }
         if (folderId) {
-          formData.append('folder_id', folderId)
+          formData.append("folder_id", folderId)
         }
-        formData.append('scan_mode', 'upload_only')
+        formData.append("scan_mode", "upload_only")
 
-        setUploadProgress((prev) =>
-          prev.map((item) => ({
-            ...item,
-            status: 'uploading',
-            progress: 80,
-          })),
+        safeSetState(() =>
+          setUploadProgress((prev) =>
+            prev.map((item) => ({
+              ...item,
+              status: "uploading",
+              progress: 80,
+            })),
+          ),
         )
 
         const response = await axios.post(API_ENDPOINTS.scanBatch, formData, {
           headers: {
-            'Content-Type': 'multipart/form-data',
+            "Content-Type": "multipart/form-data",
           },
           timeout: 120000,
           withCredentials: true,
         })
 
-        setUploadProgress((prev) =>
-          prev.map((item) => ({ ...item, status: 'completed', progress: 100 })),
+        safeSetState(() =>
+          setUploadProgress((prev) => prev.map((item) => ({ ...item, status: "completed", progress: 100 }))),
         )
 
         const scans = Array.isArray(response.data?.scans) ? response.data.scans : []
         const scanIds = scans.map((scan) => scan.scanId || scan.id).filter(Boolean)
 
         const uploadedCount = scanIds.length || files.length
-        setError(null)
-        setSrAnnouncement(
-          `Uploaded ${uploadedCount} file${uploadedCount === 1 ? '' : 's'}. Start scanning later from the dashboard.`,
+        safeSetState(() => setError(null))
+        safeSetState(() =>
+          setSrAnnouncement(
+            `Uploaded ${uploadedCount} file${uploadedCount === 1 ? "" : "s"}. Start scanning later from the dashboard.`,
+          ),
         )
         onUploadDeferred?.({
           batchId: response.data.batchId,
@@ -284,8 +306,8 @@ const UploadArea = forwardRef(function UploadArea(
           groupId,
         })
       } catch (err) {
-        const errorMsg = err.response?.data?.error || err.message || 'Folder upload failed'
-        console.error('[UploadArea] Folder upload error:', err)
+        const errorMsg = err.response?.data?.error || err.message || "Folder upload failed"
+        console.error("[UploadArea] Folder upload error:", err)
         handleError(errorMsg)
       } finally {
         finalize()
@@ -299,54 +321,58 @@ const UploadArea = forwardRef(function UploadArea(
 
     try {
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append("file", file)
       if (groupId) {
-        formData.append('group_id', groupId)
+        formData.append("group_id", groupId)
       }
       if (folderId) {
-        formData.append('folder_id', folderId)
+        formData.append("folder_id", folderId)
       }
-      formData.append('scan_mode', 'upload_only')
+      formData.append("scan_mode", "upload_only")
 
-      setUploadProgress((prev) =>
-        prev.map((item, idx) =>
-          idx === 0
-            ? {
-                ...item,
-                status: 'uploading',
-                progress: 80,
-              }
-            : item,
+      safeSetState(() =>
+        setUploadProgress((prev) =>
+          prev.map((item, idx) =>
+            idx === 0
+              ? {
+                  ...item,
+                  status: "uploading",
+                  progress: 80,
+                }
+              : item,
+          ),
         ),
       )
 
       const response = await axios.post(endpoint, formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          "Content-Type": "multipart/form-data",
         },
         timeout,
         withCredentials: true,
         onUploadProgress: (progressEvent) => {
           if (!progressEvent.total) return
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-          setUploadProgress((prev) =>
-            prev.map((item, idx) =>
-              idx === 0 ? { ...item, progress: percent } : item,
+          safeSetState(() =>
+            setUploadProgress((prev) =>
+              prev.map((item, idx) => (idx === 0 ? { ...item, progress: percent } : item)),
             ),
           )
         },
       })
 
-      setUploadProgress((prev) =>
-        prev.map((item, idx) =>
-          idx === 0 ? { ...item, status: 'completed', progress: 100 } : item,
+      safeSetState(() =>
+        setUploadProgress((prev) =>
+          prev.map((item, idx) => (idx === 0 ? { ...item, status: "completed", progress: 100 } : item)),
         ),
       )
 
       const deferredId = response.data?.scanId || response.data?.result?.scanId
       const scanIds = deferredId ? [deferredId] : []
-      setError(null)
-      setSrAnnouncement(`Uploaded ${scanIds.length || 1} file${scanIds.length === 1 ? '' : 's'} successfully.`)
+      safeSetState(() => setError(null))
+      safeSetState(() =>
+        setSrAnnouncement(`Uploaded ${scanIds.length || 1} file${scanIds.length === 1 ? "" : "s"} successfully.`),
+      )
       onUploadDeferred?.({
         scanIds,
         groupId,
@@ -354,8 +380,8 @@ const UploadArea = forwardRef(function UploadArea(
         folderName: response.data?.folderName,
       })
     } catch (err) {
-      const errorMsg = err.response?.data?.error || err.message || 'Upload failed'
-      console.error('[UploadArea] File upload error:', err)
+      const errorMsg = err.response?.data?.error || err.message || "Upload failed"
+      console.error("[UploadArea] File upload error:", err)
       handleError(errorMsg)
     } finally {
       finalize()
