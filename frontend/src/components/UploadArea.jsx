@@ -30,6 +30,7 @@ const UploadArea = forwardRef(function UploadArea(
   const fileInputRef = useRef(null)
   const uploadAreaRef = useRef(null)
   const [selectedFiles, setSelectedFiles] = useState([])
+  const [fileStatusList, setFileStatusList] = useState([])
   const [previewFile, setPreviewFile] = useState(null)
   const [previewUrl, setPreviewUrl] = useState(null)
   const previewDialogRef = useRef(null)
@@ -85,12 +86,26 @@ const UploadArea = forwardRef(function UploadArea(
     }
   }, [onScanningChange])
 
+  const resetUploadsState = () => {
+    safeSetState(() => setSelectedFiles([]))
+    safeSetState(() => setFileStatusList([]))
+    safeSetState(() => setUploadProgress([]))
+    safeSetState(() => setError(null))
+    safeSetState(() => setSrAnnouncement(""))
+    handleClosePreview()
+  }
+
   useImperativeHandle(
     ref,
     () => ({
       openFileDialog: () => {
         if (!isScanning && fileInputRef.current) {
           fileInputRef.current.click()
+        }
+      },
+      resetUploads: () => {
+        if (!isScanning) {
+          resetUploadsState()
         }
       },
     }),
@@ -150,6 +165,7 @@ const UploadArea = forwardRef(function UploadArea(
     }
 
     setSelectedFiles(pdfFiles)
+    setFileStatusList(pdfFiles.map(() => ({ status: "pending", message: "" })))
     setSrAnnouncement(
       `${pdfFiles.length} PDF ${pdfFiles.length === 1 ? "file" : "files"} selected. Please select a folder from the dashboard before uploading.`,
     )
@@ -158,6 +174,7 @@ const UploadArea = forwardRef(function UploadArea(
   const handleRemoveSelectedFile = (index) => {
     setSelectedFiles((prev) => {
       const updated = prev.filter((_, idx) => idx !== index)
+      setFileStatusList((statusList) => statusList.filter((_, idx) => idx !== index))
       setSrAnnouncement(
         `${updated.length} PDF ${updated.length === 1 ? "file" : "files"} selected after removing a file.`,
       )
@@ -219,13 +236,11 @@ const UploadArea = forwardRef(function UploadArea(
     }
     safeSetState(() => setError(null))
     safeSetState(() => setIsScanning(true))
-
+    safeSetState(() => setFileStatusList(files.map(() => ({ status: "pending", message: "" }))))
     const isBatch = files.length > 1
     const groupId = resolveGroupId()
     const folderId = autoSelectFolderId
-    safeSetState(() =>
-      setSrAnnouncement(`Uploading ${files.length} PDF file${files.length === 1 ? "" : "s"} without scanning`),
-    )
+    safeSetState(() => setSrAnnouncement(`Uploading ${files.length} files...`))
 
     const initialProgress = files.map((file, index) => ({
       id: `upload-${Date.now()}-${index}`,
@@ -235,29 +250,99 @@ const UploadArea = forwardRef(function UploadArea(
     }))
     safeSetState(() => setUploadProgress(initialProgress))
 
-    const finalize = () => {
+    const finalize = (shouldClearSelection) => {
       safeSetState(() => setIsScanning(false))
-      safeSetState(() => setSelectedFiles([]))
+      if (shouldClearSelection) {
+        safeSetState(() => setSelectedFiles([]))
+        safeSetState(() => setFileStatusList([]))
+        safeSetState(() => setError(null))
+        handleClosePreview()
+      }
       setTimeout(() => safeSetState(() => setUploadProgress([])), 3000)
     }
 
-    const handleError = (message) => {
-      safeSetState(() => setError(message))
-      safeSetState(() => setSrAnnouncement(`Error: ${message}`))
-      safeSetState(() =>
-        setUploadProgress((prev) =>
-          prev.map((item) => ({
-            ...item,
-            status: "error",
-            progress: 0,
-            error: message,
-          })),
-        ),
-      )
+    const summarizeStatus = (successCount, failedCount) => {
+      if (failedCount === 0) {
+        return `${successCount} files uploaded.`
+      }
+      if (successCount === 0) {
+        return "Upload failed. No files were uploaded."
+      }
+      return `${successCount} uploaded. ${failedCount} failed.`
     }
 
-    if (isBatch) {
-      try {
+    const buildBatchResult = (scansResponse = [], batchResponse = {}) => {
+      const statuses = files.map(() => ({ status: "pending", message: "" }))
+      const successFiles = []
+      const failedFiles = []
+      const scanIds = []
+
+      const scanMap = new Map()
+      scansResponse.forEach((scan) => {
+        const key = (scan.filename || scan.fileName || "").toLowerCase()
+        if (!key) return
+        if (!scanMap.has(key)) {
+          scanMap.set(key, [])
+        }
+        scanMap.get(key).push(scan)
+      })
+
+      const trackErrorMessage = (filename, fallback = "Upload failed") => {
+        const errors = Array.isArray(batchResponse?.errors) ? batchResponse.errors : []
+        const matched = errors.find((entry) => entry.toLowerCase().startsWith(filename.toLowerCase()))
+        return matched ? matched.split(":").slice(1).join(":").trim() || fallback : fallback
+      }
+
+      files.forEach((file, index) => {
+        const normalizedName = file.name.toLowerCase()
+        const candidates = scanMap.get(normalizedName)
+        let matchedScan = null
+        if (candidates && candidates.length) {
+          matchedScan = candidates.shift()
+          if (!candidates.length) {
+            scanMap.delete(normalizedName)
+          }
+        }
+        if (!matchedScan && scansResponse[index]) {
+          matchedScan = scansResponse[index]
+        }
+
+        const statusCode = String(matchedScan?.statusCode || "").toLowerCase()
+        if (matchedScan && statusCode !== "error") {
+          const resolvedName = matchedScan.filename || matchedScan.fileName || file.name
+          const resolvedScanId = matchedScan.scanId || matchedScan.id
+          statuses[index] = { status: "success", message: "" }
+          successFiles.push({
+            name: resolvedName,
+            scanId: resolvedScanId,
+            batchId: matchedScan.batchId,
+            groupId: matchedScan.groupId,
+            statusCode: matchedScan.statusCode || matchedScan.status,
+          })
+          if (resolvedScanId) {
+            scanIds.push(resolvedScanId)
+          }
+        } else {
+          const errorMessage =
+            matchedScan?.error ||
+            trackErrorMessage(file.name) ||
+            "Upload failed. Please remove this file and try again."
+          statuses[index] = { status: "error", message: errorMessage }
+          failedFiles.push({
+            name: matchedScan?.filename || matchedScan?.fileName || file.name,
+            error: errorMessage,
+          })
+        }
+      })
+
+      return { successFiles, failedFiles, statuses, scanIds }
+    }
+
+    let completionPayload = null
+    let clearAfterCompletion = false
+
+    try {
+      if (isBatch) {
         const formData = new FormData()
         files.forEach((file) => formData.append("files", file))
         if (groupId) {
@@ -285,106 +370,147 @@ const UploadArea = forwardRef(function UploadArea(
           timeout: 120000,
           withCredentials: true,
         })
-
         safeSetState(() =>
           setUploadProgress((prev) => prev.map((item) => ({ ...item, status: "completed", progress: 100 }))),
         )
 
         const scans = Array.isArray(response.data?.scans) ? response.data.scans : []
-        const scanIds = scans.map((scan) => scan.scanId || scan.id).filter(Boolean)
-
-        const uploadedCount = scanIds.length || files.length
-        safeSetState(() => setError(null))
+        const { successFiles, failedFiles, statuses, scanIds } = buildBatchResult(scans, response.data)
+        safeSetState(() => setFileStatusList(statuses))
+        const summaryMessage = summarizeStatus(successFiles.length, failedFiles.length)
+        safeSetState(() => setSrAnnouncement(summaryMessage))
         safeSetState(() =>
-          setSrAnnouncement(
-            `Uploaded ${uploadedCount} file${uploadedCount === 1 ? "" : "s"}. Start scanning later from the dashboard.`,
+          setError(failedFiles.length ? response.data?.message || "Some files failed to upload." : null),
+        )
+        completionPayload = {
+          batchId: response.data?.batchId,
+          groupId,
+          folderName: response.data?.batchName,
+          scanIds,
+          successFiles,
+          failedFiles,
+        }
+        clearAfterCompletion = failedFiles.length === 0
+      } else {
+        const file = files[0]
+        const formData = new FormData()
+        formData.append("file", file)
+        if (groupId) {
+          formData.append("group_id", groupId)
+        }
+        if (folderId) {
+          formData.append("folder_id", folderId)
+        }
+        formData.append("scan_mode", "upload_only")
+
+        safeSetState(() =>
+          setUploadProgress((prev) =>
+            prev.map((item, idx) =>
+              idx === 0
+                ? {
+                    ...item,
+                    status: "uploading",
+                    progress: 80,
+                  }
+                : item,
+            ),
           ),
         )
-        onUploadDeferred?.({
-          batchId: response.data.batchId,
+
+        const response = await axios.post(API_ENDPOINTS.upload, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+          timeout: 120000,
+          withCredentials: true,
+          onUploadProgress: (progressEvent) => {
+            if (!progressEvent.total) return
+            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+            safeSetState(() =>
+              setUploadProgress((prev) =>
+                prev.map((item, idx) => (idx === 0 ? { ...item, progress: percent } : item)),
+              ),
+            )
+          },
+        })
+        safeSetState(() =>
+          setUploadProgress((prev) =>
+            prev.map((item, idx) => (idx === 0 ? { ...item, status: "completed", progress: 100 } : item)),
+          ),
+        )
+
+        const deferredId = response.data?.scanId || response.data?.result?.scanId
+        const scanIds = deferredId ? [deferredId] : []
+        const successFiles = [
+          {
+            name: file.name,
+            scanId: deferredId || null,
+            batchId: response.data?.batchId || response.data?.folderId,
+            groupId,
+          },
+        ]
+        safeSetState(() =>
+          setFileStatusList((prev) =>
+            prev.length
+              ? prev.map((status, idx) => (idx === 0 ? { status: "success", message: "" } : status))
+              : [{ status: "success", message: "" }],
+          ),
+        )
+        const summaryMessage = summarizeStatus(successFiles.length, 0)
+        safeSetState(() => setSrAnnouncement(summaryMessage))
+        safeSetState(() => setError(null))
+        completionPayload = {
           scanIds,
           groupId,
-        })
-      } catch (err) {
-        const errorMsg = err.response?.data?.error || err.message || "Folder upload failed"
-        console.error("[UploadArea] Folder upload error:", err)
-        handleError(errorMsg)
-      } finally {
-        finalize()
+          batchId: response.data?.batchId || response.data?.folderId,
+          folderName: response.data?.folderName,
+          successFiles: successFiles.length
+            ? successFiles
+            : [
+                {
+                  name: file.name,
+                  scanId: null,
+                  batchId: response.data?.batchId || response.data?.folderId,
+                  groupId,
+                },
+              ],
+          failedFiles: [],
+        }
+        clearAfterCompletion = true
       }
-      return
-    }
-
-    const file = files[0]
-    const endpoint = API_ENDPOINTS.upload
-    const timeout = 120000
-
-    try {
-      const formData = new FormData()
-      formData.append("file", file)
-      if (groupId) {
-        formData.append("group_id", groupId)
-      }
-      if (folderId) {
-        formData.append("folder_id", folderId)
-      }
-      formData.append("scan_mode", "upload_only")
-
-      safeSetState(() =>
-        setUploadProgress((prev) =>
-          prev.map((item, idx) =>
-            idx === 0
-              ? {
-                  ...item,
-                  status: "uploading",
-                  progress: 80,
-                }
-              : item,
-          ),
-        ),
-      )
-
-      const response = await axios.post(endpoint, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-        timeout,
-        withCredentials: true,
-        onUploadProgress: (progressEvent) => {
-          if (!progressEvent.total) return
-          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-          safeSetState(() =>
-            setUploadProgress((prev) =>
-              prev.map((item, idx) => (idx === 0 ? { ...item, progress: percent } : item)),
-            ),
-          )
-        },
-      })
-
-      safeSetState(() =>
-        setUploadProgress((prev) =>
-          prev.map((item, idx) => (idx === 0 ? { ...item, status: "completed", progress: 100 } : item)),
-        ),
-      )
-
-      const deferredId = response.data?.scanId || response.data?.result?.scanId
-      const scanIds = deferredId ? [deferredId] : []
-      safeSetState(() => setError(null))
-      safeSetState(() =>
-        setSrAnnouncement(`Uploaded ${scanIds.length || 1} file${scanIds.length === 1 ? "" : "s"} successfully.`),
-      )
-      onUploadDeferred?.({
-        scanIds,
-        groupId,
-        batchId: response.data?.batchId || response.data?.folderId,
-        folderName: response.data?.folderName,
-      })
     } catch (err) {
       const errorMsg = err.response?.data?.error || err.message || "Upload failed"
       console.error("[UploadArea] File upload error:", err)
-      handleError(errorMsg)
+      safeSetState(() => setError(errorMsg))
+      safeSetState(() => setSrAnnouncement("Upload failed. No files were uploaded."))
+      safeSetState(() =>
+        setUploadProgress((prev) =>
+          prev.map((item) => ({
+            ...item,
+            status: "error",
+            progress: 0,
+            error: errorMsg,
+          })),
+        ),
+      )
+      const failedStatuses = files.map(() => ({ status: "error", message: errorMsg }))
+      safeSetState(() => setFileStatusList(failedStatuses))
+      completionPayload = {
+        batchId: null,
+        groupId,
+        scanIds: [],
+        successFiles: [],
+        failedFiles: files.map((file) => ({
+          name: file.name,
+          error: errorMsg,
+        })),
+      }
+      clearAfterCompletion = false
     } finally {
-      finalize()
+      if (completionPayload) {
+        onUploadDeferred?.(completionPayload)
+      }
+      finalize(clearAfterCompletion)
     }
   }
 
@@ -491,35 +617,58 @@ const UploadArea = forwardRef(function UploadArea(
                   {selectedFiles.length} file{selectedFiles.length > 1 ? "s" : ""} ready for upload
                 </p>
                 <div className="space-y-3">
-                  {selectedFiles.map((file, idx) => (
-                    <div
-                      key={`${file.name}-${file.size}-${file.lastModified}-${idx}`}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-3 py-2 rounded-lg border border-blue-100 bg-white/70 dark:bg-slate-900/60 dark:border-slate-700"
-                    >
-                      <div className="truncate">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{file.name}</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                          {formatFileSize(file.size)}
-                        </p>
+                  {selectedFiles.map((file, idx) => {
+                    const statusInfo = fileStatusList[idx] || { status: "pending", message: "" }
+                    const statusLabel =
+                      statusInfo.status === "success"
+                        ? "Uploaded"
+                        : statusInfo.status === "error"
+                          ? "Failed"
+                          : "Pending"
+                    const statusColor =
+                      statusInfo.status === "success"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : statusInfo.status === "error"
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-slate-500 dark:text-slate-400"
+                    return (
+                      <div
+                        key={`${file.name}-${file.size}-${file.lastModified}-${idx}`}
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-3 py-2 rounded-lg border border-blue-100 bg-white/70 dark:bg-slate-900/60 dark:border-slate-700"
+                      >
+                        <div className="truncate">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{file.name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {formatFileSize(file.size)}
+                          </p>
+                          <p className={`text-xs font-semibold mt-1 ${statusColor}`}>
+                            {statusLabel}
+                            {statusInfo.status === "error" && statusInfo.message && (
+                              <span className="ml-2 font-normal text-slate-500 dark:text-slate-400">
+                                {statusInfo.message}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPreview(file)}
+                            className="text-xs font-semibold px-3 py-1.5 rounded-full border border-indigo-500 text-indigo-600 hover:bg-indigo-500 hover:text-white transition"
+                          >
+                            Preview
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSelectedFile(idx)}
+                            className="text-xs font-semibold px-3 py-1.5 rounded-full border border-red-400 text-red-600 hover:bg-red-500 hover:text-white transition"
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenPreview(file)}
-                          className="text-xs font-semibold px-3 py-1.5 rounded-full border border-indigo-500 text-indigo-600 hover:bg-indigo-500 hover:text-white transition"
-                        >
-                          Preview
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSelectedFile(idx)}
-                          className="text-xs font-semibold px-3 py-1.5 rounded-full border border-red-400 text-red-600 hover:bg-red-500 hover:text-white transition"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
 

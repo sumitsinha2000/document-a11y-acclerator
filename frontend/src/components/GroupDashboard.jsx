@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
 import GroupTreeSidebar from "./GroupTreeSidebar"
@@ -59,31 +59,35 @@ export default function GroupDashboard({
   const latestRequestRef = useRef(0)
   const cacheRef = useRef(new Map())
   const uploadAreaRef = useRef(null)
+  const prevUploadSectionOpenRef = useRef(uploadSectionOpen)
 
-  const notifyFolderStatusUpdate = (folderIdOverride, groupIdOverride) => {
-    const resolvedFolderId =
-      folderIdOverride ??
-      nodeData?.batchId ??
-      selectedNode?.id ??
-      uploadContext.folderId ??
-      null
-    const resolvedGroupId =
-      groupIdOverride ??
-      nodeData?.groupId ??
-      selectedNode?.data?.groupId ??
-      selectedNode?.data?.group_id ??
-      uploadContext.groupId ??
-      null
+  const notifyFolderStatusUpdate = useCallback(
+    (folderIdOverride, groupIdOverride) => {
+      const resolvedFolderId =
+        folderIdOverride ??
+        nodeData?.batchId ??
+        selectedNode?.id ??
+        uploadContext.folderId ??
+        null
+      const resolvedGroupId =
+        groupIdOverride ??
+        nodeData?.groupId ??
+        selectedNode?.data?.groupId ??
+        selectedNode?.data?.group_id ??
+        uploadContext.groupId ??
+        null
 
-    if (!resolvedFolderId || !resolvedGroupId) {
-      return
-    }
+      if (!resolvedFolderId || !resolvedGroupId) {
+        return
+      }
 
-    onFolderStatusUpdate({
-      folderId: resolvedFolderId,
-      groupId: resolvedGroupId,
-    })
-  }
+      onFolderStatusUpdate({
+        folderId: resolvedFolderId,
+        groupId: resolvedGroupId,
+      })
+    },
+    [nodeData, onFolderStatusUpdate, selectedNode, uploadContext],
+  )
 
   useEffect(() => {
     loadInitialData()
@@ -102,6 +106,61 @@ export default function GroupDashboard({
       return
     }
   }, [uploadSectionOpen])
+
+  useEffect(() => {
+    if (prevUploadSectionOpenRef.current && !uploadSectionOpen && !isUploadAreaScanning) {
+      uploadAreaRef.current?.resetUploads?.()
+    }
+    prevUploadSectionOpenRef.current = uploadSectionOpen
+  }, [uploadSectionOpen, isUploadAreaScanning])
+
+  const focusUploadPanelHeading = useCallback(() => {
+    const schedule =
+      typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame
+        : (cb) => setTimeout(cb, 0)
+    const cancel =
+      typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
+        ? window.cancelAnimationFrame
+        : (id) => clearTimeout(id)
+    let frameId = null
+    let attempts = 0
+    const tryFocus = () => {
+      if (attempts > 5) {
+        if (frameId) {
+          cancel(frameId)
+        }
+        return
+      }
+      attempts += 1
+      const heading =
+        typeof document !== "undefined" ? document.getElementById(UPLOAD_PANEL_HEADING_ID) : null
+      if (heading && typeof heading.focus === "function") {
+        heading.focus()
+        if (frameId) {
+          cancel(frameId)
+        }
+        return
+      }
+      frameId = schedule(tryFocus)
+    }
+    frameId = schedule(tryFocus)
+  }, [])
+
+  const handleUploadAreaDeferred = useCallback(
+    (payload = {}) => {
+      const failedCount = Array.isArray(payload?.failedFiles) ? payload.failedFiles.length : 0
+      const successCount = Array.isArray(payload?.successFiles) ? payload.successFiles.length : 0
+      if (successCount > 0) {
+        notifyFolderStatusUpdate(payload.batchId ?? uploadContext.folderId, payload.groupId ?? uploadContext.groupId)
+      }
+      onUploadDeferred?.(payload)
+      if (failedCount > 0) {
+        focusUploadPanelHeading()
+      }
+    },
+    [focusUploadPanelHeading, notifyFolderStatusUpdate, onUploadDeferred, uploadContext.folderId, uploadContext.groupId],
+  )
 
   useEffect(() => {
     if (!shouldAutoOpenFileDialog || !uploadSectionOpen) {
@@ -166,6 +225,14 @@ export default function GroupDashboard({
     }
   }
 
+  const handleCloseUploadSectionRequest = useCallback(() => {
+    if (isUploadAreaScanning) {
+      return
+    }
+    uploadAreaRef.current?.resetUploads?.()
+    onCloseUploadSection()
+  }, [isUploadAreaScanning, onCloseUploadSection])
+
   const renderUploadView = () => {
     const normalizedFolderId = normalizeId(uploadContext.folderId)
     const normalizedGroupId = normalizeId(uploadContext.groupId)
@@ -193,7 +260,7 @@ export default function GroupDashboard({
       >
         <div className="flex items-center gap-4">
           <button
-            onClick={onCloseUploadSection}
+            onClick={handleCloseUploadSectionRequest}
             disabled={isUploadAreaScanning}
             aria-disabled={isUploadAreaScanning}
             className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-60 disabled:cursor-not-allowed"
@@ -204,7 +271,11 @@ export default function GroupDashboard({
             </svg>
           </button>
           <div>
-            <h2 id={UPLOAD_PANEL_HEADING_ID} className="text-2xl font-bold text-slate-900 dark:text-white">
+            <h2
+              id={UPLOAD_PANEL_HEADING_ID}
+              tabIndex={-1}
+              className="text-2xl font-bold text-slate-900 dark:text-white"
+            >
               Upload documents to{" "}
               <span className="text-indigo-600 dark:text-indigo-400">{folderLabel}</span>
             </h2>
@@ -213,7 +284,7 @@ export default function GroupDashboard({
 
         <UploadArea
           ref={uploadAreaRef}
-          onUploadDeferred={onUploadDeferred}
+          onUploadDeferred={handleUploadAreaDeferred}
           autoSelectGroupId={uploadContext.groupId}
           autoSelectFolderId={uploadContext.folderId}
           onScanningChange={setUploadAreaScanning}
@@ -543,7 +614,7 @@ export default function GroupDashboard({
       return
     }
     if (uploadSectionOpen) {
-      onCloseUploadSection()
+      handleCloseUploadSectionRequest()
       return
     }
     onUploadRequest()

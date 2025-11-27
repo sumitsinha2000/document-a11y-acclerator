@@ -125,17 +125,20 @@ function AppContent() {
     fetchScanHistory()
   }
 
-  const handleUploadDeferred = (details) => {
-    const count = details?.scanIds?.length ?? 0
-    const hasFolder = Boolean(details?.batchId)
-    const message =
-      count > 1
-        ? `${count} files uploaded${hasFolder ? " in the folder" : ""}. Begin scanning whenever you're ready from the dashboard or history view.`
-        : count === 1
-          ? "File uploaded successfully. Start the scan when you're ready from the dashboard or history view."
-          : "Upload completed. Start scanning whenever you're ready from the dashboard or history view."
-    showSuccess(message)
+  const handleUploadDeferred = (details, { suppressToast = false } = {}) => {
+    const successCount = Array.isArray(details?.successFiles)
+      ? details.successFiles.length
+      : details?.scanIds?.length ?? 0
+    const failureCount = Array.isArray(details?.failedFiles) ? details.failedFiles.length : 0
+    if (!suppressToast) {
+      if (failureCount === 0) {
+        showSuccess(`${successCount} files uploaded.`)
+      } else {
+        showError(`${successCount} uploaded, ${failureCount} failed.`)
+      }
+    }
     fetchScanHistory()
+    return { successCount, failureCount }
   }
 
   const handleDashboardUploadComplete = (scans) => {
@@ -144,8 +147,13 @@ function AppContent() {
   }
 
   const handleDashboardUploadDeferred = (details) => {
-    handleUploadDeferred(details)
-    setUploadPanelOpen(false)
+    const { successCount, failureCount } = handleUploadDeferred(details, { suppressToast: true })
+    if (failureCount === 0) {
+      setUploadPanelOpen(false)
+      showSuccess(`${successCount} files uploaded.`)
+    } else {
+      showError(`${successCount} uploaded, ${failureCount} failed.`)
+    }
     const folderId = details?.batchId
     if (folderId) {
       setLatestUploadContext({
