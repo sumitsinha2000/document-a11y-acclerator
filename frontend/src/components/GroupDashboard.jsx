@@ -556,10 +556,9 @@ export default function GroupDashboard({
     nodeData?.fixSuggestions
   const folderScans = Array.isArray(nodeData?.scans) ? nodeData.scans : []
   const folderFileCount = nodeData?.file_count ?? nodeData?.totalFiles ?? folderScans.length ?? 0
+  const scannableScanCount = folderScans.filter((scan) => isScannableStatus(scan)).length
   const folderReadyToScan =
-    nodeData?.type === "batch" &&
-    folderFileCount > 0 &&
-    folderScans.every((scan) => isScannableStatus(scan))
+    nodeData?.type === "batch" && folderFileCount > 0 && scannableScanCount > 0
   const folderBatchId = nodeData?.type === "batch" ? nodeData.batchId || selectedNode?.id : null
   const activeDashboardName =
     nodeData?.type === "group"
@@ -657,7 +656,7 @@ export default function GroupDashboard({
                                 View Full Report
                               </button>
                             )} */}
-                        {folderBatchId && (
+                        {folderBatchId && folderReadyToScan && (
                           <button
                             type="button"
                             onClick={handleBeginFolderScan}
