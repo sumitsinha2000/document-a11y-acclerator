@@ -15,6 +15,8 @@ const SCANNABLE_STATUSES = new Set(["uploaded", "scanned"])
 const getStatusCode = (value) =>
   resolveEntityStatus(typeof value === "object" ? value : { status: value }).code
 const isScannableStatus = (entity) => SCANNABLE_STATUSES.has(getStatusCode(entity))
+const UPLOAD_PANEL_ID = "group-dashboard-upload-panel"
+const UPLOAD_PANEL_HEADING_ID = "group-dashboard-upload-heading"
 
 export default function GroupDashboard({
   onSelectScan,
@@ -47,11 +49,14 @@ export default function GroupDashboard({
     folderId: null,
     folderName: "",
   })
+  const [isUploadAreaScanning, setUploadAreaScanning] = useState(false)
+  const [shouldAutoOpenFileDialog, setShouldAutoOpenFileDialog] = useState(false)
 
   const isFolderSelected = selectedNode?.type === "batch"
 
   const latestRequestRef = useRef(0)
   const cacheRef = useRef(new Map())
+  const uploadAreaRef = useRef(null)
 
   const notifyFolderStatusUpdate = (folderIdOverride, groupIdOverride) => {
     const resolvedFolderId =
@@ -87,6 +92,46 @@ export default function GroupDashboard({
       onCloseUploadSection()
     }
   }, [isFolderSelected, uploadSectionOpen, onCloseUploadSection])
+
+  useEffect(() => {
+    if (!uploadSectionOpen) {
+      setUploadAreaScanning(false)
+      setShouldAutoOpenFileDialog(false)
+      return
+    }
+  }, [uploadSectionOpen])
+
+  useEffect(() => {
+    if (!shouldAutoOpenFileDialog || !uploadSectionOpen) {
+      return
+    }
+    const schedule = typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame
+      : (cb) => setTimeout(cb, 0)
+    const cancelSchedule = typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
+      ? window.cancelAnimationFrame
+      : (id) => clearTimeout(id)
+    let cancelled = false
+    let frameId = null
+    const tryOpenDialog = () => {
+      if (cancelled) {
+        return
+      }
+      if (uploadAreaRef.current) {
+        uploadAreaRef.current.openFileDialog()
+        setShouldAutoOpenFileDialog(false)
+        return
+      }
+      frameId = schedule(tryOpenDialog)
+    }
+    frameId = schedule(tryOpenDialog)
+    return () => {
+      cancelled = true
+      if (frameId) {
+        cancelSchedule(frameId)
+      }
+    }
+  }, [shouldAutoOpenFileDialog, uploadSectionOpen])
 
   useEffect(() => {
     if (!folderNavigationContext?.folderId || !folderNavigationContext?.groupId) {
@@ -137,11 +182,19 @@ export default function GroupDashboard({
     const folderLabel = uploadContext.folderName || "selected folder"
 
     return (
-      <div className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900/80 space-y-8">
+      <div
+        id={UPLOAD_PANEL_ID}
+        role="region"
+        aria-labelledby={UPLOAD_PANEL_HEADING_ID}
+        aria-busy={isUploadAreaScanning || undefined}
+        className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900/80 space-y-8"
+      >
         <div className="flex items-center gap-4">
           <button
             onClick={onCloseUploadSection}
-            className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+            disabled={isUploadAreaScanning}
+            aria-disabled={isUploadAreaScanning}
+            className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-60 disabled:cursor-not-allowed"
             aria-label="Back to dashboard"
           >
             <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
@@ -149,17 +202,19 @@ export default function GroupDashboard({
             </svg>
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+            <h2 id={UPLOAD_PANEL_HEADING_ID} className="text-2xl font-bold text-slate-900 dark:text-white">
               Upload documents to{" "}
               <span className="text-indigo-600 dark:text-indigo-400">{folderLabel}</span>
-            </h1>
+            </h2>
           </div>
         </div>
 
         <UploadArea
+          ref={uploadAreaRef}
           onUploadDeferred={onUploadDeferred}
           autoSelectGroupId={uploadContext.groupId}
           autoSelectFolderId={uploadContext.folderId}
+          onScanningChange={setUploadAreaScanning}
         />
 
       </div>
@@ -468,6 +523,18 @@ export default function GroupDashboard({
     }
   }
 
+  const handleToggleUploadSection = () => {
+    if (isUploadAreaScanning) {
+      return
+    }
+    if (uploadSectionOpen) {
+      onCloseUploadSection()
+      return
+    }
+    onUploadRequest()
+    setShouldAutoOpenFileDialog(true)
+  }
+
   if (initialLoading) {
     return (
       <div className="flex h-screen bg-slate-50 dark:bg-slate-900 items-center justify-center">
@@ -502,9 +569,14 @@ export default function GroupDashboard({
         : nodeData?.type === "file"
           ? targetFileName
           : selectedNode?.data?.name || "Project dashboard"
-  const canUploadNew = isFolderSelected && !uploadSectionOpen
-  const shouldShowDashboardActions = nodeData?.type === "batch" && !uploadSectionOpen
-  const canShowUploadButton = canUploadNew && nodeData?.type === "batch"
+  const shouldShowDashboardActions = nodeData?.type === "batch"
+  const canShowUploadButton = nodeData?.type === "batch" && isFolderSelected
+  const uploadButtonDisabled = isUploadAreaScanning
+  const uploadButtonLabel = uploadSectionOpen
+    ? uploadButtonDisabled
+      ? "Uploading..."
+      : "Close uploader"
+    : "Upload files"
   const canScanFolder = nodeData?.type === "batch" && folderReadyToScan
   const scanFolderLabel = startingFolderScan ? "Starting..." : "Scan Folder"
   const remediateFolderLabel = remediatingFolder ? "Remediating..." : "Remediate Folder"
@@ -534,46 +606,45 @@ export default function GroupDashboard({
               data-group-dashboard-details="true"
             >
               <div className="px-6 py-6 space-y-6">
-                {(!uploadSectionOpen || !isFolderSelected) && (
-                  <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800/70 dark:bg-[#0f1c38]/70">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">
-                          Dashboard: <span className="text-indigo-600 dark:text-indigo-400">{activeDashboardName}</span>
-                        </h1>
-                        {isRefreshing && (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-300">
-                            <svg
-                              className="h-3.5 w-3.5 animate-spin text-indigo-500 dark:text-indigo-400"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                            >
-                              <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"></circle>
-                              <path
-                                className="opacity-75"
-                                d="M4 12a8 8 0 018-8"
-                                strokeWidth="4"
-                                strokeLinecap="round"
-                              ></path>
-                            </svg>
-                            Refreshing…
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-slate-500 mt-1 dark:text-slate-300">
-                        {selectedNode
-                          ? `Viewing ${
-                              selectedNode.type === "group"
-                                ? "project"
-                                : selectedNode.type === "batch"
-                                  ? "folder"
-                                  : "file"
-                            } details`
-                          : "Select a project to start exploring accessibility insights."}
-                      </p>
+                <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800/70 dark:bg-[#0f1c38]/70">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">
+                        Dashboard: <span className="text-indigo-600 dark:text-indigo-400">{activeDashboardName}</span>
+                      </h1>
+                      {isRefreshing && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-300">
+                          <svg
+                            className="h-3.5 w-3.5 animate-spin text-indigo-500 dark:text-indigo-400"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                          >
+                            <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"></circle>
+                            <path
+                              className="opacity-75"
+                              d="M4 12a8 8 0 018-8"
+                              strokeWidth="4"
+                              strokeLinecap="round"
+                            ></path>
+                          </svg>
+                          Refreshing…
+                        </span>
+                      )}
                     </div>
-                    {shouldShowDashboardActions && (
+                    <p className="text-sm text-slate-500 mt-1 dark:text-slate-300">
+                      {selectedNode
+                        ? `Viewing ${
+                            selectedNode.type === "group"
+                              ? "project"
+                              : selectedNode.type === "batch"
+                                ? "folder"
+                                : "file"
+                          } details`
+                        : "Select a project to start exploring accessibility insights."}
+                    </p>
+                  </div>
+                  {shouldShowDashboardActions && (
                       <div className="flex-shrink-0 flex items-center gap-2">
                         {nodeData?.type === "batch" && (
                           <>
@@ -615,170 +686,196 @@ export default function GroupDashboard({
                         {canShowUploadButton && (
                           <button
                             type="button"
-                            onClick={onUploadRequest}
-                            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+                            onClick={handleToggleUploadSection}
+                            disabled={uploadButtonDisabled}
+                            aria-disabled={uploadButtonDisabled}
+                            aria-busy={uploadButtonDisabled}
+                            aria-pressed={uploadSectionOpen}
+                            aria-controls={UPLOAD_PANEL_ID}
+                            aria-expanded={uploadSectionOpen}
+                            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-60 disabled:cursor-not-allowed"
                           >
-                            <svg
-                              className="h-4 w-4"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                              viewBox="0 0 24 24"
-                              aria-hidden="true"
-                            >
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V6m0 0l-3 3m3-3 3 3" />
-                            </svg>
-                            Upload Files
+                            {!uploadSectionOpen && (
+                              <svg
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V6m0 0l-3 3m3-3 3 3" />
+                              </svg>
+                            )}
+                            {uploadSectionOpen && (
+                              <svg
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            )}
+                            {uploadButtonLabel}
                           </button>
                         )}
                       </div>
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600"></div>
             </div>
-          ) : uploadSectionOpen && isFolderSelected ? (
-            renderUploadView()
-          ) : nodeData ? (
+          ) : (
             <>
-              {nodeData.type === "group" && (
-                <div className="px-6 py-6 space-y-6">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
-                      <div className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
-                        {nodeData.avg_compliance || 0}%
+              {uploadSectionOpen && isFolderSelected && (
+                <div className="px-6 py-6">
+                  {renderUploadView()}
+                </div>
+              )}
+              {nodeData ? (
+                <>
+                  {nodeData.type === "group" && (
+                    <div className="px-6 py-6 space-y-6">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
+                          <div className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
+                            {nodeData.avg_compliance || 0}%
+                          </div>
+                          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Avg Compliance</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
+                          <div className="text-3xl font-bold text-rose-600 dark:text-rose-400">
+                            {nodeData.total_issues || 0}
+                          </div>
+                          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Issues</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
+                          <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
+                            {nodeData.issues_fixed || 0}
+                          </div>
+                          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Fixed Issues</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
+                          <div className="text-3xl font-bold text-slate-900 dark:text-white">
+                            {nodeData.file_count || 0}
+                          </div>
+                          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Files</div>
+                        </div>
                       </div>
-                      <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Avg Compliance</div>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
-                      <div className="text-3xl font-bold text-rose-600 dark:text-rose-400">
-                        {nodeData.total_issues || 0}
-                      </div>
-                      <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Issues</div>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
-                      <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
-                        {nodeData.issues_fixed || 0}
-                      </div>
-                      <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Fixed Issues</div>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
-                      <div className="text-3xl font-bold text-slate-900 dark:text-white">
-                        {nodeData.file_count || 0}
-                      </div>
-                      <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Files</div>
-                    </div>
-                  </div>
 
-                  {nodeData.description && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
-                      <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">Description</h3>
-                      <p className="text-slate-600 dark:text-slate-400">{nodeData.description}</p>
+                      {nodeData.description && (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
+                          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">Description</h3>
+                          <p className="text-slate-600 dark:text-slate-400">{nodeData.description}</p>
+                        </div>
+                      )}
+
+                      <GroupInsightPanel
+                        categoryTotals={nodeData.category_totals}
+                        severityTotals={nodeData.severity_totals}
+                        statusCounts={nodeData.status_counts}
+                        totalFiles={nodeData.file_count}
+                        totalIssues={nodeData.total_issues}
+                      />
                     </div>
                   )}
 
-                  <GroupInsightPanel
-                    categoryTotals={nodeData.category_totals}
-                    severityTotals={nodeData.severity_totals}
-                    statusCounts={nodeData.status_counts}
-                    totalFiles={nodeData.file_count}
-                    totalIssues={nodeData.total_issues}
-                  />
-                </div>
-              )}
+                  {nodeData.type === "file" && (
+                    <ReportViewer
+                      scans={[
+                        {
+                          ...nodeData,
+                          scanId: targetScanId,
+                          fileName: targetFileName,
+                          fixes: fileFixes,
+                        },
+                      ]}
+                      onBack={() => handleNodeSelect(null)}
+                      onBackToFolder={
+                        nodeData.batchId || selectedNode?.data?.batchId
+                          ? () => {
+                              const batchId = nodeData.batchId || selectedNode?.data?.batchId
+                              handleNodeSelect({
+                                type: "batch",
+                                id: batchId,
+                                data: {
+                                  batchId,
+                                  name: nodeData.batchName || nodeData.folderName || selectedNode?.data?.name,
+                                },
+                              })
+                            }
+                          : undefined
+                      }
+                      sidebarOpen={false}
+                      onScanComplete={refreshSelectedNodeData}
+                    />
+                  )}
 
-              {nodeData.type === "file" && (
-                <ReportViewer
-                  scans={[
-                    {
-                      ...nodeData,
-                      scanId: targetScanId,
-                      fileName: targetFileName,
-                      fixes: fileFixes,
-                    },
-                  ]}
-                  onBack={() => handleNodeSelect(null)}
-                  onBackToFolder={
-                    nodeData.batchId || selectedNode?.data?.batchId
-                      ? () => {
-                          const batchId = nodeData.batchId || selectedNode?.data?.batchId
-                          handleNodeSelect({
-                            type: "batch",
-                            id: batchId,
-                            data: {
-                              batchId,
-                              name: nodeData.batchName || nodeData.folderName || selectedNode?.data?.name,
-                            },
-                          })
-                        }
-                      : undefined
-                  }
-                  sidebarOpen={false}
-                  onScanComplete={refreshSelectedNodeData}
-                />
-              )}
+                  {nodeData.type === "batch" && (
+                    <div className="px-6 py-6 space-y-6">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-[#111b36]">
+                        <div className="grid grid-cols-4 gap-4">
+                          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
+                            <div className="text-2xl font-bold text-slate-900 dark:text-white">
+                              {nodeData.totalIssues || 0}
+                            </div>
+                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Issues</div>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
+                            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                              {nodeData.fixedIssues || 0}
+                            </div>
+                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Fixed</div>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
+                            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                              {nodeData.remainingIssues || 0}
+                            </div>
+                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Remaining</div>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
+                            <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-300">
+                              {nodeData.unprocessedFiles || 0}
+                            </div>
+                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Unprocessed</div>
+                          </div>
+                        </div>
 
-              {nodeData.type === "batch" && (
-                <div className="px-6 py-6 space-y-6">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-[#111b36]">
-                    <div className="grid grid-cols-4 gap-4">
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
-                        <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                          {nodeData.totalIssues || 0}
+                        <div className="mt-6">
+                          <BatchInsightPanel scans={nodeData.scans} />
                         </div>
-                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Issues</div>
-                      </div>
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
-                        <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                          {nodeData.fixedIssues || 0}
-                        </div>
-                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Fixed</div>
-                      </div>
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
-                        <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                          {nodeData.remainingIssues || 0}
-                        </div>
-                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Remaining</div>
-                      </div>
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
-                        <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-300">
-                          {nodeData.unprocessedFiles || 0}
-                        </div>
-                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Unprocessed</div>
+
+                        {folderReadyToScan && (
+                          <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-slate-700 dark:border-indigo-500/30 dark:bg-[#131f3e] dark:text-slate-300">
+                            This folder is ready to scan. Use the "Scan Folder" button to generate accessibility results.
+                          </div>
+                        )}
                       </div>
                     </div>
-
-                    <div className="mt-6">
-                      <BatchInsightPanel scans={nodeData.scans} />
-                    </div>
-
-                    {folderReadyToScan && (
-                      <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-slate-700 dark:border-indigo-500/30 dark:bg-[#131f3e] dark:text-slate-300">
-                        This folder is ready to scan. Use the "Scan Folder" button to generate accessibility results.
-                      </div>
-                    )}
-                  </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <svg className="w-20 h-20 text-slate-300 dark:text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                    />
+                  </svg>
+                  <h3 className="text-lg font-semibold text-slate-800 dark:text-white mb-2">No Selection</h3>
+                  <p className="text-slate-500 dark:text-slate-400">Select a project or file from the sidebar to view details</p>
                 </div>
               )}
             </>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <svg className="w-20 h-20 text-slate-300 dark:text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                />
-              </svg>
-              <h3 className="text-lg font-semibold text-slate-800 dark:text-white mb-2">No Selection</h3>
-              <p className="text-slate-500 dark:text-slate-400">Select a project or file from the sidebar to view details</p>
-            </div>
           )}
         </div>
       </div>

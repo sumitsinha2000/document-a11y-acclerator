@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle, useId } from "react"
 import axios from "axios"
 import UploadProgressToast from "./UploadProgressToast"
 import { API_ENDPOINTS } from "../config/api"
@@ -13,11 +13,15 @@ const formatFileSize = (bytes) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
-export default function UploadArea({
-  onUploadDeferred,
-  autoSelectGroupId = null,
-  autoSelectFolderId = null,
-}) {
+const UploadArea = forwardRef(function UploadArea(
+  {
+    onUploadDeferred,
+    autoSelectGroupId = null,
+    autoSelectFolderId = null,
+    onScanningChange = null,
+  },
+  ref,
+) {
   const [isDragging, setIsDragging] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
   const [error, setError] = useState(null)
@@ -29,6 +33,8 @@ export default function UploadArea({
   const [previewFile, setPreviewFile] = useState(null)
   const [previewUrl, setPreviewUrl] = useState(null)
   const previewDialogRef = useRef(null)
+  const hiddenFileInputId = useId()
+  const hiddenFileInputLabelId = `${hiddenFileInputId}-label`
   useEffect(() => {
     return () => {
       if (previewUrl) {
@@ -56,6 +62,28 @@ export default function UploadArea({
       }
     }
   }, [uploadProgress])
+
+  useEffect(() => {
+    onScanningChange?.(isScanning)
+  }, [isScanning, onScanningChange])
+
+  useEffect(() => {
+    return () => {
+      onScanningChange?.(false)
+    }
+  }, [onScanningChange])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      openFileDialog: () => {
+        if (!isScanning && fileInputRef.current) {
+          fileInputRef.current.click()
+        }
+      },
+    }),
+    [isScanning],
+  )
 
   const handleDragOver = (e) => {
     e.preventDefault()
@@ -404,7 +432,11 @@ export default function UploadArea({
                   <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
                     You can select multiple files at once
                   </p>
+                  <label htmlFor={hiddenFileInputId} id={hiddenFileInputLabelId} className="sr-only">
+                    Choose PDF files to upload for accessibility scanning
+                  </label>
                   <input
+                    id={hiddenFileInputId}
                     ref={fileInputRef}
                     type="file"
                     accept=".pdf"
@@ -412,7 +444,7 @@ export default function UploadArea({
                     onChange={handleFileInput}
                     className="hidden"
                     disabled={isScanning}
-                    aria-label="Choose PDF files to upload for accessibility scanning"
+                    aria-labelledby={hiddenFileInputLabelId}
                   />
                 </>
               )}
@@ -585,4 +617,6 @@ export default function UploadArea({
       <UploadProgressToast uploads={uploadProgress} onRemove={handleRemoveUpload} />
     </>
   )
-}
+})
+
+export default UploadArea
