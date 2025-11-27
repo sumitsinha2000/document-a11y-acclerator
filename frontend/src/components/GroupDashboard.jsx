@@ -12,9 +12,11 @@ import { resolveEntityStatus } from "../utils/statuses"
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id))
 const getCacheKey = (node) => (node ? `${node.type}:${normalizeId(node.id)}` : "")
 const SCANNABLE_STATUSES = new Set(["uploaded", "scanned"])
+const REMEDIATION_STATUSES = new Set(["scanned", "partially_fixed"])
 const getStatusCode = (value) =>
   resolveEntityStatus(typeof value === "object" ? value : { status: value }).code
 const isScannableStatus = (entity) => SCANNABLE_STATUSES.has(getStatusCode(entity))
+const isRemediableStatus = (entity) => REMEDIATION_STATUSES.has(getStatusCode(entity))
 const UPLOAD_PANEL_ID = "group-dashboard-upload-panel"
 const UPLOAD_PANEL_HEADING_ID = "group-dashboard-upload-heading"
 
@@ -487,6 +489,19 @@ export default function GroupDashboard({
       return
     }
 
+    const folderScans = Array.isArray(nodeData?.scans) ? nodeData.scans : []
+    const hasUploadedScans = folderScans.some((scan) => getStatusCode(scan) === "uploaded")
+    if (hasUploadedScans) {
+      showError("Scan all uploaded files before triggering remediation.")
+      return
+    }
+    const hasRemediableScans = folderScans.some((scan) => isRemediableStatus(scan))
+
+    if (!hasRemediableScans) {
+      showError("Remediation requires at least one scanned file with issues.")
+      return
+    }
+
     try {
       setRemediatingFolder(true)
       const response = await axios.post(`${API_BASE_URL}/api/batch/${folderId}/fix-all`)
@@ -555,6 +570,8 @@ export default function GroupDashboard({
     nodeData?.results?.fixSuggestions ??
     nodeData?.fixSuggestions
   const folderScans = Array.isArray(nodeData?.scans) ? nodeData.scans : []
+  const remediableScanCount = folderScans.filter((scan) => isRemediableStatus(scan)).length
+  const folderHasUploadedScans = folderScans.some((scan) => getStatusCode(scan) === "uploaded")
   const folderFileCount = nodeData?.file_count ?? nodeData?.totalFiles ?? folderScans.length ?? 0
   const scannableScanCount = folderScans.filter((scan) => isScannableStatus(scan)).length
   const folderReadyToScan =
@@ -579,7 +596,8 @@ export default function GroupDashboard({
   const canScanFolder = nodeData?.type === "batch" && folderReadyToScan
   const scanFolderLabel = startingFolderScan ? "Starting..." : "Scan Folder"
   const remediateFolderLabel = remediatingFolder ? "Remediating..." : "Remediate Folder"
-  const folderHasIssues = nodeData?.type === "batch" && (nodeData?.totalIssues || 0) > 0
+  const folderHasRemediableIssues = nodeData?.type === "batch" && remediableScanCount > 0
+  const canRemediateFolder = folderHasRemediableIssues && !folderHasUploadedScans
 
   return (
     <div className="bg-slate-50 text-slate-900 dark:bg-gradient-to-br dark:from-[#040714] dark:via-[#080f24] dark:to-[#0d1a3a] dark:text-slate-100">
@@ -668,7 +686,7 @@ export default function GroupDashboard({
                                 {scanFolderLabel}
                               </button>
                             )}
-                            {folderHasIssues && (
+                            {canRemediateFolder && (
                               <button
                                 type="button"
                                 onClick={handleRemediateFolder}
