@@ -92,6 +92,7 @@ async def get_group_details(group_id: str):
         total_issues = 0
         issues_fixed = 0
         total_compliance = 0
+        scored_count = 0
         fixed_count = 0
         severity_totals = {"high": 0, "medium": 0, "low": 0}
         category_totals: Dict[str, int] = {}
@@ -113,10 +114,11 @@ async def get_group_details(group_id: str):
             status_counts[status_code] = status_counts.get(status_code, 0) + 1
 
             total_issues += summary.get("totalIssues", 0)
-            compliance_score = summary.get("complianceScore", 0) or 0
-            if status_code == "uploaded":
-                compliance_score = 0
-            total_compliance += compliance_score
+            compliance_score = summary.get("complianceScore")
+            has_valid_score = status_code != "uploaded" and compliance_score is not None
+            if has_valid_score:
+                total_compliance += compliance_score
+                scored_count += 1
 
             scan_issues_fixed = scan.get("issues_fixed")
             if scan_issues_fixed is None:
@@ -144,7 +146,7 @@ async def get_group_details(group_id: str):
                 fixed_count += 1
 
         avg_compliance = (
-            round(total_compliance / total_files, 2) if total_files > 0 else 0
+            round(total_compliance / scored_count, 2) if scored_count > 0 else 0
         )
 
         group = group_rows[0]
