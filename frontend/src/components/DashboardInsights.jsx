@@ -159,6 +159,7 @@ export function BatchInsightPanel({ scans }) {
     return null
   }
 
+  const hasScannedFiles = scans.some((scan) => resolveEntityStatus(scan).code !== "uploaded")
   const statusTotals = new Map()
   const issuesByFile = []
 
@@ -180,17 +181,22 @@ export function BatchInsightPanel({ scans }) {
     .filter(([, value]) => value > 0)
     .sort((a, b) => b[1] - a[1])
 
-  const topAttentionFiles = issuesByFile
-    .filter((file) => typeof file.totalIssues === "number")
-    .sort((a, b) => b.totalIssues - a.totalIssues)
-    .slice(0, 3)
+  const topAttentionFiles = hasScannedFiles
+    ? issuesByFile
+        .filter((file) => typeof file.totalIssues === "number")
+        .sort((a, b) => b.totalIssues - a.totalIssues)
+        .slice(0, 3)
+    : []
+
+  const progressHeading = totalScans === 1 ? "File Progress" : "Files Progress"
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  
       {sortedStatuses.length > 0 && (
         <section className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-5">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wide">
-            Scan Progress
+            {progressHeading}
           </h3>
           <div className="mt-4 space-y-3">
             {sortedStatuses.map(([statusKey, count]) => {
