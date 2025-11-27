@@ -11,7 +11,7 @@ import { resolveEntityStatus } from "../utils/statuses"
 
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id))
 const getCacheKey = (node) => (node ? `${node.type}:${normalizeId(node.id)}` : "")
-const SCANNABLE_STATUSES = new Set(["uploaded", "scanned"])
+const SCANNABLE_STATUSES = new Set(["uploaded"])
 const REMEDIATION_STATUSES = new Set(["scanned", "partially_fixed"])
 const getStatusCode = (value) =>
   resolveEntityStatus(typeof value === "object" ? value : { status: value }).code
@@ -642,11 +642,11 @@ export default function GroupDashboard({
     nodeData?.fixSuggestions
   const folderScans = Array.isArray(nodeData?.scans) ? nodeData.scans : []
   const remediableScanCount = folderScans.filter((scan) => isRemediableStatus(scan)).length
-  const folderHasUploadedScans = folderScans.some((scan) => getStatusCode(scan) === "uploaded")
   const folderFileCount = nodeData?.file_count ?? nodeData?.totalFiles ?? folderScans.length ?? 0
-  const scannableScanCount = folderScans.filter((scan) => isScannableStatus(scan)).length
+  const pendingScanCount = folderScans.filter((scan) => isScannableStatus(scan)).length
+  const folderHasUploadedScans = pendingScanCount > 0
   const folderReadyToScan =
-    nodeData?.type === "batch" && folderFileCount > 0 && scannableScanCount > 0
+    nodeData?.type === "batch" && folderFileCount > 0 && folderHasUploadedScans
   const folderBatchId = nodeData?.type === "batch" ? nodeData.batchId || selectedNode?.id : null
   const activeDashboardName =
     nodeData?.type === "group"
@@ -764,7 +764,7 @@ export default function GroupDashboard({
                                 disabled={remediatingFolder}
                                 aria-disabled={remediatingFolder}
                                 aria-busy={remediatingFolder}
-                                className="inline-flex items-center justify-center rounded-lg border border-transparent bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                className="inline-flex items-center justify-center rounded-lg border border-transparent bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
                               >
                                 {remediateFolderLabel}
                               </button>
@@ -781,7 +781,7 @@ export default function GroupDashboard({
                             aria-pressed={uploadSectionOpen}
                             aria-controls={UPLOAD_PANEL_ID}
                             aria-expanded={uploadSectionOpen}
-                            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             {!uploadSectionOpen && (
                               <svg
