@@ -54,6 +54,7 @@ from backend.routes import (
     folders_router,
     scans_router,
     fixes_router,
+    debug_scans_router,
 )
 import backend.utils.app_helpers as app_helpers
 from backend.utils.app_helpers import (
@@ -166,6 +167,7 @@ app.include_router(groups_router)
 app.include_router(folders_router)
 app.include_router(scans_router)
 app.include_router(fixes_router)
+app.include_router(debug_scans_router)
 
 
 # ----------------------

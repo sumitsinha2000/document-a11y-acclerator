@@ -523,6 +523,7 @@ def save_scan_to_db(
     Returns saved scan_id or raises on error.
     """
     payload_dict = scan_results if isinstance(scan_results, dict) else {}
+    payload_dict = _ensure_scan_results_compliance(payload_dict)
     summary = payload_dict.get("summary", {}) if isinstance(payload_dict, dict) else {}
     computed_total = (
         total_issues if total_issues is not None else summary.get("totalIssues", 0)
@@ -999,6 +1000,28 @@ def _combine_compliance_scores(*scores: Optional[float]) -> Optional[float]:
     if not numeric:
         return None
     return round(sum(numeric) / len(numeric), 2)
+
+def _ensure_scan_results_compliance(scan_results: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(scan_results, dict):
+        return scan_results
+
+    summary = scan_results.get("summary")
+    if not isinstance(summary, dict):
+        summary = {}
+        scan_results["summary"] = summary
+
+    verapdf_status = scan_results.get("verapdfStatus")
+    if isinstance(verapdf_status, dict):
+        summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+        summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+
+    combined_score = _combine_compliance_scores(
+        summary.get("wcagCompliance"), summary.get("pdfuaCompliance")
+    )
+    if combined_score is not None:
+        summary["complianceScore"] = combined_score
+
+    return scan_results
 
 async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
     """
@@ -1934,6 +1957,7 @@ __all__ = [
     "should_scan_now",
     "_serialize_scan_results",
     "_combine_compliance_scores",
+    "_ensure_scan_results_compliance",
     "_analyze_pdf_document",
     "_fetch_scan_record",
     "get_scan_by_id",
