@@ -610,6 +610,31 @@ def save_scan_to_db(
         logger.exception("save_scan_to_db failed")
         raise
 
+
+def _is_skipped_fix_entry(fix: Any) -> bool:
+    """
+    Treat entries containing explicit skip language as skipped fixes.
+    """
+    if not isinstance(fix, dict):
+        return False
+    description = fix.get("description")
+    if isinstance(description, str) and fix.get("success") is False:
+        if "skipp" in description.lower():
+            return True
+    if fix.get("skipped") is True:
+        return True
+    return False
+
+
+def _filter_skipped_fixes(fixes: Any) -> List[Dict[str, Any]]:
+    """
+    Keep only the fixes that were actually applied so skip entries are hidden.
+    """
+    if not isinstance(fixes, list):
+        return []
+    return [fix for fix in fixes if not _is_skipped_fix_entry(fix)]
+
+
 def save_fix_history(
     scan_id: str,
     original_filename: str,
@@ -633,6 +658,8 @@ def save_fix_history(
     """
     Save fix history record - preserve original names.
     """
+    normalized_fixes = _filter_skipped_fixes(fixes_applied or [])
+    stored_success_count = success_count if success_count is not None else len(normalized_fixes)
     try:
         original_file = original_filename or fixed_filename or "unknown.pdf"
         fixed_file = fixed_filename or original_filename or "fixed.pdf"
@@ -674,7 +701,7 @@ def save_fix_history(
                 original_filename,
                 fixed_filename,
                 fix_type,
-                json.dumps(fixes_applied),
+                json.dumps(normalized_fixes),
                 json.dumps(fix_suggestions or []),
                 json.dumps(issues_before),
                 json.dumps(issues_after),
@@ -684,7 +711,7 @@ def save_fix_history(
                 high_severity_after,
                 compliance_before,
                 compliance_after,
-                success_count,
+                stored_success_count,
                 json.dumps(fix_metadata or {}),
             ),
         )
@@ -1543,17 +1570,27 @@ def _perform_automated_fix(
         if tracker:
             tracker.complete_all()
 
-        scan_results_payload = result.get("scanResults") or {
-            "results": result.get("results"),
-            "summary": result.get("summary"),
-            "verapdfStatus": result.get("verapdfStatus"),
-            "fixes": result.get("fixesApplied", []),
-        }
+        raw_fixes_applied = result.get("fixesApplied") or []
+        filtered_fixes_applied = _filter_skipped_fixes(raw_fixes_applied)
+        result["fixesApplied"] = filtered_fixes_applied
+
+        scan_results_payload = result.get("scanResults")
+        if not isinstance(scan_results_payload, dict):
+            scan_results_payload = {
+                "results": result.get("results"),
+                "summary": result.get("summary"),
+                "verapdfStatus": result.get("verapdfStatus"),
+                "fixes": filtered_fixes_applied,
+            }
+        else:
+            scan_results_payload["fixes"] = filtered_fixes_applied
         summary = scan_results_payload.get("summary") or result.get("summary") or {}
         remaining_issues = summary.get("totalIssues", 0) or 0
         total_issues_before = scan_row.get("total_issues") or remaining_issues
         issues_fixed = max(total_issues_before - remaining_issues, 0)
         status = "fixed" if remaining_issues == 0 else "processed"
+        success_count = issues_fixed
+        result["successCount"] = success_count
 
         cursor.execute(
             """
@@ -1575,7 +1612,7 @@ def _perform_automated_fix(
             ),
         )
 
-        fixes_applied = result.get("fixesApplied", [])
+        fixes_applied = filtered_fixes_applied
         fix_metadata = {"automated": True}
         if archive_info:
             fix_metadata.update(
@@ -1609,7 +1646,7 @@ def _perform_automated_fix(
                 total_issues_after=remaining_issues,
                 high_severity_before=initial_summary.get("highSeverity"),
                 high_severity_after=summary.get("highSeverity"),
-                success_count=result.get("successCount"),
+                success_count=success_count,
             )
         except Exception:
             logger.exception("[Backend] Failed to record fix history for %s", scan_id)
@@ -1631,7 +1668,7 @@ def _perform_automated_fix(
             "fixedFile": result.get("fixedFile"),
             "fixedFileRemote": result.get("fixedFileRemote"),
             "fixedVersion": result.get("fixedVersion"),
-            "successCount": result.get("successCount", len(fixes_applied)),
+            "successCount": success_count,
             "message": result.get("message", "Automated fixes applied"),
         }
         return 200, response_payload

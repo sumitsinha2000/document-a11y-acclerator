@@ -1669,6 +1669,21 @@ async def apply_manual_fix(request: Request):
             }
         ]
 
+        before_summary = rescan_data.get("before_summary")
+        if not isinstance(before_summary, dict):
+            before_summary = {}
+        total_issues_before = before_summary.get("totalIssues")
+        high_severity_before = before_summary.get("highSeverity")
+        compliance_before = before_summary.get("complianceScore")
+        total_issues_after = summary.get("totalIssues")
+        high_severity_after = summary.get("highSeverity")
+        compliance_after = summary.get("complianceScore")
+        issues_before = rescan_data.get("before", {})
+        issues_after = results
+        issues_fixed = max(
+            (total_issues_before or 0) - (total_issues_after or 0), 0
+        )
+
         try:
             save_fix_history(
                 scan_id=scan_id,
@@ -1676,10 +1691,10 @@ async def apply_manual_fix(request: Request):
                 fixed_filename=pdf_path.name,
                 fixes_applied=fixes_applied,
                 fix_type="manual",
-                issues_before=rescan_data.get("before", {}),
-                issues_after=results,
-                compliance_before=rescan_data.get("before_summary", {}),
-                compliance_after=summary.get("complianceScore", None),
+                issues_before=issues_before,
+                issues_after=issues_after,
+                compliance_before=compliance_before,
+                compliance_after=compliance_after,
                 fix_suggestions=suggestions,
                 fix_metadata={"page": page, "manual": True},
                 batch_id=scan_data.get("batch_id")
@@ -1688,19 +1703,11 @@ async def apply_manual_fix(request: Request):
                 group_id=scan_data.get("group_id")
                 if isinstance(scan_data, dict)
                 else None,
-                total_issues_before=(
-                    rescan_data.get("before_summary", {}).get("totalIssues")
-                    if isinstance(rescan_data.get("before_summary"), dict)
-                    else None
-                ),
-                total_issues_after=summary.get("totalIssues"),
-                high_severity_before=(
-                    rescan_data.get("before_summary", {}).get("highSeverity")
-                    if isinstance(rescan_data.get("before_summary"), dict)
-                    else None
-                ),
-                high_severity_after=summary.get("highSeverity"),
-                success_count=len(fixes_applied),
+                total_issues_before=total_issues_before,
+                total_issues_after=total_issues_after,
+                high_severity_before=high_severity_before,
+                high_severity_after=high_severity_after,
+                success_count=issues_fixed,
             )
         except Exception:
             logger.exception("Failed to save fix history")
@@ -1719,6 +1726,7 @@ async def apply_manual_fix(request: Request):
                 "results": results,
                 "scanResults": formatted_results,
                 "fixesApplied": fixes_applied,
+                "successCount": issues_fixed,
                 "verapdfStatus": verapdf_status,
                 "fixSuggestions": suggestions,
             }

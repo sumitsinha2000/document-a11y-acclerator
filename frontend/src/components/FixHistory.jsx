@@ -115,6 +115,12 @@ export default function FixHistory({ scanId, onRefresh }) {
           typeof item.previewable === "boolean"
             ? item.previewable
             : isLatestVersion || isLatestEntry
+        const recordedSuccessCount =
+          typeof item.successCount === "number"
+            ? item.successCount
+            : typeof item.success_count === "number"
+            ? item.success_count
+            : fixesApplied.length
         return {
           id: item.id || item.scan_id || index,
           timestamp: parsedTimestamp ? parsedTimestamp.toISOString() : null,
@@ -122,7 +128,7 @@ export default function FixHistory({ scanId, onRefresh }) {
           fixedFile: fixedFileReference,
           originalFile: item.originalFilename || item.original_filename || item.filename,
           fixesApplied,
-          successCount: fixesApplied.length,
+          successCount: recordedSuccessCount,
           version: versionNumber,
           versionLabel,
           canPreview,
