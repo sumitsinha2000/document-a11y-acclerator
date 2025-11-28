@@ -25,6 +25,8 @@ const STATUS_BADGE_STYLES = {
     "border-rose-100 bg-rose-50 text-rose-900 dark:border-rose-700/60 dark:bg-rose-900/20 dark:text-rose-100",
 };
 const SELECTED_STATUS_BADGE_CLASSES = "border-white bg-white/30 text-white";
+const TREE_ITEM_FOCUS_CLASSES =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
 
 export default function GroupTreeSidebar({
   onNodeSelect,
@@ -68,6 +70,7 @@ export default function GroupTreeSidebar({
   const [refreshingFolderCounts, setRefreshingFolderCounts] = useState({});
   const handledFolderNavigationRef = useRef(null);
   const folderStatusRefreshKeyRef = useRef(null);
+  const treeContainerRef = useRef(null);
   const { confirm, showError, showSuccess } = useNotification();
   const mapFolderToSidebarEntry = (folder) => {
     if (!folder) {
@@ -191,6 +194,76 @@ export default function GroupTreeSidebar({
         detailsElement.focus({ preventScroll: false });
       }
     });
+  };
+
+  const getFocusableTreeItems = () => {
+    const container = treeContainerRef.current;
+    if (!container) {
+      return [];
+    }
+    return Array.from(container.querySelectorAll("[data-doca-tree-item]"));
+  };
+
+  const focusTreeItem = (item) => {
+    if (!item) {
+      return;
+    }
+    item.focus();
+    item.scrollIntoView({ block: "nearest" });
+  };
+
+  const handleTreeKeyDown = (event) => {
+    if (
+      event.defaultPrevented ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) {
+      return;
+    }
+    const navigationKeys = ["ArrowDown", "ArrowUp", "Home", "End"];
+    if (!navigationKeys.includes(event.key)) {
+      return;
+    }
+
+    const items = getFocusableTreeItems();
+    if (items.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    const activeElement =
+      typeof document !== "undefined" ? document.activeElement : null;
+    const currentIndex = items.indexOf(activeElement);
+    let targetIndex = 0;
+
+    switch (event.key) {
+      case "ArrowDown":
+        targetIndex =
+          currentIndex === -1
+            ? 0
+            : Math.min(items.length - 1, currentIndex + 1);
+        break;
+      case "ArrowUp":
+        targetIndex =
+          currentIndex === -1
+            ? items.length - 1
+            : Math.max(0, currentIndex - 1);
+        break;
+      case "Home":
+        targetIndex = 0;
+        break;
+      case "End":
+        targetIndex = items.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    const targetItem = items[targetIndex];
+    if (targetItem) {
+      focusTreeItem(targetItem);
+    }
   };
 
   useEffect(() => {
@@ -1375,7 +1448,7 @@ export default function GroupTreeSidebar({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto space-y-2">
+        <div className="flex-1 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-indigo-400 scrollbar-track-transparent max-h-[calc(100vh-200px)] pr-2">
           {folderFilesLoading ? (
             <div className="space-y-3">
               {[1, 2, 3, 4].map((item) => (
@@ -1501,7 +1574,7 @@ export default function GroupTreeSidebar({
 
   return (
     <aside
-      className="w-full max-w-sm flex-shrink-0 rounded-3xl border border-slate-100 bg-[#f7f9ff] p-6 text-slate-900 shadow-[0_20px_60px_rgba(15,23,42,0.08)] flex flex-col space-y-6 dark:border-slate-800 dark:bg-gradient-to-b dark:from-slate-950 dark:via-[#0b1120] dark:to-[#070b16] dark:text-slate-100 dark:shadow-[0_35px_80px_-40px_rgba(15,23,42,0.95)]"
+      className="w-full max-w-sm flex-shrink-0 dashboard-panel border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl shadow-slate-200/60 flex flex-col space-y-6 overflow-hidden dark:border-slate-800 dark:bg-[#0b152d]/95 dark:text-slate-100 dark:shadow-[0_40px_100px_-50px_rgba(2,6,23,0.9)]"
       aria-label="Group navigation"
     >
       <div className="flex items-center justify-between">
@@ -1563,13 +1636,19 @@ export default function GroupTreeSidebar({
         </button>
       </form>
 
-      <div className="space-y-3">
+      <div
+        className="space-y-3 overflow-y-auto max-h-[calc(100vh-260px)] pr-2 scrollbar-thin scrollbar-thumb-indigo-400 scrollbar-track-transparent"
+        ref={treeContainerRef}
+        role="tree"
+        aria-label="Project navigation tree"
+        onKeyDown={handleTreeKeyDown}
+      >
         {groups.length === 0 ? (
           <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
             <p>No groups yet. Create one to get started!</p>
           </div>
         ) : (
-          groups.map((group) => {
+          groups.map((group, groupIndex) => {
             const normalizedGroupId = normalizeId(group.id);
             const isExpanded = expandedGroups.has(normalizedGroupId);
             const files = groupFiles[normalizedGroupId] || [];
@@ -1656,11 +1735,16 @@ export default function GroupTreeSidebar({
                     <>
                 <button
                   type="button"
+                  data-doca-tree-item="true"
+                  role="treeitem"
+                  aria-level={1}
+                  aria-setsize={groups.length}
+                  aria-posinset={groupIndex + 1}
                   className={`w-full text-left rounded-2xl border transition group flex items-center gap-3 p-3 shadow-sm ${
                     isSelected
                       ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
                       : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#121b33] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#182248]"
-                  }`}
+                  } ${TREE_ITEM_FOCUS_CLASSES}`}
                   onClick={() => {
                     void handleGroupSelection(group);
                   }}
@@ -1774,8 +1858,12 @@ export default function GroupTreeSidebar({
                           No folders available
                         </p>
                       ) : (
-                        <ul className="mt-1 space-y-2" role="group">
-                          {batches.map((batch) => {
+                          <ul
+                            className="mt-1 space-y-2"
+                            role="group"
+                            aria-label={`Folders for ${group.name}`}
+                          >
+                        {batches.map((batch, batchIndex) => {
                             const normalizedBatchId = normalizeId(batch.batchId);
                             const isBatchSelected =
                               selectedNode?.type === "batch" &&
@@ -1853,11 +1941,16 @@ export default function GroupTreeSidebar({
                                   <>
                                   <button
                                     type="button"
-                                  className={`group w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 shadow-sm ${
-                                    isBatchSelected
-                                      ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
-                                      : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
-                                  }`}
+                                    data-doca-tree-item="true"
+                                    role="treeitem"
+                                    aria-level={2}
+                                    aria-setsize={batches.length}
+                                    aria-posinset={batchIndex + 1}
+                                    className={`group w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 shadow-sm ${
+                                      isBatchSelected
+                                        ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
+                                        : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
+                                    } ${TREE_ITEM_FOCUS_CLASSES}`}
                                       onClick={() => handleFolderButtonClick(group, batch)}
                                       aria-current={isBatchSelected ? "true" : undefined}
                                     >
