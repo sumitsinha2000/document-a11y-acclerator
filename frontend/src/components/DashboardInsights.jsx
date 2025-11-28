@@ -188,7 +188,7 @@ export function BatchInsightPanel({ scans }) {
         .slice(0, 3)
     : []
 
-  const progressHeading = totalScans === 1 ? "File Progress" : "Files Progress"
+  const progressHeading = totalScans === 1 ? "File Status" : "Files Status"
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

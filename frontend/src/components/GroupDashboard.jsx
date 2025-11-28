@@ -7,16 +7,15 @@ import UploadArea from "./UploadArea"
 import ReportViewer from "./ReportViewer"
 import API_BASE_URL from "../config/api"
 import { parseBackendDate } from "../utils/dates"
-import { resolveEntityStatus } from "../utils/statuses"
+import { resolveEntityStatus, isScannedStatus } from "../utils/statuses"
 
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id))
 const getCacheKey = (node) => (node ? `${node.type}:${normalizeId(node.id)}` : "")
 const SCANNABLE_STATUSES = new Set(["uploaded"])
-const REMEDIATION_STATUSES = new Set(["scanned", "partially_fixed"])
 const getStatusCode = (value) =>
   resolveEntityStatus(typeof value === "object" ? value : { status: value }).code
 const isScannableStatus = (entity) => SCANNABLE_STATUSES.has(getStatusCode(entity))
-const isRemediableStatus = (entity) => REMEDIATION_STATUSES.has(getStatusCode(entity))
+const isRemediableStatus = (entity) => isScannedStatus(entity)
 const UPLOAD_PANEL_ID = "group-dashboard-upload-panel"
 const UPLOAD_PANEL_HEADING_ID = "group-dashboard-upload-heading"
 
@@ -561,32 +560,52 @@ export default function GroupDashboard({
     }
 
     const folderScans = Array.isArray(nodeData?.scans) ? nodeData.scans : []
-    const hasUploadedScans = folderScans.some((scan) => getStatusCode(scan) === "uploaded")
-    if (hasUploadedScans) {
-      showError("Scan all uploaded files before triggering remediation.")
-      return
-    }
-    const hasRemediableScans = folderScans.some((scan) => isRemediableStatus(scan))
-
-    if (!hasRemediableScans) {
+    const scannedScans = folderScans.filter((scan) => isRemediableStatus(scan))
+    if (scannedScans.length === 0) {
       showError("Remediation requires at least one scanned file with issues.")
       return
     }
 
     try {
       setRemediatingFolder(true)
-      const response = await axios.post(`${API_BASE_URL}/api/batch/${folderId}/fix-all`)
-      const payload = response.data || {}
-      if (payload.success) {
-        const successCount = payload.successCount || 0
-        const total = payload.totalFiles || 0
+      const errors = []
+      let successCount = 0
+
+      for (const scan of scannedScans) {
+        const scanId = scan?.scanId || scan?.id
+        if (!scanId) {
+          errors.push({
+            label: scan?.filename || "Unnamed file",
+            reason: "Missing scan identifier",
+          })
+          continue
+        }
+
+        try {
+          await axios.post(`${API_BASE_URL}/api/batch/${folderId}/fix-file/${scanId}`)
+          successCount += 1
+        } catch (scanError) {
+          const errorMessage =
+            scanError?.response?.data?.error || scanError?.message || "Remediation failed"
+          errors.push({
+            scanId,
+            reason: errorMessage,
+          })
+        }
+      }
+
+      if (successCount > 0) {
         showSuccess(
-          successCount > 0
-            ? `Started remediation on ${successCount} of ${total} file${total === 1 ? "" : "s"} in this folder.`
-            : "Remediation request accepted. Awaiting results."
+          `Started remediation on ${successCount} of ${scannedScans.length} scanned file${scannedScans.length === 1 ? "" : "s"} in this folder.`
         )
-      } else {
-        showError(payload.error || "Failed to remediate the folder.")
+      }
+
+      if (errors.length > 0) {
+        const failureMessage =
+          errors.length === scannedScans.length
+            ? `Failed to remediate scanned files. ${errors[0]?.reason || ""}`.trim()
+            : `Failed to remediate ${errors.length} scanned file${errors.length === 1 ? "" : "s"}. ${errors[0]?.reason || ""}`.trim()
+        showError(failureMessage)
       }
     } catch (error) {
       console.error("[v0] Error starting folder remediation:", error)
@@ -641,7 +660,7 @@ export default function GroupDashboard({
     nodeData?.results?.fixSuggestions ??
     nodeData?.fixSuggestions
   const folderScans = Array.isArray(nodeData?.scans) ? nodeData.scans : []
-  const remediableScanCount = folderScans.filter((scan) => isRemediableStatus(scan)).length
+  const scannedFileCount = folderScans.filter((scan) => isRemediableStatus(scan)).length
   const folderFileCount = nodeData?.file_count ?? nodeData?.totalFiles ?? folderScans.length ?? 0
   const pendingScanCount = folderScans.filter((scan) => isScannableStatus(scan)).length
   const folderHasUploadedScans = pendingScanCount > 0
@@ -667,8 +686,8 @@ export default function GroupDashboard({
   const canScanFolder = nodeData?.type === "batch" && folderReadyToScan
   const scanFolderLabel = startingFolderScan ? "Starting..." : "Scan Folder"
   const remediateFolderLabel = remediatingFolder ? "Remediating..." : "Remediate Folder"
-  const folderHasRemediableIssues = nodeData?.type === "batch" && remediableScanCount > 0
-  const canRemediateFolder = folderHasRemediableIssues && !folderHasUploadedScans
+  const folderHasScannedFiles = nodeData?.type === "batch" && scannedFileCount > 0
+  const canRemediateFolder = folderHasScannedFiles
 
   return (
     <div className="bg-slate-50 text-slate-900 dark:bg-gradient-to-br dark:from-[#040714] dark:via-[#080f24] dark:to-[#0d1a3a] dark:text-slate-100">
