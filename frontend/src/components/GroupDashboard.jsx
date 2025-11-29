@@ -798,7 +798,7 @@ export default function GroupDashboard({
                             aria-disabled={uploadButtonDisabled}
                             aria-busy={uploadButtonDisabled}
                             aria-pressed={uploadSectionOpen}
-                            aria-controls={UPLOAD_PANEL_ID}
+                            aria-controls={uploadSectionOpen ? UPLOAD_PANEL_ID : undefined}
                             aria-expanded={uploadSectionOpen}
                             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
                           >
@@ -970,7 +970,7 @@ export default function GroupDashboard({
                 </>
               ) : (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <svg className="w-20 h-20 text-slate-300 dark:text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-20 h-20 text-slate-300 dark:text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"

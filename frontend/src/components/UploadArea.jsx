@@ -584,9 +584,9 @@ const UploadArea = forwardRef(function UploadArea(
                   <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
                     You can select multiple files at once
                   </p>
-                  <label htmlFor={hiddenFileInputId} id={hiddenFileInputLabelId} className="sr-only">
+                  {/* <label htmlFor={hiddenFileInputId} id={hiddenFileInputLabelId} className="sr-only">
                     Choose PDF files to upload for accessibility scanning
-                  </label>
+                  </label> */}
                   <input
                     id={hiddenFileInputId}
                     ref={fileInputRef}

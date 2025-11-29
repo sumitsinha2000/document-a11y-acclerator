@@ -1650,6 +1650,7 @@ export default function GroupTreeSidebar({
         ) : (
           groups.map((group, groupIndex) => {
             const normalizedGroupId = normalizeId(group.id);
+            const panelId = `group-${normalizedGroupId}-panel`;
             const isExpanded = expandedGroups.has(normalizedGroupId);
             const files = groupFiles[normalizedGroupId] || [];
             const batches = groupBatches[normalizedGroupId] || [];
@@ -1749,7 +1750,7 @@ export default function GroupTreeSidebar({
                     void handleGroupSelection(group);
                   }}
                   aria-expanded={isExpanded}
-                  aria-controls={`group-${group.id}-panel`}
+                  aria-controls={panelId}
                   aria-current={isSelected ? "true" : undefined}
                 >
                   <span
@@ -1820,11 +1821,11 @@ export default function GroupTreeSidebar({
                   )}
                 </div>
 
-                {isExpanded && (
-                  <div
-                    id={`group-${group.id}-panel`}
-                    className="pl-4 pt-2 pb-3 space-y-3"
-                  >
+                <div
+                  id={panelId}
+                  className={`pl-4 pt-2 pb-3 space-y-3 ${isExpanded ? "" : "hidden"}`}
+                  aria-hidden={!isExpanded}
+                >
                     <div className="flex items-center justify-between pr-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       <span>Folders</span>
                       <button
@@ -2205,7 +2206,6 @@ export default function GroupTreeSidebar({
                       </>
                     )}
                   </div>
-                )}
               </div>
             );
           })

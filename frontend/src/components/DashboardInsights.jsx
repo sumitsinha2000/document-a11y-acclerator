@@ -131,7 +131,7 @@ export function FileInsightPanel({ results, summary }) {
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Showing up to three categories with the highest number of issues.
           </p>
-          <dl className="mt-4 space-y-3" aria-label="Top issue categories with counts and percentages">
+          <dl className="mt-4 space-y-3">
             {sortedCategories.map((category) => {
               const percent =
                 totalIssues > 0 ? Math.round((category.count / totalIssues) * 100) : 0
@@ -307,7 +307,7 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Showing up to three categories with the highest number of issues across the project.
           </p>
-          <dl className="mt-4 space-y-3" aria-label="Project top issue categories with counts and percentages">
+          <dl className="mt-4 space-y-3">
             {topCategories.map((category) => {
               const percent = totalIssues > 0 ? Math.round((category.count / totalIssues) * 100) : 0
               return (
