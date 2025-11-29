@@ -32,6 +32,11 @@ WCAG_CRITERIA_DETAILS: Dict[str, Dict[str, str]] = {
         "level": "AAA",
         "summary": "Enhanced 7:1 contrast aids users with low vision.",
     },
+    "2.4.1": {
+        "name": "Bypass Blocks",
+        "level": "A",
+        "summary": "Provide the ability to skip repeated content via clear headings or bookmarks.",
+    },
     "2.4.2": {
         "name": "Page Titled",
         "level": "A",

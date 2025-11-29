@@ -29,7 +29,7 @@ from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
 from backend.fix_progress_tracker import create_progress_tracker, get_progress_tracker
-from backend.utils.wcag_mapping import annotate_wcag_mappings
+from backend.utils.wcag_mapping import annotate_wcag_mappings, CATEGORY_CRITERIA_MAP
 from backend.utils.criteria_summary import build_criteria_summary
 
 load_dotenv()
@@ -448,6 +448,10 @@ def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
         if combined_score is not None:
             summary["complianceScore"] = combined_score
 
+    criteria_summary = scan_results.get("criteriaSummary")
+    if not isinstance(criteria_summary, dict):
+        criteria_summary = build_criteria_summary(results)
+
     latest_fix = None
     if scan_row.get("applied_at"):
         fix_list = _deserialize_json_field(scan_row.get("fixes_applied"), [])
@@ -482,6 +486,7 @@ def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
             "remaining": scan_row.get("issues_remaining"),
         },
         "latestFix": latest_fix,
+        "criteriaSummary": criteria_summary,
     }
 
 def update_group_file_count(group_id: str):
@@ -1707,6 +1712,10 @@ def build_verapdf_status(results, analyzer=None):
         return status
     wcag_issues = len(results.get("wcagIssues", []))
     pdfua_issues = len(results.get("pdfuaIssues", []))
+    for category in CATEGORY_CRITERIA_MAP:
+        category_issues = results.get(category)
+        if isinstance(category_issues, list):
+            wcag_issues += len(category_issues)
     total = wcag_issues + pdfua_issues
     status["totalVeraPDFIssues"] = total
     if total == 0:
