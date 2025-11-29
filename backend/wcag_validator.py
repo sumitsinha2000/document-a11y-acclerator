@@ -8,7 +8,7 @@ without requiring external dependencies like veraPDF CLI.
 
 import pikepdf
 from pikepdf import Name, String
-from typing import Dict, List, Any, Tuple, Optional, Callable, Set
+from typing import Dict, List, Any, Tuple, Optional, Callable, Set, Mapping
 import logging
 from collections import defaultdict
 import re
@@ -1713,11 +1713,13 @@ class WCAGValidator:
                     for annot in page.annots:
                         if not self._annotation_is_link(annot):
                             continue
+                        print("[DEBUG] Link annot on page", page_num, "->", annot.get("uri"))
+
                         bbox = self._get_annotation_bbox(annot)
                         if not bbox:
                             continue
 
-                        link_words = self._words_within_bbox(words, bbox)
+                        link_words = self._words_within_bbox(words, self._expand_bbox(bbox, padding=1.5))
                         visible_text = self._join_words(link_words)
                         annotation_label = self._extract_annotation_label(annot)
                         link_label = visible_text if visible_text else annotation_label
@@ -1762,17 +1764,36 @@ class WCAGValidator:
     def _annotation_is_link(self, annotation: Dict[str, Any]) -> bool:
         if not isinstance(annotation, dict):
             return False
+
         data = annotation.get("data")
-        if not isinstance(data, dict):
+        if not data or not isinstance(data, Mapping):
             return False
-        subtype = data.get("Subtype")
-        if subtype is None:
-            return False
-        try:
-            normalized = str(subtype).strip().lower()
-        except Exception:
-            return False
-        return normalized == "/link"
+
+        # Try multiple common key spellings
+        subtype_raw = (
+            data.get("Subtype")
+            or data.get("/Subtype")
+            or data.get("subtype")
+            or data.get("SUBTYPE")
+        )
+
+        normalized = ""
+        if subtype_raw is not None:
+            try:
+                raw = str(subtype_raw).strip()
+            except Exception:
+                raw = ""
+
+            # Handle variants like /Link, /'Link', Link, 'Link'
+            if raw.startswith("/"):
+                raw = raw[1:]
+            raw = raw.strip("'\"")
+            normalized = raw.lower()
+
+        # pdfplumber exposes `uri` only on link-ish annots, so this is a safe fallback
+        has_uri = bool(annotation.get("uri"))
+
+        return normalized == "link" or has_uri
 
     def _get_annotation_bbox(self, annotation: Dict[str, Any]) -> Optional[Tuple[float, float, float, float]]:
         if not isinstance(annotation, dict):
@@ -1817,6 +1838,14 @@ class WCAGValidator:
             if get_bbox_overlap(bbox, word_bbox) is not None:
                 overlapping.append(word)
         return overlapping
+
+    def _expand_bbox(
+        self,
+        bbox: Tuple[float, float, float, float],
+        padding: float = 1.0,
+    ) -> Tuple[float, float, float, float]:
+        x0, top, x1, bottom = bbox
+        return (x0 - padding, top - padding, x1 + padding, bottom + padding)
 
     def _join_words(self, words: List[Dict[str, Any]]) -> Optional[str]:
         if not words:
