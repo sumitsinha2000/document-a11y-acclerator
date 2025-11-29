@@ -12,6 +12,7 @@ export default function IssueStats({ results }) {
       missingLanguage: "Language",
       formIssues: "Forms",
       tableIssues: "Tables",
+      linkIssues: "Link Purpose",
     }
     return {
       name: labels[category] || category,

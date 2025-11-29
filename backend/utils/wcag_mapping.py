@@ -42,6 +42,11 @@ WCAG_CRITERIA_DETAILS: Dict[str, Dict[str, str]] = {
         "level": "A",
         "summary": "Provide descriptive titles so users can identify content.",
     },
+    "2.4.4": {
+        "name": "Link Purpose (In Context)",
+        "level": "AA",
+        "summary": "Ensure link text, tooltips, or alt descriptions clearly explain the target destination.",
+    },
     "2.4.6": {
         "name": "Headings and Labels",
         "level": "AA",
@@ -74,6 +79,7 @@ CATEGORY_CRITERIA_MAP: Dict[str, List[str]] = {
     "tableIssues": ["1.3.1"],
     "formIssues": ["3.3.2", "4.1.2"],
     "poorContrast": ["1.4.3", "1.4.6"],
+    "linkIssues": ["2.4.4"],
 }
 
 

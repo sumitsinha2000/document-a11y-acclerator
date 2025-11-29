@@ -12,8 +12,11 @@ from typing import Dict, List, Any, Tuple, Optional, Callable, Set
 import logging
 from collections import defaultdict
 import re
+import pdfplumber
+from pdfplumber.utils.geometry import get_bbox_overlap
 
 logger = logging.getLogger(__name__)
+GENERIC_LINK_TEXTS = {"click here", "here", "link"}
 
 
 def _resolve_pdf_object(value):
@@ -533,6 +536,7 @@ class WCAGValidator:
             self._validate_list_structure()
             self._validate_contrast_ratios()
             self._validate_form_fields()
+            self._validate_link_purposes()
             self._validate_annotations()
             
             # Calculate compliance scores
@@ -1696,10 +1700,47 @@ class WCAGValidator:
                             'Add a label (T entry) to the form field'
                         )
                         self.wcag_compliance['A'] = False
-                        
+
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating form fields: {str(e)}")
     
+    def _validate_link_purposes(self):
+        """Validate WCAG 2.4.4 (Link Purpose in Context) - Level AA."""
+        try:
+            with pdfplumber.open(self.pdf_path) as document:
+                for page_num, page in enumerate(document.pages, 1):
+                    words = page.extract_words()
+                    for annot in page.annots:
+                        if not self._annotation_is_link(annot):
+                            continue
+                        bbox = self._get_annotation_bbox(annot)
+                        if not bbox:
+                            continue
+
+                        link_words = self._words_within_bbox(words, bbox)
+                        visible_text = self._join_words(link_words)
+                        annotation_label = self._extract_annotation_label(annot)
+                        link_label = visible_text if visible_text else annotation_label
+
+                        if not link_label:
+                            self._add_link_purpose_issue(
+                                page_num,
+                                "lacks descriptive text or alternative text",
+                                severity="high",
+                                context=None,
+                            )
+                            continue
+
+                        if self._is_generic_link_text(link_label):
+                            self._add_link_purpose_issue(
+                                page_num,
+                                f'uses ambiguous text "{link_label}"',
+                                severity="medium",
+                                context=link_label,
+                            )
+        except Exception as exc:
+            logger.error(f"[WCAGValidator] Error validating link purposes: {exc}")
+
     def _validate_annotations(self):
         """Validate PDF/UA-1 annotation requirements."""
         try:
@@ -1717,6 +1758,126 @@ class WCAGValidator:
                             
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating annotations: {str(e)}")
+
+    def _annotation_is_link(self, annotation: Dict[str, Any]) -> bool:
+        if not isinstance(annotation, dict):
+            return False
+        data = annotation.get("data")
+        if not isinstance(data, dict):
+            return False
+        subtype = data.get("Subtype")
+        if subtype is None:
+            return False
+        try:
+            normalized = str(subtype).strip().lower()
+        except Exception:
+            return False
+        return normalized == "/link"
+
+    def _get_annotation_bbox(self, annotation: Dict[str, Any]) -> Optional[Tuple[float, float, float, float]]:
+        if not isinstance(annotation, dict):
+            return None
+        coords = []
+        for key in ("x0", "top", "x1", "bottom"):
+            value = annotation.get(key)
+            if value is None:
+                return None
+            try:
+                coords.append(float(value))
+            except (TypeError, ValueError):
+                return None
+        x0, top, x1, bottom = coords
+        if x1 <= x0 or bottom <= top:
+            return None
+        return x0, top, x1, bottom
+
+    def _bbox_from_word(self, word: Dict[str, Any]) -> Optional[Tuple[float, float, float, float]]:
+        if not isinstance(word, dict):
+            return None
+        coords = []
+        for key in ("x0", "top", "x1", "bottom"):
+            value = word.get(key)
+            if value is None:
+                return None
+            try:
+                coords.append(float(value))
+            except (TypeError, ValueError):
+                return None
+        x0, top, x1, bottom = coords
+        if x1 <= x0 or bottom <= top:
+            return None
+        return x0, top, x1, bottom
+
+    def _words_within_bbox(self, words: List[Dict[str, Any]], bbox: Tuple[float, float, float, float]) -> List[Dict[str, Any]]:
+        overlapping: List[Dict[str, Any]] = []
+        for word in words:
+            word_bbox = self._bbox_from_word(word)
+            if not word_bbox:
+                continue
+            if get_bbox_overlap(bbox, word_bbox) is not None:
+                overlapping.append(word)
+        return overlapping
+
+    def _join_words(self, words: List[Dict[str, Any]]) -> Optional[str]:
+        if not words:
+            return None
+        sorted_words = sorted(
+            words,
+            key=lambda w: (
+                float(w.get("doctop") or 0),
+                float(w.get("x0") or 0),
+            ),
+        )
+        tokens = [str(word.get("text") or "").strip() for word in sorted_words]
+        filtered = [token for token in tokens if token]
+        joined = " ".join(filtered).strip()
+        return joined or None
+
+    def _extract_annotation_label(self, annotation: Dict[str, Any]) -> Optional[str]:
+        if not isinstance(annotation, dict):
+            return None
+        for key in ("contents", "title"):
+            value = annotation.get(key)
+            snippet = self._clean_text_snippet(value)
+            if snippet:
+                return snippet
+        data = annotation.get("data")
+        if isinstance(data, dict):
+            for key in ("/Alt", "Alt", "/ActualText", "ActualText", "/TU", "TU", "/T", "T"):
+                snippet = self._clean_text_snippet(data.get(key))
+                if snippet:
+                    return snippet
+        return None
+
+    def _normalize_link_text(self, value: str) -> str:
+        cleaned = " ".join(str(value or "").split()).lower()
+        cleaned = re.sub(r"[^a-z0-9\s]", "", cleaned)
+        return cleaned.strip()
+
+    def _is_generic_link_text(self, value: str) -> bool:
+        normalized = self._normalize_link_text(value)
+        return normalized in GENERIC_LINK_TEXTS
+
+    def _add_link_purpose_issue(
+        self,
+        page: int,
+        detail: str,
+        *,
+        severity: str,
+        context: Optional[str],
+    ):
+        description = f"Link annotation on page {page} {detail}."
+        self._add_wcag_issue(
+            description,
+            '2.4.4',
+            'AA',
+            severity,
+            'Provide descriptive link text or Alt/Contents data so the link purpose is clear.',
+            page=page,
+            context=context,
+        )
+        self.wcag_compliance['AA'] = False
+        self.wcag_compliance['AAA'] = False
     
     def _find_role_map_value(self, struct_type, role_map):
         """Return the mapped value for a structure type from the RoleMap."""

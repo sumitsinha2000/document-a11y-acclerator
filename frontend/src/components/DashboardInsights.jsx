@@ -8,6 +8,7 @@ const CATEGORY_LABELS = {
   missingLanguage: "Language",
   formIssues: "Forms",
   tableIssues: "Tables",
+  linkIssues: "Link Purpose",
 }
 
 const STATUS_LABELS = {

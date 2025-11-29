@@ -88,7 +88,23 @@ Each issue includes:
 - Missing Title entry
 - Empty title string
 
-### 4. Alternative Text (WCAG 1.1.1 - Level A)
+### 4. Link Purpose (WCAG 2.4.4 - Level AA)
+
+**What it checks:**
+- Each link annotation exposes descriptive text via the tagged content, `/Contents`, or `/Alt` attributes.
+- Icon-only links also carry alternative descriptions so the destination is understandable.
+
+**Why it matters:**
+- Screen reader users rely on link names to identify destinations.
+- Generic labels like "click here", "here", or "link" force users to guess the target.
+- WCAG Level AA requires link purpose to be discernible in context.
+
+**Common issues:**
+- Link annotations without any visible text, `/Contents`, or `/Alt` descriptions.
+- Links labeled "click here", "here", or "link" without surrounding context.
+- Icon-only links that omit alternative or tooltip text.
+
+### 5. Alternative Text (WCAG 1.1.1 - Level A)
 
 **What it checks:**
 - Images have Alt or ActualText attributes
@@ -104,7 +120,7 @@ Each issue includes:
 - Empty Alt text strings
 - Missing ActualText for complex content
 
-### 5. Reading Order (WCAG 1.3.2 - Level A)
+### 6. Reading Order (WCAG 1.3.2 - Level A)
 
 **What it checks:**
 - Structure tree defines logical reading order
@@ -119,7 +135,7 @@ Each issue includes:
 - Missing structure tree
 - Illogical content sequence
 
-### 6. Table Structure (WCAG 1.3.1 - Level A)
+### 7. Table Structure (WCAG 1.3.1 - Level A)
 
 **What it checks:**
 - Tables have Table structure elements
@@ -136,7 +152,7 @@ Each issue includes:
 - Missing table structure markup
 - Improper table hierarchy
 
-### 7. Heading Hierarchy (WCAG 1.3.1 - Level A)
+### 8. Heading Hierarchy (WCAG 1.3.1 - Level A)
 
 **What it checks:**
 - Headings use H1-H6 structure elements
@@ -153,7 +169,7 @@ Each issue includes:
 - Missing heading markup
 - Illogical heading structure
 
-### 8. List Structure (WCAG 1.3.1 - Level A)
+### 9. List Structure (WCAG 1.3.1 - Level A)
 
 **What it checks:**
 - Lists have L structure elements
@@ -169,7 +185,7 @@ Each issue includes:
 - Lists without LI elements
 - Missing list structure markup
 
-### 9. Form Fields (WCAG 3.3.2 - Level A)
+### 10. Form Fields (WCAG 3.3.2 - Level A)
 
 **What it checks:**
 - Form fields have labels (T entry)
@@ -184,7 +200,7 @@ Each issue includes:
 - Form fields without labels
 - Empty label strings
 
-### 10. Annotations (PDF/UA-1:7.18.1)
+### 11. Annotations (PDF/UA-1:7.18.1)
 
 **What it checks:**
 - Annotations have Contents entry (description)

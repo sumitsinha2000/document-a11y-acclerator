@@ -38,6 +38,11 @@ const WCAG_CRITERIA_DETAILS = {
     level: "A",
     summary: "Provide descriptive titles so users can identify content.",
   },
+  "2.4.4": {
+    name: "Link Purpose (In Context)",
+    level: "AA",
+    summary: "Ensure link text or alternative descriptions clearly explain the destination.",
+  },
   "2.4.6": {
     name: "Headings and Labels",
     level: "AA",
@@ -68,6 +73,7 @@ const WCAG_ORDER = [
   "1.4.6",
   "2.4.1",
   "2.4.2",
+  "2.4.4",
   "2.4.6",
   "3.1.1",
   "3.3.2",

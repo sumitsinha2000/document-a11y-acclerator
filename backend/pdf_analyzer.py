@@ -68,6 +68,7 @@ class PDFAccessibilityAnalyzer:
             "structureIssues": [],
             "readingOrderIssues": [],
             "wcagIssues": [],
+            "linkIssues": [],
             "pdfuaIssues": [],
             "pdfaIssues": [],
         }
@@ -835,6 +836,13 @@ class PDFAccessibilityAnalyzer:
                 print(f"[Analyzer] ✓ WCAG Validator found {wcag_count} WCAG 2.1 issues")
                 for i, issue in enumerate(validation_results["wcagIssues"][:3]):
                     print(f"[Analyzer]   Issue {i+1}: {issue.get('criterion', 'N/A')} - {issue.get('description', 'N/A')[:80]}")
+                link_issues = [
+                    issue
+                    for issue in validation_results.get("wcagIssues", [])
+                    if issue.get("criterion") == "2.4.4"
+                ]
+                if link_issues:
+                    self.issues["linkIssues"].extend(link_issues)
             
             # Merge PDF/UA issues
             if validation_results.get("pdfuaIssues"):
