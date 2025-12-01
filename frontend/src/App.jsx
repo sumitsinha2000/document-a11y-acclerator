@@ -94,9 +94,16 @@ function AppContent() {
   const handleScanComplete = (scanDataArray) => {
     if (!scanDataArray || scanDataArray.length === 0) {
       console.error("ERROR: scanDataArray is empty or invalid")
-      showError("No scan results received. Please check the console for errors.")
+      showError("Scan failed. No results were returned. Please check the console for details.")
       return
     }
+
+    const readyLabel =
+      scanDataArray.length === 1
+        ? "1 file is ready to review."
+        : `${scanDataArray.length} files are ready to review.`
+
+    showSuccess(`Background scan finished. ${readyLabel}`, 9000)
 
     setScanResults(scanDataArray)
 
@@ -125,21 +132,53 @@ function AppContent() {
     fetchScanHistory()
   }
 
-  const handleUploadDeferred = (details, { suppressToast = false } = {}) => {
-    const successCount = Array.isArray(details?.successFiles)
-      ? details.successFiles.length
-      : details?.scanIds?.length ?? 0
-    const failureCount = Array.isArray(details?.failedFiles) ? details.failedFiles.length : 0
+  const handleUploadDeferred = (rawDetails, { suppressToast = false } = {}) => {
+    const details = rawDetails || {}
+    console.log("[upload] deferred details", details)
+
+    const successFiles =
+      Array.isArray(details.successFiles)
+        ? details.successFiles
+        : Array.isArray(details.uploads)
+        ? details.uploads.filter((u) => !u.error && u.status !== "failed")
+        : []
+
+    const successCount =
+      successFiles.length ||
+      (Array.isArray(details.scanIds) ? details.scanIds.length : 0) ||
+      (typeof details.uploadedCount === "number" ? details.uploadedCount : 0)
+
+    const failedFiles =
+      Array.isArray(details.failedFiles)
+        ? details.failedFiles
+        : Array.isArray(details.uploads)
+        ? details.uploads.filter((u) => u.error || u.status === "failed")
+        : []
+
+    const failureCount =
+      failedFiles.length ||
+      (typeof details.failedCount === "number" ? details.failedCount : 0)
+
     if (!suppressToast) {
-      if (failureCount === 0) {
-        showSuccess(`${successCount} files uploaded.`)
-      } else {
-        showError(`${successCount} uploaded, ${failureCount} failed.`)
+      if (failureCount > 0) {
+        const pluralSuffix = successCount === 1 ? "file" : "files"
+        showError(
+          `Upload summary. ${successCount} ${pluralSuffix} stored, ${failureCount} failed. Please retry the failed files.`,
+          9000,
+        )
+      } else if (successCount > 0) {
+        const pluralSuffix = successCount === 1 ? "file has" : "files have"
+        showSuccess(
+          `${successCount} ${pluralSuffix} been uploaded successfully. You can start scanning them when needed.`,
+          9000,
+        )
       }
     }
+
     fetchScanHistory()
     return { successCount, failureCount }
   }
+
 
   const handleDashboardUploadComplete = (scans) => {
     handleScanComplete(scans)
@@ -148,12 +187,20 @@ function AppContent() {
 
   const handleDashboardUploadDeferred = (details) => {
     const { successCount, failureCount } = handleUploadDeferred(details, { suppressToast: true })
-    if (failureCount === 0) {
+    if (failureCount > 0) {
+      const pluralSuffix = failureCount === 1 ? "file" : "files"
+      showError(
+        `Upload completed with ${successCount} stored and ${failureCount} ${pluralSuffix} failed. Please retry the failed uploads.`,
+      )
+    } else if (successCount > 0) {
+      const pluralSuffix = successCount === 1 ? "file has" : "files have"
+      showSuccess(
+        `${successCount} ${pluralSuffix} been uploaded. Start the scan manually when you're ready.`,
+        7000,
+      )
       setUploadPanelOpen(false)
-      showSuccess(`${successCount} files uploaded.`)
-    } else {
-      showError(`${successCount} uploaded, ${failureCount} failed.`)
     }
+
     const folderId = details?.batchId
     if (folderId) {
       setLatestUploadContext({

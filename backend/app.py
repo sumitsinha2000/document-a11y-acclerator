@@ -183,36 +183,36 @@ async def serve_favicon():
     return Response(status_code=204)
 
 
+async def _run_blocking(fn, *args, **kwargs):
+    return await asyncio.to_thread(fn, *args, **kwargs)
+
+
+def _write_temp_file_bytes(content: bytes, filename: str) -> str:
+    with tempfile.NamedTemporaryFile(delete=False, dir="/tmp", suffix=f"_{filename}") as tmp:
+        tmp.write(content)
+        return tmp.name
+
+
 @app.post("/api/upload")
-def upload_file(
+async def upload_file(
     request: Request,
     file: UploadFile = File(...),
     group_id: Optional[str] = Form(None),
     scan_mode: Optional[str] = Form(None),
     folder_id: Optional[str] = Form(None),
 ):
-    """
-    Upload endpoint (synchronous):
-    - Saves uploaded file to a temporary location
-    - Uses upload_file_with_fallback() for multi-tier storage
-    - Cleans up temporary file
-    """
     temp_path = None
+    file_bytes = None
     try:
-        # Save temp file safely
-        with tempfile.NamedTemporaryFile(
-            delete=False, dir="/tmp", suffix=f"_{file.filename}"
-        ) as tmp:
-            temp_path = tmp.name
-            tmp.write(file.file.read())
-
-        file_size = os.path.getsize(temp_path)
+        file_bytes = await file.read()
+        temp_path = await _run_blocking(_write_temp_file_bytes, file_bytes, file.filename)
+        file_size = len(file_bytes)
         logger.info(f"[API] Received upload: {file.filename} ({file_size} bytes)")
 
-        # Upload with fallback
-        result = upload_file_with_fallback(temp_path, file.filename, folder="uploads")
+        result = await _run_blocking(
+            upload_file_with_fallback, temp_path, file.filename, folder="uploads"
+        )
         storage_reference = result.get("url") or result.get("path") or result.get("key")
-
         response_payload: Dict[str, Any] = {
             "message": "File uploaded successfully",
             "result": dict(result),
@@ -227,7 +227,8 @@ def upload_file(
 
         folder_record = None
         if folder_id:
-            folder_rows = execute_query(
+            folder_rows = await _run_blocking(
+                execute_query,
                 "SELECT id, name, group_id FROM batches WHERE id = %s",
                 (folder_id,),
                 fetch=True,
@@ -242,8 +243,6 @@ def upload_file(
                     status_code=400,
                 )
 
-        # When a group is provided, create a placeholder scan entry so dashboards
-        # can track the upload even before analysis runs.
         if group_id and NEON_DATABASE_URL:
             logger.info("[API] saving scan metadata for %s", file.filename)
 
@@ -253,7 +252,8 @@ def upload_file(
                 placeholder["filePath"] = storage_reference
             scan_id = f"scan_{uuid.uuid4().hex}"
             try:
-                saved_id = save_scan_to_db(
+                saved_id = await _run_blocking(
+                    save_scan_to_db,
                     scan_id,
                     file.filename,
                     placeholder,
@@ -289,13 +289,13 @@ def upload_file(
                 )
                 try:
                     if folder_id:
-                        update_batch_statistics(folder_id)
+                        await _run_blocking(update_batch_statistics, folder_id)
                 except Exception:
                     logger.exception(
                         "[API] Failed to refresh batch %s after upload", folder_id
                     )
                 try:
-                    update_group_file_count(group_id)
+                    await _run_blocking(update_group_file_count, group_id)
                 except Exception:
                     logger.exception(
                         "[API] Failed to refresh group %s counts after upload", group_id
@@ -314,11 +314,12 @@ def upload_file(
         return {"error": str(e)}
 
     finally:
-        # Always clean up temp file
-        if temp_path and os.path.exists(temp_path):
+        if temp_path:
             try:
-                os.remove(temp_path)
-                logger.debug(f"[API] Temporary file removed: {temp_path}")
+                exists = await _run_blocking(os.path.exists, temp_path)
+                if exists:
+                    await _run_blocking(os.remove, temp_path)
+                    logger.debug(f"[API] Temporary file removed: {temp_path}")
             except Exception as cleanup_error:
                 logger.warning(f"[API] Cleanup failed for {temp_path}: {cleanup_error}")
 

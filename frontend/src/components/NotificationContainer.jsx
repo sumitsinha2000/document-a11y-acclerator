@@ -5,22 +5,31 @@ import ConfirmDialog from "./ConfirmDialog"
 export default function NotificationContainer() {
   const { toasts, confirmDialog, removeToast } = useNotification()
 
+  const hasToasts = toasts && toasts.length > 0
+
   return (
     <>
-      {/* Toast Container */}
-      <div className="fixed top-4 right-4 z-50 flex flex-col gap-3 max-w-md w-full pointer-events-none">
-        <div className="flex flex-col gap-3 pointer-events-auto">
-          {toasts.map((toast) => (
-            <Toast
-              key={toast.id}
-              message={toast.message}
-              type={toast.type}
-              duration={toast.duration}
-              onClose={() => removeToast(toast.id)}
-            />
-          ))}
+      {/* Toast Container (live region) */}
+      {hasToasts && (
+        <div
+          className="fixed top-4 right-4 z-50 flex flex-col gap-3 max-w-md w-full pointer-events-none"
+          // Live region for assistive tech
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <div className="flex flex-col gap-3 pointer-events-auto">
+            {toasts.map((toast) => (
+              <Toast
+                key={toast.id}
+                message={toast.message}
+                type={toast.type}
+                duration={toast.duration}
+                onClose={() => removeToast(toast.id)}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Confirm Dialog */}
       {confirmDialog && <ConfirmDialog {...confirmDialog} />}

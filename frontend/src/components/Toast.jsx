@@ -10,6 +10,11 @@ export default function Toast({ message, type = "info", onClose, duration = 5000
     }
   }, [duration, onClose])
 
+  // === Accessibility: role + live region based on type ===
+  const isUrgent = type === "error" || type === "warning"
+  const role = isUrgent ? "alert" : "status"
+  const ariaLive = isUrgent ? "assertive" : "polite"
+
   const styles = {
     success: {
       bg: "bg-emerald-50 dark:bg-emerald-900/30",
@@ -74,8 +79,9 @@ export default function Toast({ message, type = "info", onClose, duration = 5000
   return (
     <div
       className={`flex items-start gap-3 p-4 rounded-lg border ${style.bg} ${style.border} shadow-lg animate-slide-in-right`}
-      role="alert"
-      aria-live="assertive"
+      role={role}
+      aria-live={ariaLive}
+      aria-atomic="true"
     >
       <div className={style.text}>{style.icon}</div>
       <div className="flex-1 min-w-0">
