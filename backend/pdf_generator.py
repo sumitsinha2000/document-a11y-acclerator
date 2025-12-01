@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import os
-from datetime import datetime
+import re
+import textwrap
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple, List, Any
 
 import pikepdf
@@ -11,7 +13,7 @@ from PIL import Image, ImageDraw
 from pikepdf import Array, Dictionary, Name, Stream, String
 from werkzeug.utils import secure_filename
 
-# from backend.pdfa_fix_engine import SRGB_ICC_PROFILE_BASE64  # PDF/A fix engine utilities disabled
+from backend.pdfa_fix_engine import SRGB_ICC_PROFILE_BASE64
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -23,7 +25,7 @@ class PDFGenerator:
     - Embedded Unicode fonts
     - Language and metadata populated
     - Tag tree & MarkInfo set
-    - PDF/UA identifiers embedded into XMP metadata
+    - OutputIntent/XMP metadata for PDF/A conformance
     """
 
     FONT_CANDIDATES: Dict[str, Tuple[str, ...]] = {
@@ -38,6 +40,27 @@ class PDFGenerator:
     }
     ACCESSIBLE_FONT_FAMILY = "A11ySans"
     DEFAULT_LANGUAGE = "en-US"
+    CATEGORY_LABELS = {
+        "missingMetadata": "Missing Metadata",
+        "missingLanguage": "Missing Language",
+        "missingAltText": "Missing Alt Text",
+        "poorContrast": "Contrast Issues",
+        "structureIssues": "Structure Issues",
+        "readingOrderIssues": "Reading Order Issues",
+        "tableIssues": "Table Issues",
+        "formIssues": "Form Issues",
+        "untaggedContent": "Untagged Content",
+        "pdfuaIssues": "PDF/UA Issues",
+        "pdfaIssues": "PDF/A Issues",
+        "wcagIssues": "WCAG Issues",
+    }
+    SEVERITY_STYLES = {
+        "critical": ((220, 53, 69), (255, 255, 255)),
+        "high": ((255, 153, 51), (0, 0, 0)),
+        "medium": ((255, 243, 205), (0, 0, 0)),
+        "low": ((209, 237, 208), (0, 0, 0)),
+        "info": ((206, 224, 255), (0, 0, 0)),
+    }
 
     def __init__(self):
         self.output_dir = os.path.join(BASE_DIR, "generated_pdfs")
@@ -270,7 +293,7 @@ class PDFGenerator:
 
     def _register_accessible_fonts(self, pdf: FPDF) -> bool:
         """
-        Register Unicode fonts so text remains embedded for accessibility checks.
+        Register Unicode fonts so text is embedded for PDF/A compliance.
         """
         success = True
         for style in ("regular", "bold"):
@@ -287,7 +310,7 @@ class PDFGenerator:
         if not success:
             print(
                 "[PDFGenerator] Warning: Falling back to core Helvetica fonts; "
-                "embedded fonts keep WCAG and PDF/UA scoring accurate."
+                "PDF/A compliance may fail due to non-embedded fonts."
             )
         return success
 
@@ -305,11 +328,276 @@ class PDFGenerator:
         slug = secure_filename((raw_name or "").lower())
         return slug or "document"
 
+    @staticmethod
+    def _format_percentage(value: Any) -> str:
+        if value is None:
+            return "N/A"
+        if isinstance(value, (int, float)):
+            return f"{value}%"
+        text = str(value).strip()
+        return text if text else "N/A"
+
+    @staticmethod
+    def _format_pages(pages: Optional[List[Any]]) -> str:
+        if not pages:
+            return "N/A"
+        return ", ".join(str(p) for p in pages)
+
+    def _format_category_label(self, category: str) -> str:
+        if not category:
+            return "Issues"
+        override = self.CATEGORY_LABELS.get(category)
+        if override:
+            return override
+        normalized = re.sub(r"(?<!^)(?=[A-Z])", " ", category)
+        normalized = normalized.replace("_", " ")
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized.title()
+
+    def _format_upload_date(self, upload_date: Optional[str], offset_minutes: Optional[int]) -> str:
+        if not upload_date:
+            return "N/A"
+        parsed = self._parse_iso_datetime(upload_date)
+        if not parsed:
+            return upload_date
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        if offset_minutes is not None:
+            parsed = parsed - timedelta(minutes=offset_minutes)
+        tz_label = self._format_timezone_label(offset_minutes)
+        formatted = parsed.strftime("%Y-%m-%d %H:%M:%S")
+        return f"{formatted} ({tz_label})" if tz_label else formatted
+
+    @staticmethod
+    def _parse_iso_datetime(value: str) -> Optional[datetime]:
+        if not value:
+            return None
+        candidate = value
+        if candidate.endswith("Z"):
+            candidate = candidate[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(candidate)
+        except ValueError:
+            try:
+                return datetime.fromisoformat(candidate.replace(" ", "T"))
+            except ValueError:
+                return None
+
+    @staticmethod
+    def _format_timezone_label(offset_minutes: Optional[int]) -> str:
+        if offset_minutes is None:
+            return "UTC"
+        local_offset = -offset_minutes
+        sign = "+" if local_offset >= 0 else "-"
+        abs_offset = abs(local_offset)
+        hours, minutes = divmod(abs_offset, 60)
+        return f"UTC{sign}{hours:02d}:{minutes:02d}"
+
+    def _draw_table(
+        self,
+        pdf: FPDF,
+        column_widths: List[float],
+        header: List[str],
+        rows: List[List[str]],
+        *,
+        font_family: str,
+    ) -> None:
+        if not rows:
+            return
+
+        header_font_size = 10
+        body_font_size = 9
+        header_line_height = header_font_size * 0.35 + 2
+        body_line_height = body_font_size * 0.35 + 2
+
+        pdf.set_font(font_family, "B", header_font_size)
+        header_wrapped, header_lines = self._prepare_wrapped_row_texts(
+            pdf,
+            header,
+            column_widths,
+        )
+        header_height = header_lines * header_line_height + 4
+
+        def render_header() -> None:
+            self._draw_table_row(
+                pdf,
+                header_wrapped,
+                column_widths,
+                header_height,
+                header_line_height,
+                font_family=font_family,
+                font_style="B",
+                font_size=header_font_size,
+                text_color=(255, 255, 255),
+                fill_color=(102, 126, 234),
+            )
+            pdf.set_font(font_family, "", body_font_size)
+
+        render_header()
+
+        for row in rows:
+            pdf.set_font(font_family, "", body_font_size)
+            wrapped_row, row_lines = self._prepare_wrapped_row_texts(
+                pdf,
+                row,
+                column_widths,
+            )
+            row_height = row_lines * body_line_height + 4
+            if pdf.get_y() + row_height > pdf.page_break_trigger:
+                pdf.add_page()
+                render_header()
+            severity_key = (row[0] or "").strip().lower() if row and row[0] else ""
+            severity_style = self.SEVERITY_STYLES.get(severity_key)
+            cell_fill_colors = None
+            cell_text_colors = None
+            if severity_style:
+                severity_fill, severity_text = severity_style
+                remaining = len(column_widths) - 1
+                cell_fill_colors = [severity_fill] + [None] * remaining
+                cell_text_colors = (
+                    [severity_text] + [(40, 40, 40)] * remaining
+                )
+            self._draw_table_row(
+                pdf,
+                wrapped_row,
+                column_widths,
+                row_height,
+                body_line_height,
+                font_family=font_family,
+                font_style="",
+                font_size=body_font_size,
+                text_color=(40, 40, 40),
+                fill_color=None,
+                cell_fill_colors=cell_fill_colors,
+                cell_text_colors=cell_text_colors,
+            )
+
+    def _draw_table_row(
+        self,
+        pdf: FPDF,
+        wrapped_lines: List[List[str]],
+        column_widths: List[float],
+        row_height: float,
+        line_height: float,
+        *,
+        font_family: str,
+        font_style: str,
+        font_size: float,
+        text_color: Tuple[int, int, int],
+        fill_color: Optional[Tuple[int, int, int]],
+        cell_fill_colors: Optional[List[Optional[Tuple[int, int, int]]]] = None,
+        cell_text_colors: Optional[List[Tuple[int, int, int]]] = None,
+    ) -> None:
+        # Make sure there is room for the whole row
+        self._ensure_space(pdf, row_height)
+
+        row_start_x = max(pdf.get_x(), pdf.l_margin)
+        y_start = pdf.get_y()
+        pdf.set_draw_color(0, 0, 0)
+        x_cursor = row_start_x
+
+        # Consistent inner padding for all cells
+        inner_padding_x = 2.0
+        inner_padding_y = 2.0
+
+        for idx, (lines, width) in enumerate(zip(wrapped_lines, column_widths)):
+            # Choose fill for this cell
+            cell_fill = (
+                cell_fill_colors[idx]
+                if cell_fill_colors and idx < len(cell_fill_colors)
+                else fill_color
+            )
+            draw_style = "DF" if cell_fill else "D"
+
+            if cell_fill:
+                pdf.set_fill_color(*cell_fill)
+            else:
+                pdf.set_fill_color(255, 255, 255)
+
+            # Draw the cell rectangle
+            pdf.rect(x_cursor, y_start, width, row_height, style=draw_style)
+
+            # Choose text color for this cell
+            text_color_choice = (
+                cell_text_colors[idx]
+                if cell_text_colors and idx < len(cell_text_colors)
+                else text_color
+            )
+            pdf.set_text_color(*text_color_choice)
+            pdf.set_font(font_family, font_style, font_size)
+
+            # Inner text area
+            text_y = y_start + inner_padding_y
+            inner_width = max(width - inner_padding_x * 2, 1)
+
+            # Draw each wrapped line once, with consistent padding
+            for line in lines or [""]:
+                pdf.set_xy(x_cursor + inner_padding_x, text_y)
+                pdf.cell(inner_width, line_height, line, border=0)
+                text_y += line_height
+
+            x_cursor += width
+
+        # Move cursor to start of next row
+        pdf.set_xy(row_start_x, y_start + row_height)
+
+    def _prepare_wrapped_row_texts(
+        self,
+        pdf: FPDF,
+        texts: List[str],
+        column_widths: List[float],
+    ) -> Tuple[List[List[str]], int]:
+        wrapped_lines: List[List[str]] = []
+        max_line_count = 1
+
+        inner_padding = 2.0
+
+        for text, width in zip(texts, column_widths):
+            cell_text = str(text) if text is not None else ""
+            inner_width = max(width - inner_padding * 2, 10)
+            lines = self._wrap_text_to_width(pdf, cell_text, inner_width)
+            lines = lines or [""]
+            wrapped_lines.append(lines)
+            max_line_count = max(max_line_count, len(lines))
+        return wrapped_lines, max_line_count
+
+    @staticmethod
+    def _wrap_text_to_width(pdf: FPDF, text: str, width: float) -> List[str]:
+        if not text:
+            return [""]
+
+        # Use an average char width instead of a single "M"
+        sample = "MMMMMMMMMM"
+        avg_char_width = pdf.get_string_width(sample) / len(sample) or 0.1
+
+        # Allow slightly more chars than the strict math to avoid under-using width
+        max_chars = max(int(width / avg_char_width * 1.2), 1)
+
+        wrapper = textwrap.TextWrapper(
+            width=max_chars,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+
+        lines: List[str] = []
+        for line in text.splitlines():
+            wrapped = wrapper.wrap(line) or [""]
+            lines.extend(wrapped)
+
+        return lines or [""]
+
+    @staticmethod
+    def _ensure_space(pdf: FPDF, needed_height: float) -> None:
+        if pdf.get_y() + needed_height > pdf.page_break_trigger:
+            pdf.add_page()
+
     # Accessibility post-processing -----------------------------------
 
     def create_accessibility_report_pdf(
         self,
         scan_export: Dict[str, Any],
+        *,
+        client_offset_minutes: Optional[int] = None,
     ) -> str:
         """
         Build an accessible PDF accessibility report from scan export payload.
@@ -325,7 +613,6 @@ class PDFGenerator:
         summary = scan_export.get("summary") or {}
         results = scan_export.get("results") or {}
         upload_date = scan_export.get("uploadDate")
-        criteria_summary = scan_export.get("criteriaSummary") or {}
 
         pdf.add_page()
         pdf.set_text_color(24, 24, 24)
@@ -333,132 +620,112 @@ class PDFGenerator:
         pdf.cell(0, 12, "Accessibility Compliance Report", ln=True)
         pdf.set_font(font_family, "", 11)
         pdf.set_text_color(70, 70, 70)
+        project_name = scan_export.get("groupName")
+        project_id = scan_export.get("groupId") or "N/A"
+        folder_name = (
+            scan_export.get("folderName")
+            or scan_export.get("batchName")
+            or scan_export.get("folder_name")
+        )
+        folder_id = scan_export.get("folderId") or scan_export.get("batchId") or "N/A"
+        upload_display = self._format_upload_date(upload_date, client_offset_minutes)
         pdf.multi_cell(
             0,
             6,
-            f"Filename: {filename}\nScan ID: {scan_id}\nGroup: {group_name or 'N/A'}\nUploaded: {upload_date or 'N/A'}",
+            (
+                f"Filename: {filename}\n"
+                f"Scan ID: {scan_id}\n"
+                f"Project: {project_name or 'N/A'}\n"
+                # f"Project ID: {project_id}\n"
+                f"Folder: {folder_name or 'N/A'}\n"
+                # f"Folder ID: {folder_id}\n"
+                f"Uploaded: {upload_display}"
+            ),
         )
         pdf.ln(4)
 
         pdf.set_text_color(24, 24, 24)
         pdf.set_font(font_family, "B", 16)
         pdf.cell(0, 10, "Summary", ln=True)
-        pdf.set_font(font_family, "", 11)
+        pdf.ln(2)
 
-        summary_lines = [
-            f"Total Issues: {summary.get('totalIssues', 'N/A')}",
-            f"High Severity: {summary.get('highSeverity', 'N/A')}",
-            f"WCAG Compliance: {summary.get('wcagCompliance', 'N/A')}",
-            f"PDF/UA Compliance: {summary.get('pdfuaCompliance', 'N/A')}",
-            f"Overall Score: {summary.get('complianceScore', 'N/A')}",
+        usable_width = pdf.w - pdf.l_margin - pdf.r_margin
+        summary_rows = [
+            ["Total Issues", str(summary.get("totalIssues", "N/A"))],
+            ["High Severity", str(summary.get("highSeverity", "N/A"))],
+            ["WCAG Compliance", self._format_percentage(summary.get("wcagCompliance"))],
+            ["PDF/UA Compliance", self._format_percentage(summary.get("pdfuaCompliance"))],
+            # ["PDF/A Compliance", self._format_percentage(summary.get("pdfaCompliance"))],
+            ["Overall Score", self._format_percentage(summary.get("complianceScore"))],
         ]
-        pdf.multi_cell(0, 6, "\n".join(summary_lines))
+        column_widths = [usable_width * 0.55, usable_width * 0.45]
+        self._draw_table(
+            pdf,
+            column_widths=column_widths,
+            header=["Metric", "Value"],
+            rows=summary_rows,
+            font_family=font_family,
+        )
         pdf.ln(4)
 
-        wcag_criteria_items = (
-            criteria_summary.get("wcag", {}).get("items") or []
-        )
+        category_names = [
+            "missingMetadata",
+            "missingLanguage",
+            "missingAltText",
+            "poorContrast",
+            "structureIssues",
+            "readingOrderIssues",
+            "tableIssues",
+            "formIssues",
+            "untaggedContent",
+            "pdfuaIssues",
+            "pdfaIssues",
+            "wcagIssues",
+        ]
 
-        def _format_criterion_status(code_status: Optional[str]) -> str:
-            if not code_status:
-                return "Status unavailable"
-            labels = {
-                "supports": "Supports (pass)",
-                "partiallySupports": "Partially supports",
-                "doesNotSupport": "Does not support (fail)",
-            }
-            return labels.get(code_status, code_status)
-
-        if wcag_criteria_items:
-            pdf.set_font(font_family, "B", 16)
-            pdf.set_text_color(24, 24, 24)
-            pdf.cell(0, 10, "WCAG Criteria Summary", ln=True)
-            pdf.set_font(font_family, "", 11)
-            pdf.set_text_color(60, 60, 60)
-
-            for item in wcag_criteria_items:
-                code = item.get("code") or "WCAG Criterion"
-                name = item.get("name") or ""
-                level = item.get("level") or "A"
-                status_label = _format_criterion_status(item.get("status"))
-                issue_count = item.get("issueCount", 0)
-                header_line = f"{code} {name} (Level {level}) — {status_label} — Issues: {issue_count}"
-                pdf.multi_cell(0, 6, header_line)
-                summary_text = item.get("summary")
-                if summary_text:
-                    pdf.multi_cell(0, 6, f"Summary: {summary_text}")
-                pdf.ln(1)
-            pdf.ln(2)
-
-        def _pretty_category_name(name: str) -> str:
-            if not name:
-                return "Other Issues"
-            pretty = name.replace("Issues", " Issues").replace("pdf", "PDF ")
-            pretty = pretty.replace("_", " ").strip()
-            return pretty.title()
-
-        for category, issues in sorted(results.items()):
+        issue_column_ratios = [0.12, 0.28, 0.22, 0.10, 0.28]
+        for category in category_names:
+            issues = results.get(category)
             if not issues:
                 continue
 
-            if isinstance(issues, dict):
-                issue_list = [issues]
-            elif isinstance(issues, list):
-                issue_list = [issue for issue in issues if issue]
-            else:
-                issue_list = [issues]
-
-            if not issue_list:
-                continue
-
-            pretty_name = _pretty_category_name(category)
+            pretty_name = self._format_category_label(category)
             pdf.set_font(font_family, "B", 14)
             pdf.set_text_color(30, 30, 30)
             pdf.cell(0, 9, pretty_name, ln=True)
-            pdf.set_font(font_family, "", 11)
-            pdf.set_text_color(60, 60, 60)
+            pdf.ln(2)
 
-            for idx, issue in enumerate(issue_list, start=1):
+            issue_rows = []
+            for issue in issues:
                 severity = str(issue.get("severity", "medium")).capitalize()
                 description = (
                     issue.get("description")
                     or issue.get("message")
                     or "Issue description not available."
                 )
-                clause = issue.get("clause") or issue.get("criterion")
+                clause = issue.get("clause") or issue.get("criterion") or issue.get("wcagCriteria")
                 recommendation = issue.get("recommendation") or issue.get("remediation")
-                issue_type = issue.get("categoryLabel") or pretty_name
-                page_num = issue.get("page")
                 pages = issue.get("pages")
-                context = issue.get("context") or issue.get("title")
+                pages_text = self._format_pages(pages)
+                issue_rows.append(
+                    [
+                        severity,
+                        description,
+                        clause or "N/A",
+                        pages_text,
+                        recommendation or "N/A",
+                    ]
+                )
 
-                normalized_pages: List[str] = []
-                if isinstance(pages, list):
-                    normalized_pages = [str(p) for p in pages if p is not None]
-                elif pages is not None:
-                    normalized_pages = [str(pages)]
-
-                bullet = f"{idx}. {description}"
-                pdf.multi_cell(0, 6, bullet)
-                detail_bits = [
-                    f"Severity: {severity}",
-                    f"Issue Type: {issue_type}",
-                ]
-                if page_num is not None:
-                    detail_bits.append(f"Page: {page_num}")
-                if normalized_pages:
-                    detail_bits.append(f"Pages: {', '.join(normalized_pages)}")
-                if clause:
-                    detail_bits.append(f"Clause: {clause}")
-                pdf.multi_cell(0, 6, "; ".join(detail_bits))
-                if context and context != description:
-                    pdf.multi_cell(0, 6, f"Context: {context}")
-                if recommendation:
-                    pdf.set_text_color(20, 85, 40)
-                    pdf.multi_cell(0, 6, f"Recommendation: {recommendation}")
-                    pdf.set_text_color(60, 60, 60)
-                pdf.ln(2)
-            pdf.ln(3)
+            column_widths = [ratio * usable_width for ratio in issue_column_ratios]
+            self._draw_table(
+                pdf,
+                column_widths=column_widths,
+                header=["Severity", "Description", "Clause", "Pages", "Recommendation"],
+                rows=issue_rows,
+                font_family=font_family,
+            )
+            pdf.ln(4)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_scan = self._build_slug(scan_id)
@@ -471,7 +738,7 @@ class PDFGenerator:
         subject = "Automated accessibility assessment results"
         description = (
             "Detailed PDF accessibility compliance report containing aggregated "
-            "WCAG and PDF/UA findings for the analyzed document."
+            "WCAG, PDF/UA, and PDF/A findings for the analyzed document."
         )
 
         self._post_process_accessibility(
@@ -497,7 +764,7 @@ class PDFGenerator:
     ) -> None:
         """
         Use pikepdf to add accessibility metadata, structure tags, language,
-        and PDF/UA identifiers so the analyzer recognizes the document
+        and PDF/A compliance markers so the analyzer recognizes the document
         as accessible.
         """
         try:
@@ -524,7 +791,8 @@ class PDFGenerator:
 
                 self._ensure_struct_tree(pdf)
                 self._synchronize_metadata(pdf, title, author, description)
-                # PDF/A-specific adjustments skipped; only PDF/UA annotations remain active.
+                if fonts_embedded:
+                    self._ensure_pdfa_requirements(pdf)
 
                 pdf.save(pdf_path, linearize=True)
         except Exception as exc:
@@ -652,8 +920,38 @@ class PDFGenerator:
         pdf.Root.Metadata = pdf.make_indirect(metadata_stream)
 
     def _ensure_pdfa_requirements(self, pdf: pikepdf.Pdf) -> None:
-        """PDF/A-specific adjustments are disabled in the WCAG/PDF/UA workflow."""
-        print("[PDFGenerator] PDF/A metadata generation skipped.")
+        """
+        Embed sRGB output intent and ensure PDF/A identifiers are present.
+        Only runs if fonts are embedded so the document can satisfy PDF/A checks.
+        """
+        if "/OutputIntents" not in pdf.Root or len(pdf.Root.OutputIntents) == 0:
+            try:
+                icc_bytes = base64.b64decode(SRGB_ICC_PROFILE_BASE64)
+                icc_stream = Stream(pdf, icc_bytes)
+                icc_stream.stream_dict = Dictionary(
+                    N=3,
+                    Alternate=Name("/DeviceRGB"),
+                )
+                icc_stream_ref = pdf.make_indirect(icc_stream)
+                output_intent = pdf.make_indirect(
+                    Dictionary(
+                        Type=Name("/OutputIntent"),
+                        S=Name("/GTS_PDFA1"),
+                        OutputConditionIdentifier="sRGB IEC61966-2.1",
+                        RegistryName="http://www.color.org",
+                        Info="sRGB IEC61966-2.1",
+                        DestOutputProfile=icc_stream_ref,
+                    )
+                )
+                pdf.Root.OutputIntents = Array([output_intent])
+            except Exception as exc:
+                print(f"[PDFGenerator] Warning: Unable to embed OutputIntent: {exc}")
+
+        with pdf.open_metadata(set_pikepdf_as_editor=False) as meta:
+            meta["{http://www.aiim.org/pdfa/ns/id/}part"] = "1"
+            meta["{http://www.aiim.org/pdfa/ns/id/}conformance"] = "A"
+            meta["pdfaid:part"] = "1"
+            meta["pdfaid:conformance"] = "A"
 
     def _build_xmp_metadata_packet(
         self,
@@ -676,6 +974,7 @@ class PDFGenerator:
     xmlns:dc="http://purl.org/dc/elements/1.1/"
     xmlns:xmp="http://ns.adobe.com/xap/1.0/"
     xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+    xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"
     xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">
     <dc:format>application/pdf</dc:format>
     <dc:title>
@@ -702,6 +1001,8 @@ class PDFGenerator:
     <xmp:CreateDate>{timestamp}</xmp:CreateDate>
     <xmp:ModifyDate>{timestamp}</xmp:ModifyDate>
     <xmp:MetadataDate>{timestamp}</xmp:MetadataDate>
+    <pdfaid:part>1</pdfaid:part>
+    <pdfaid:conformance>A</pdfaid:conformance>
     <pdfuaid:part>1</pdfuaid:part>
     <pdfuaid:conformance>PDF/UA-1</pdfuaid:conformance>
   </rdf:Description>
