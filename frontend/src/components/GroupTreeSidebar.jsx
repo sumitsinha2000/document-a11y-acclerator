@@ -1780,8 +1780,9 @@ export default function GroupTreeSidebar({
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               strokeWidth={2}
-                              d="M6 18L18 6M6 6l12 12"
+                              d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m5 0V4h4v3m-6 0h6"
                             />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 11h6" />
                           </svg>
                         </button>
                       </div>
@@ -1981,8 +1982,9 @@ export default function GroupTreeSidebar({
                                             strokeLinecap="round"
                                             strokeLinejoin="round"
                                             strokeWidth={2}
-                                            d="M6 18L18 6M6 6l12 12"
+                                            d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m5 0V4h4v3m-6 0h6"
                                           />
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 11h6" />
                                         </svg>
                                       </button>
                                     </div>
