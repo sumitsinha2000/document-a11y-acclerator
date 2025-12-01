@@ -48,8 +48,9 @@ export default function ExportDropdown({ scanId, filename }) {
 
     try {
       if (format === "pdf") {
+        const tzOffset = new Date().getTimezoneOffset()
         const response = await axios.get(
-          `${API_BASE_URL}/api/export/${scanId}?format=pdf`,
+          `${API_BASE_URL}/api/export/${scanId}?format=pdf&tzOffset=${tzOffset}`,
           { responseType: "blob" }
         )
         const blob = new Blob([response.data], { type: "application/pdf" })

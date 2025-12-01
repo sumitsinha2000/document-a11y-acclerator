@@ -476,7 +476,15 @@ def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
         "status": scan_row.get("status"),
         "uploadDate": upload_date,
         "batchId": scan_row.get("batch_id") or scan_row.get("batchId"),
+        "folderId": scan_row.get("batch_id") or scan_row.get("batchId"),
         "groupId": scan_row.get("group_id") or scan_row.get("groupId"),
+        "groupName": scan_row.get("group_name") or scan_row.get("groupName"),
+        "folderName": (
+            scan_row.get("folder_name")
+            or scan_row.get("folderName")
+            or scan_row.get("batch_name")
+            or scan_row.get("batchName")
+        ),
         "summary": summary or {},
         "results": results,
         "verapdfStatus": verapdf_status,

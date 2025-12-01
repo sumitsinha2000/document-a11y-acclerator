@@ -1561,6 +1561,13 @@ async def export_scan(scan_id: str, request: Request):
     cur = None
     try:
         requested_format = (request.query_params.get("format") or "json").lower()
+        tz_offset = request.query_params.get("tzOffset")
+        client_offset = None
+        if tz_offset is not None:
+            try:
+                client_offset = int(tz_offset)
+            except ValueError:
+                client_offset = None
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -1570,7 +1577,11 @@ async def export_scan(scan_id: str, request: Request):
                    s.scan_results, s.total_issues, s.issues_fixed, s.issues_remaining,
                    fh.fixed_filename, fh.fixes_applied, fh.applied_at AS applied_at, fh.fix_type,
                    fh.issues_after, fh.compliance_after
+                   , b.name AS folder_name
+                   , g.name AS group_name
             FROM scans s
+            LEFT JOIN batches b ON s.batch_id = b.id
+            LEFT JOIN groups g ON s.group_id = g.id
             LEFT JOIN LATERAL (
                 SELECT fh_inner.*
                 FROM fix_history fh_inner
@@ -1597,7 +1608,9 @@ async def export_scan(scan_id: str, request: Request):
         if requested_format == "pdf":
             try:
                 pdf_path = await asyncio.to_thread(
-                    report_pdf_generator.create_accessibility_report_pdf, export_payload
+                    report_pdf_generator.create_accessibility_report_pdf,
+                    export_payload,
+                    client_offset_minutes=client_offset,
                 )
             except Exception:
                 logger.exception("[Backend] Error generating PDF export for %s", scan_id)

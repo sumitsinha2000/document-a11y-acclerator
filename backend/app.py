@@ -1934,8 +1934,12 @@ async def export_scan(scan_id: str):
                    COALESCE(s.upload_date, s.created_at) AS upload_date,
                    s.scan_results, s.total_issues, s.issues_fixed, s.issues_remaining,
                    fh.fixed_filename, fh.fixes_applied, fh.applied_at AS applied_at, fh.fix_type,
-                   fh.issues_after, fh.compliance_after
+                   fh.issues_after, fh.compliance_after,
+                   b.name AS folder_name,
+                   g.name AS group_name
             FROM scans s
+            LEFT JOIN batches b ON s.batch_id = b.id
+            LEFT JOIN groups g ON s.group_id = g.id
             LEFT JOIN LATERAL (
                 SELECT fh_inner.*
                 FROM fix_history fh_inner
