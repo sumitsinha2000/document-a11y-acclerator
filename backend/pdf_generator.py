@@ -325,6 +325,7 @@ class PDFGenerator:
         summary = scan_export.get("summary") or {}
         results = scan_export.get("results") or {}
         upload_date = scan_export.get("uploadDate")
+        criteria_summary = scan_export.get("criteriaSummary") or {}
 
         pdf.add_page()
         pdf.set_text_color(24, 24, 24)
@@ -353,6 +354,41 @@ class PDFGenerator:
         ]
         pdf.multi_cell(0, 6, "\n".join(summary_lines))
         pdf.ln(4)
+
+        wcag_criteria_items = (
+            criteria_summary.get("wcag", {}).get("items") or []
+        )
+
+        def _format_criterion_status(code_status: Optional[str]) -> str:
+            if not code_status:
+                return "Status unavailable"
+            labels = {
+                "supports": "Supports (pass)",
+                "partiallySupports": "Partially supports",
+                "doesNotSupport": "Does not support (fail)",
+            }
+            return labels.get(code_status, code_status)
+
+        if wcag_criteria_items:
+            pdf.set_font(font_family, "B", 16)
+            pdf.set_text_color(24, 24, 24)
+            pdf.cell(0, 10, "WCAG Criteria Summary", ln=True)
+            pdf.set_font(font_family, "", 11)
+            pdf.set_text_color(60, 60, 60)
+
+            for item in wcag_criteria_items:
+                code = item.get("code") or "WCAG Criterion"
+                name = item.get("name") or ""
+                level = item.get("level") or "A"
+                status_label = _format_criterion_status(item.get("status"))
+                issue_count = item.get("issueCount", 0)
+                header_line = f"{code} {name} (Level {level}) — {status_label} — Issues: {issue_count}"
+                pdf.multi_cell(0, 6, header_line)
+                summary_text = item.get("summary")
+                if summary_text:
+                    pdf.multi_cell(0, 6, f"Summary: {summary_text}")
+                pdf.ln(1)
+            pdf.ln(2)
 
         def _pretty_category_name(name: str) -> str:
             if not name:

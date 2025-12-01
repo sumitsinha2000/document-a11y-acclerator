@@ -29,7 +29,7 @@ from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
 from backend.fix_progress_tracker import create_progress_tracker, get_progress_tracker
-from backend.utils.wcag_mapping import annotate_wcag_mappings
+from backend.utils.wcag_mapping import annotate_wcag_mappings, CATEGORY_CRITERIA_MAP
 from backend.utils.criteria_summary import build_criteria_summary
 
 load_dotenv()
@@ -448,6 +448,10 @@ def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
         if combined_score is not None:
             summary["complianceScore"] = combined_score
 
+    criteria_summary = scan_results.get("criteriaSummary")
+    if not isinstance(criteria_summary, dict):
+        criteria_summary = build_criteria_summary(results)
+
     latest_fix = None
     if scan_row.get("applied_at"):
         fix_list = _deserialize_json_field(scan_row.get("fixes_applied"), [])
@@ -482,6 +486,7 @@ def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
             "remaining": scan_row.get("issues_remaining"),
         },
         "latestFix": latest_fix,
+        "criteriaSummary": criteria_summary,
     }
 
 def update_group_file_count(group_id: str):
@@ -523,6 +528,7 @@ def save_scan_to_db(
     Returns saved scan_id or raises on error.
     """
     payload_dict = scan_results if isinstance(scan_results, dict) else {}
+    payload_dict = _ensure_scan_results_compliance(payload_dict)
     summary = payload_dict.get("summary", {}) if isinstance(payload_dict, dict) else {}
     computed_total = (
         total_issues if total_issues is not None else summary.get("totalIssues", 0)
@@ -609,6 +615,31 @@ def save_scan_to_db(
         logger.exception("save_scan_to_db failed")
         raise
 
+
+def _is_skipped_fix_entry(fix: Any) -> bool:
+    """
+    Treat entries containing explicit skip language as skipped fixes.
+    """
+    if not isinstance(fix, dict):
+        return False
+    description = fix.get("description")
+    if isinstance(description, str) and fix.get("success") is False:
+        if "skipp" in description.lower():
+            return True
+    if fix.get("skipped") is True:
+        return True
+    return False
+
+
+def _filter_skipped_fixes(fixes: Any) -> List[Dict[str, Any]]:
+    """
+    Keep only the fixes that were actually applied so skip entries are hidden.
+    """
+    if not isinstance(fixes, list):
+        return []
+    return [fix for fix in fixes if not _is_skipped_fix_entry(fix)]
+
+
 def save_fix_history(
     scan_id: str,
     original_filename: str,
@@ -632,6 +663,8 @@ def save_fix_history(
     """
     Save fix history record - preserve original names.
     """
+    normalized_fixes = _filter_skipped_fixes(fixes_applied or [])
+    stored_success_count = success_count if success_count is not None else len(normalized_fixes)
     try:
         original_file = original_filename or fixed_filename or "unknown.pdf"
         fixed_file = fixed_filename or original_filename or "fixed.pdf"
@@ -673,7 +706,7 @@ def save_fix_history(
                 original_filename,
                 fixed_filename,
                 fix_type,
-                json.dumps(fixes_applied),
+                json.dumps(normalized_fixes),
                 json.dumps(fix_suggestions or []),
                 json.dumps(issues_before),
                 json.dumps(issues_after),
@@ -683,7 +716,7 @@ def save_fix_history(
                 high_severity_after,
                 compliance_before,
                 compliance_after,
-                success_count,
+                stored_success_count,
                 json.dumps(fix_metadata or {}),
             ),
         )
@@ -999,6 +1032,28 @@ def _combine_compliance_scores(*scores: Optional[float]) -> Optional[float]:
     if not numeric:
         return None
     return round(sum(numeric) / len(numeric), 2)
+
+def _ensure_scan_results_compliance(scan_results: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(scan_results, dict):
+        return scan_results
+
+    summary = scan_results.get("summary")
+    if not isinstance(summary, dict):
+        summary = {}
+        scan_results["summary"] = summary
+
+    verapdf_status = scan_results.get("verapdfStatus")
+    if isinstance(verapdf_status, dict):
+        summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
+        summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
+
+    combined_score = _combine_compliance_scores(
+        summary.get("wcagCompliance"), summary.get("pdfuaCompliance")
+    )
+    if combined_score is not None:
+        summary["complianceScore"] = combined_score
+
+    return scan_results
 
 async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
     """
@@ -1520,17 +1575,27 @@ def _perform_automated_fix(
         if tracker:
             tracker.complete_all()
 
-        scan_results_payload = result.get("scanResults") or {
-            "results": result.get("results"),
-            "summary": result.get("summary"),
-            "verapdfStatus": result.get("verapdfStatus"),
-            "fixes": result.get("fixesApplied", []),
-        }
+        raw_fixes_applied = result.get("fixesApplied") or []
+        filtered_fixes_applied = _filter_skipped_fixes(raw_fixes_applied)
+        result["fixesApplied"] = filtered_fixes_applied
+
+        scan_results_payload = result.get("scanResults")
+        if not isinstance(scan_results_payload, dict):
+            scan_results_payload = {
+                "results": result.get("results"),
+                "summary": result.get("summary"),
+                "verapdfStatus": result.get("verapdfStatus"),
+                "fixes": filtered_fixes_applied,
+            }
+        else:
+            scan_results_payload["fixes"] = filtered_fixes_applied
         summary = scan_results_payload.get("summary") or result.get("summary") or {}
         remaining_issues = summary.get("totalIssues", 0) or 0
         total_issues_before = scan_row.get("total_issues") or remaining_issues
         issues_fixed = max(total_issues_before - remaining_issues, 0)
         status = "fixed" if remaining_issues == 0 else "processed"
+        success_count = issues_fixed
+        result["successCount"] = success_count
 
         cursor.execute(
             """
@@ -1552,7 +1617,7 @@ def _perform_automated_fix(
             ),
         )
 
-        fixes_applied = result.get("fixesApplied", [])
+        fixes_applied = filtered_fixes_applied
         fix_metadata = {"automated": True}
         if archive_info:
             fix_metadata.update(
@@ -1586,7 +1651,7 @@ def _perform_automated_fix(
                 total_issues_after=remaining_issues,
                 high_severity_before=initial_summary.get("highSeverity"),
                 high_severity_after=summary.get("highSeverity"),
-                success_count=result.get("successCount"),
+                success_count=success_count,
             )
         except Exception:
             logger.exception("[Backend] Failed to record fix history for %s", scan_id)
@@ -1608,7 +1673,7 @@ def _perform_automated_fix(
             "fixedFile": result.get("fixedFile"),
             "fixedFileRemote": result.get("fixedFileRemote"),
             "fixedVersion": result.get("fixedVersion"),
-            "successCount": result.get("successCount", len(fixes_applied)),
+            "successCount": success_count,
             "message": result.get("message", "Automated fixes applied"),
         }
         return 200, response_payload
@@ -1647,6 +1712,10 @@ def build_verapdf_status(results, analyzer=None):
         return status
     wcag_issues = len(results.get("wcagIssues", []))
     pdfua_issues = len(results.get("pdfuaIssues", []))
+    for category in CATEGORY_CRITERIA_MAP:
+        category_issues = results.get(category)
+        if isinstance(category_issues, list):
+            wcag_issues += len(category_issues)
     total = wcag_issues + pdfua_issues
     status["totalVeraPDFIssues"] = total
     if total == 0:
@@ -1934,6 +2003,7 @@ __all__ = [
     "should_scan_now",
     "_serialize_scan_results",
     "_combine_compliance_scores",
+    "_ensure_scan_results_compliance",
     "_analyze_pdf_document",
     "_fetch_scan_record",
     "get_scan_by_id",

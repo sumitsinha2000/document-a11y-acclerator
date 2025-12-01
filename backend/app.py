@@ -54,6 +54,7 @@ from backend.routes import (
     folders_router,
     scans_router,
     fixes_router,
+    debug_scans_router,
 )
 import backend.utils.app_helpers as app_helpers
 from backend.utils.app_helpers import (
@@ -168,6 +169,7 @@ app.include_router(groups_router)
 app.include_router(folders_router)
 app.include_router(scans_router)
 app.include_router(fixes_router)
+app.include_router(debug_scans_router)
 
 
 # ----------------------
@@ -183,36 +185,36 @@ async def serve_favicon():
     return Response(status_code=204)
 
 
+async def _run_blocking(fn, *args, **kwargs):
+    return await asyncio.to_thread(fn, *args, **kwargs)
+
+
+def _write_temp_file_bytes(content: bytes, filename: str) -> str:
+    with tempfile.NamedTemporaryFile(delete=False, dir="/tmp", suffix=f"_{filename}") as tmp:
+        tmp.write(content)
+        return tmp.name
+
+
 @app.post("/api/upload")
-def upload_file(
+async def upload_file(
     request: Request,
     file: UploadFile = File(...),
     group_id: Optional[str] = Form(None),
     scan_mode: Optional[str] = Form(None),
     folder_id: Optional[str] = Form(None),
 ):
-    """
-    Upload endpoint (synchronous):
-    - Saves uploaded file to a temporary location
-    - Uses upload_file_with_fallback() for multi-tier storage
-    - Cleans up temporary file
-    """
     temp_path = None
+    file_bytes = None
     try:
-        # Save temp file safely
-        with tempfile.NamedTemporaryFile(
-            delete=False, dir="/tmp", suffix=f"_{file.filename}"
-        ) as tmp:
-            temp_path = tmp.name
-            tmp.write(file.file.read())
-
-        file_size = os.path.getsize(temp_path)
+        file_bytes = await file.read()
+        temp_path = await _run_blocking(_write_temp_file_bytes, file_bytes, file.filename)
+        file_size = len(file_bytes)
         logger.info(f"[API] Received upload: {file.filename} ({file_size} bytes)")
 
-        # Upload with fallback
-        result = upload_file_with_fallback(temp_path, file.filename, folder="uploads")
+        result = await _run_blocking(
+            upload_file_with_fallback, temp_path, file.filename, folder="uploads"
+        )
         storage_reference = result.get("url") or result.get("path") or result.get("key")
-
         response_payload: Dict[str, Any] = {
             "message": "File uploaded successfully",
             "result": dict(result),
@@ -227,7 +229,8 @@ def upload_file(
 
         folder_record = None
         if folder_id:
-            folder_rows = execute_query(
+            folder_rows = await _run_blocking(
+                execute_query,
                 "SELECT id, name, group_id FROM batches WHERE id = %s",
                 (folder_id,),
                 fetch=True,
@@ -242,8 +245,6 @@ def upload_file(
                     status_code=400,
                 )
 
-        # When a group is provided, create a placeholder scan entry so dashboards
-        # can track the upload even before analysis runs.
         if group_id and NEON_DATABASE_URL:
             logger.info("[API] saving scan metadata for %s", file.filename)
 
@@ -253,7 +254,8 @@ def upload_file(
                 placeholder["filePath"] = storage_reference
             scan_id = f"scan_{uuid.uuid4().hex}"
             try:
-                saved_id = save_scan_to_db(
+                saved_id = await _run_blocking(
+                    save_scan_to_db,
                     scan_id,
                     file.filename,
                     placeholder,
@@ -289,13 +291,13 @@ def upload_file(
                 )
                 try:
                     if folder_id:
-                        update_batch_statistics(folder_id)
+                        await _run_blocking(update_batch_statistics, folder_id)
                 except Exception:
                     logger.exception(
                         "[API] Failed to refresh batch %s after upload", folder_id
                     )
                 try:
-                    update_group_file_count(group_id)
+                    await _run_blocking(update_group_file_count, group_id)
                 except Exception:
                     logger.exception(
                         "[API] Failed to refresh group %s counts after upload", group_id
@@ -314,11 +316,12 @@ def upload_file(
         return {"error": str(e)}
 
     finally:
-        # Always clean up temp file
-        if temp_path and os.path.exists(temp_path):
+        if temp_path:
             try:
-                os.remove(temp_path)
-                logger.debug(f"[API] Temporary file removed: {temp_path}")
+                exists = await _run_blocking(os.path.exists, temp_path)
+                if exists:
+                    await _run_blocking(os.remove, temp_path)
+                    logger.debug(f"[API] Temporary file removed: {temp_path}")
             except Exception as cleanup_error:
                 logger.warning(f"[API] Cleanup failed for {temp_path}: {cleanup_error}")
 
@@ -1669,6 +1672,21 @@ async def apply_manual_fix(request: Request):
             }
         ]
 
+        before_summary = rescan_data.get("before_summary")
+        if not isinstance(before_summary, dict):
+            before_summary = {}
+        total_issues_before = before_summary.get("totalIssues")
+        high_severity_before = before_summary.get("highSeverity")
+        compliance_before = before_summary.get("complianceScore")
+        total_issues_after = summary.get("totalIssues")
+        high_severity_after = summary.get("highSeverity")
+        compliance_after = summary.get("complianceScore")
+        issues_before = rescan_data.get("before", {})
+        issues_after = results
+        issues_fixed = max(
+            (total_issues_before or 0) - (total_issues_after or 0), 0
+        )
+
         try:
             save_fix_history(
                 scan_id=scan_id,
@@ -1676,10 +1694,10 @@ async def apply_manual_fix(request: Request):
                 fixed_filename=pdf_path.name,
                 fixes_applied=fixes_applied,
                 fix_type="manual",
-                issues_before=rescan_data.get("before", {}),
-                issues_after=results,
-                compliance_before=rescan_data.get("before_summary", {}),
-                compliance_after=summary.get("complianceScore", None),
+                issues_before=issues_before,
+                issues_after=issues_after,
+                compliance_before=compliance_before,
+                compliance_after=compliance_after,
                 fix_suggestions=suggestions,
                 fix_metadata={"page": page, "manual": True},
                 batch_id=scan_data.get("batch_id")
@@ -1688,19 +1706,11 @@ async def apply_manual_fix(request: Request):
                 group_id=scan_data.get("group_id")
                 if isinstance(scan_data, dict)
                 else None,
-                total_issues_before=(
-                    rescan_data.get("before_summary", {}).get("totalIssues")
-                    if isinstance(rescan_data.get("before_summary"), dict)
-                    else None
-                ),
-                total_issues_after=summary.get("totalIssues"),
-                high_severity_before=(
-                    rescan_data.get("before_summary", {}).get("highSeverity")
-                    if isinstance(rescan_data.get("before_summary"), dict)
-                    else None
-                ),
-                high_severity_after=summary.get("highSeverity"),
-                success_count=len(fixes_applied),
+                total_issues_before=total_issues_before,
+                total_issues_after=total_issues_after,
+                high_severity_before=high_severity_before,
+                high_severity_after=high_severity_after,
+                success_count=issues_fixed,
             )
         except Exception:
             logger.exception("Failed to save fix history")
@@ -1719,6 +1729,7 @@ async def apply_manual_fix(request: Request):
                 "results": results,
                 "scanResults": formatted_results,
                 "fixesApplied": fixes_applied,
+                "successCount": issues_fixed,
                 "verapdfStatus": verapdf_status,
                 "fixSuggestions": suggestions,
             }

@@ -211,6 +211,7 @@ async def get_folder(folder_id: str):
     processed_scans = []
     total_issues = 0
     total_compliance = 0
+    scanned_files_for_compliance = 0
     total_high = 0
 
     for scan in scans or []:
@@ -274,7 +275,9 @@ async def get_folder(folder_id: str):
 
         total_issues += current_issues
         total_high += current_high
-        total_compliance += current_compliance
+        if status_code != "uploaded":
+            total_compliance += current_compliance
+            scanned_files_for_compliance += 1
 
         version_entries = get_versioned_files(scan["id"])
         latest_version_entry = version_entries[-1] if version_entries else None
@@ -328,7 +331,11 @@ async def get_folder(folder_id: str):
             }
         )
 
-    avg_compliance = round(total_compliance / len(processed_scans), 2) if processed_scans else 0
+    avg_compliance = (
+        round(total_compliance / scanned_files_for_compliance, 2)
+        if scanned_files_for_compliance
+        else 0
+    )
     response = {
         "batchId": folder_id,
         "folderId": folder_id,

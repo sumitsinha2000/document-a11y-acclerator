@@ -7,6 +7,8 @@ import FixProgressStepper from "./FixProgressStepper"
 import AlertModal from "./AlertModal"
 import { API_ENDPOINTS } from "../config/api"
 
+const SEMI_AUTOMATED_REMEDIATION_DISABLED = true
+
 const showAlert =
   (setAlertModal) =>
   (title, message, type = "info") => {
@@ -22,6 +24,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [showAIPanel, setShowAIPanel] = useState(false)
   const [showProgressStepper, setShowProgressStepper] = useState(false)
   const [currentFixType, setCurrentFixType] = useState("")
+
+  const isSemiAutomatedButtonDisabled = SEMI_AUTOMATED_REMEDIATION_DISABLED || applyingTraditionalSemi
 
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" })
   const [expandedFixes, setExpandedFixes] = useState({
@@ -373,8 +377,10 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           </span> */}
           <button
             onClick={() => setShowAIPanel(true)}
-            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-            aria-label="Get AI-powered remediation insights"
+            disabled
+            aria-disabled="true"
+            className="px-4 py-2 bg-slate-200 text-slate-500 text-sm font-medium rounded-lg transition-all flex items-center gap-2 focus:outline-none cursor-not-allowed"
+            aria-label="AI-powered remediation insights not currently available"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -389,8 +395,10 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           {(hasSemiAutomated || hasManual) && (
             <button
               onClick={() => setShowEditor(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-              aria-label="Open PDF editor to apply manual fixes"
+              disabled
+              aria-disabled="true"
+              className="px-4 py-2 bg-slate-200 text-slate-500 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none cursor-not-allowed"
+              aria-label="PDF editor currently unavailable"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path
@@ -492,9 +500,9 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                 onClick={handleApplyTraditionalFixes}
                 disabled={applyingTraditional}
                 aria-busy={applyingTraditional}
-                aria-label={applyingTraditional ? "Applying traditional fixes" : "Apply traditional automated fixes"}
+                aria-label={applyingTraditional ? "Applying auto fixes" : "Apply auto fixes"}
               >
-                {applyingTraditional ? "Applying..." : "Apply Traditional Fixes"}
+                {applyingTraditional ? "Applying..." : "Apply Auto Fixes"}
               </button>
               {/* AI-powered automated fixes currently share the same backend pipeline, so the dedicated button is temporarily disabled */}
               {/*
@@ -580,17 +588,21 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
             )}
             <div className="space-y-2 mt-auto">
               <button
-                className="w-full px-4 py-2 bg-amber-800 hover:bg-amber-900 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                className="w-full px-4 py-2 bg-amber-800 hover:bg-amber-900 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 dark:focus:ring-offset-gray-800 cursor-not-allowed"
                 onClick={handleApplyTraditionalSemiFixes}
-                disabled={applyingTraditionalSemi}
+                disabled={isSemiAutomatedButtonDisabled}
+                aria-disabled="true"
                 aria-busy={applyingTraditionalSemi}
                 aria-label={
-                  applyingTraditionalSemi
-                    ? "Applying traditional semi-automated fixes"
-                    : "Apply traditional semi-automated fixes"
+                  isSemiAutomatedButtonDisabled
+                    ? "Semi-automated remediation currently unavailable"
+                    : applyingTraditionalSemi
+                      ? "Applying auto fixes"
+                      : "Apply auto fixes"
                 }
+                title="Semi-automated remediation is not available yet"
               >
-                {applyingTraditionalSemi ? "Applying..." : "Apply Traditional Fixes"}
+                {applyingTraditionalSemi ? "Applying..." : "Apply Auto Fixes"}
               </button>
               {/* AI semi-automated fixes share the same backend pipeline and are not currently distinct, so the extra button is commented out */}
               {/*

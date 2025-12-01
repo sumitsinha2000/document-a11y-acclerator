@@ -7,12 +7,16 @@ without requiring external dependencies like veraPDF CLI.
 """
 
 import pikepdf
-from typing import Dict, List, Any, Tuple, Optional, Callable
+from pikepdf import Name, String
+from typing import Dict, List, Any, Tuple, Optional, Callable, Set, Mapping
 import logging
 from collections import defaultdict
 import re
+import pdfplumber
+from pdfplumber.utils.geometry import get_bbox_overlap
 
 logger = logging.getLogger(__name__)
+GENERIC_LINK_TEXTS = {"click here", "here", "link"}
 
 
 def _resolve_pdf_object(value):
@@ -236,6 +240,7 @@ class WCAGValidator:
         self.wcag_compliance = {'A': True, 'AA': True, 'AAA': True}
         self.pdfua_compliance = True
         self._figure_alt_lookup = None
+        self._named_destinations: Optional[Dict[str, Any]] = None
         self._page_lookup = None
         self._role_map_cache = None
         self._role_map_cache_initialized = False
@@ -524,12 +529,14 @@ class WCAGValidator:
             self._validate_document_title()
             self._validate_structure_tree()
             self._validate_reading_order()
+            self._validate_bypass_blocks()
             self._validate_alternative_text()
             self._validate_table_structure()
             self._validate_heading_hierarchy()
             self._validate_list_structure()
             self._validate_contrast_ratios()
             self._validate_form_fields()
+            self._validate_link_purposes()
             self._validate_annotations()
             
             # Calculate compliance scores
@@ -830,6 +837,202 @@ class WCAGValidator:
                 
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating reading order: {str(e)}")
+
+    def _validate_bypass_blocks(self):
+        """Validate WCAG 2.4.1 (Bypass Blocks) - Level A."""
+        try:
+            if self._has_navigation_entry_point():
+                return
+
+            self._add_wcag_issue(
+                "Document lacks a bypass block or clear entry point.",
+                "2.4.1",
+                "A",
+                "high",
+                "Add a clear first-page H1 heading, accessible bookmarks/outlines, or an internal TOC so users can bypass repeated content.",
+                page=1,
+            )
+            self.wcag_compliance["A"] = False
+        except Exception as e:
+            logger.error(f"[WCAGValidator] Error validating bypass blocks: {str(e)}")
+
+    def _has_navigation_entry_point(self) -> bool:
+        """Return True if the document exposes an entry point that satisfies WCAG 2.4.1."""
+        return (
+            self._has_first_h1_near_first_page()
+            or self._has_valid_outline_navigation()
+            or self._has_internal_toc_links()
+        )
+
+    def _has_first_h1_near_first_page(self) -> bool:
+        """Check if a level-1 heading appears early on page 1."""
+        headings = self._collect_headings_in_order()
+        if not headings:
+            return False
+
+        first_h1_index = None
+        first_h1 = None
+        for index, heading in enumerate(headings):
+            if heading.get("level") == 1:
+                first_h1 = heading
+                first_h1_index = index
+                break
+
+        if not first_h1:
+            return False
+
+        page = first_h1.get("page")
+        if page is None:
+            return True
+
+        return page == 1 and (first_h1_index is None or first_h1_index <= 2)
+
+    def _has_valid_outline_navigation(self) -> bool:
+        """Check if the document has outlines/bookmarks pointing to a valid destination."""
+        if not self.pdf or "/Outlines" not in self.pdf.Root:
+            return False
+
+        outlines_root = self.pdf.Root.Outlines
+        first_entry = outlines_root.get("/First")
+        return self._traverse_outline_entries(first_entry, set())
+
+    def _traverse_outline_entries(self, entry: Any, visited: Set[int]) -> bool:
+        """Walk the outline tree looking for entries with valid destinations."""
+        entry = _resolve_pdf_object(entry)
+        if entry is None:
+            return False
+
+        entry_id = id(entry)
+        if entry_id in visited:
+            return False
+        visited.add(entry_id)
+
+        if self._resolve_outline_entry_destination(entry) is not None:
+            return True
+
+        first_child = entry.get("/First")
+        if first_child and self._traverse_outline_entries(first_child, visited):
+            return True
+        next_sibling = entry.get("/Next")
+        if next_sibling and self._traverse_outline_entries(next_sibling, visited):
+            return True
+
+        return False
+
+    def _resolve_outline_entry_destination(self, entry: Any) -> Optional[int]:
+        """Resolve the page number targeted by an outline/bookmark entry."""
+        if not isinstance(entry, pikepdf.Dictionary):
+            return None
+
+        dest = entry.get("/Dest")
+        if dest is None:
+            action = entry.get("/A")
+            if isinstance(action, pikepdf.Dictionary) and str(action.get("/S")) == "/GoTo":
+                dest = action.get("/D") or action.get("/Dest")
+
+        return self._resolve_destination_page(dest)
+
+    def _resolve_destination_page(
+        self, dest: Any, visited_names: Optional[Set[str]] = None
+    ) -> Optional[int]:
+        """Resolve a destination reference to a page number."""
+        dest = _resolve_pdf_object(dest)
+        if dest is None:
+            return None
+
+        if isinstance(dest, (list, pikepdf.Array)):
+            if not dest:
+                return None
+            return self._resolve_page_number(dest[0])
+
+        normalized = None
+        if isinstance(dest, (str, bytes, Name, String)):
+            normalized = str(dest)
+
+        if normalized:
+            visited = set(visited_names or [])
+            if normalized in visited:
+                return None
+            visited.add(normalized)
+            named = self._get_named_destinations()
+            alias = named.get(normalized)
+            if alias is not None:
+                return self._resolve_destination_page(alias, visited)
+
+        if isinstance(dest, pikepdf.Dictionary):
+            for key in ("/D", "/Dest"):
+                target = dest.get(key)
+                if target is not None:
+                    resolved = self._resolve_destination_page(target, visited_names)
+                    if resolved is not None:
+                        return resolved
+
+        return None
+
+    def _get_named_destinations(self) -> Dict[str, Any]:
+        """Build or return a cache of named destinations from the document catalog."""
+        if self._named_destinations is not None:
+            return self._named_destinations
+
+        named_map: Dict[str, Any] = {}
+        if not self.pdf or "/Names" not in self.pdf.Root:
+            self._named_destinations = named_map
+            return named_map
+
+        names_root = self.pdf.Root.Names
+        dests_root = names_root.get("/Dests")
+
+        def _walk(node: Any):
+            node = _resolve_pdf_object(node)
+            if node is None:
+                return
+
+            names_array = node.get("/Names")
+            if isinstance(names_array, (list, pikepdf.Array)):
+                entries = list(names_array)
+                for idx in range(0, len(entries), 2):
+                    name = entries[idx]
+                    target = entries[idx + 1] if idx + 1 < len(entries) else None
+                    if name and target is not None:
+                        named_map[str(name)] = target
+
+            kids = node.get("/Kids")
+            if isinstance(kids, (list, pikepdf.Array)):
+                for kid in kids:
+                    _walk(kid)
+
+        _walk(dests_root)
+        self._named_destinations = named_map
+        return named_map
+
+    def _has_internal_toc_links(self) -> bool:
+        """Look for /GoTo annotations on the first two pages that target internal destinations."""
+        if not self.pdf:
+            return False
+
+        max_check_page = min(2, len(self.pdf.pages))
+        for page_index in range(1, max_check_page + 1):
+            page = self.pdf.pages[page_index - 1]
+            annots = getattr(page, "Annots", None)
+            if not annots:
+                continue
+
+            for annot in annots:
+                annot_obj = _resolve_pdf_object(annot)
+                if not isinstance(annot_obj, pikepdf.Dictionary):
+                    continue
+
+                dest = None
+                action = annot_obj.get("/A")
+                if isinstance(action, pikepdf.Dictionary) and str(action.get("/S")) == "/GoTo":
+                    dest = action.get("/D") or action.get("/Dest")
+                if dest is None and "/Dest" in annot_obj:
+                    dest = annot_obj.get("/Dest")
+
+                if dest is not None and self._resolve_destination_page(dest) is not None:
+                    return True
+
+        return False
     
     def _validate_alternative_text(self):
         """Validate WCAG 1.1.1 (Non-text Content) - Level A."""
@@ -1497,10 +1700,49 @@ class WCAGValidator:
                             'Add a label (T entry) to the form field'
                         )
                         self.wcag_compliance['A'] = False
-                        
+
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating form fields: {str(e)}")
     
+    def _validate_link_purposes(self):
+        """Validate WCAG 2.4.4 (Link Purpose in Context) - Level AA."""
+        try:
+            with pdfplumber.open(self.pdf_path) as document:
+                for page_num, page in enumerate(document.pages, 1):
+                    words = page.extract_words()
+                    for annot in page.annots:
+                        if not self._annotation_is_link(annot):
+                            continue
+                        print("[DEBUG] Link annot on page", page_num, "->", annot.get("uri"))
+
+                        bbox = self._get_annotation_bbox(annot)
+                        if not bbox:
+                            continue
+
+                        link_words = self._words_within_bbox(words, self._expand_bbox(bbox, padding=1.5))
+                        visible_text = self._join_words(link_words)
+                        annotation_label = self._extract_annotation_label(annot)
+                        link_label = visible_text if visible_text else annotation_label
+
+                        if not link_label:
+                            self._add_link_purpose_issue(
+                                page_num,
+                                "lacks descriptive text or alternative text",
+                                severity="high",
+                                context=None,
+                            )
+                            continue
+
+                        if self._is_generic_link_text(link_label):
+                            self._add_link_purpose_issue(
+                                page_num,
+                                f'uses ambiguous text "{link_label}"',
+                                severity="medium",
+                                context=link_label,
+                            )
+        except Exception as exc:
+            logger.error(f"[WCAGValidator] Error validating link purposes: {exc}")
+
     def _validate_annotations(self):
         """Validate PDF/UA-1 annotation requirements."""
         try:
@@ -1518,6 +1760,153 @@ class WCAGValidator:
                             
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating annotations: {str(e)}")
+
+    def _annotation_is_link(self, annotation: Dict[str, Any]) -> bool:
+        if not isinstance(annotation, dict):
+            return False
+
+        data = annotation.get("data")
+        if not data or not isinstance(data, Mapping):
+            return False
+
+        # Try multiple common key spellings
+        subtype_raw = (
+            data.get("Subtype")
+            or data.get("/Subtype")
+            or data.get("subtype")
+            or data.get("SUBTYPE")
+        )
+
+        normalized = ""
+        if subtype_raw is not None:
+            try:
+                raw = str(subtype_raw).strip()
+            except Exception:
+                raw = ""
+
+            # Handle variants like /Link, /'Link', Link, 'Link'
+            if raw.startswith("/"):
+                raw = raw[1:]
+            raw = raw.strip("'\"")
+            normalized = raw.lower()
+
+        # pdfplumber exposes `uri` only on link-ish annots, so this is a safe fallback
+        has_uri = bool(annotation.get("uri"))
+
+        return normalized == "link" or has_uri
+
+    def _get_annotation_bbox(self, annotation: Dict[str, Any]) -> Optional[Tuple[float, float, float, float]]:
+        if not isinstance(annotation, dict):
+            return None
+        coords = []
+        for key in ("x0", "top", "x1", "bottom"):
+            value = annotation.get(key)
+            if value is None:
+                return None
+            try:
+                coords.append(float(value))
+            except (TypeError, ValueError):
+                return None
+        x0, top, x1, bottom = coords
+        if x1 <= x0 or bottom <= top:
+            return None
+        return x0, top, x1, bottom
+
+    def _bbox_from_word(self, word: Dict[str, Any]) -> Optional[Tuple[float, float, float, float]]:
+        if not isinstance(word, dict):
+            return None
+        coords = []
+        for key in ("x0", "top", "x1", "bottom"):
+            value = word.get(key)
+            if value is None:
+                return None
+            try:
+                coords.append(float(value))
+            except (TypeError, ValueError):
+                return None
+        x0, top, x1, bottom = coords
+        if x1 <= x0 or bottom <= top:
+            return None
+        return x0, top, x1, bottom
+
+    def _words_within_bbox(self, words: List[Dict[str, Any]], bbox: Tuple[float, float, float, float]) -> List[Dict[str, Any]]:
+        overlapping: List[Dict[str, Any]] = []
+        for word in words:
+            word_bbox = self._bbox_from_word(word)
+            if not word_bbox:
+                continue
+            if get_bbox_overlap(bbox, word_bbox) is not None:
+                overlapping.append(word)
+        return overlapping
+
+    def _expand_bbox(
+        self,
+        bbox: Tuple[float, float, float, float],
+        padding: float = 1.0,
+    ) -> Tuple[float, float, float, float]:
+        x0, top, x1, bottom = bbox
+        return (x0 - padding, top - padding, x1 + padding, bottom + padding)
+
+    def _join_words(self, words: List[Dict[str, Any]]) -> Optional[str]:
+        if not words:
+            return None
+        sorted_words = sorted(
+            words,
+            key=lambda w: (
+                float(w.get("doctop") or 0),
+                float(w.get("x0") or 0),
+            ),
+        )
+        tokens = [str(word.get("text") or "").strip() for word in sorted_words]
+        filtered = [token for token in tokens if token]
+        joined = " ".join(filtered).strip()
+        return joined or None
+
+    def _extract_annotation_label(self, annotation: Dict[str, Any]) -> Optional[str]:
+        if not isinstance(annotation, dict):
+            return None
+        for key in ("contents", "title"):
+            value = annotation.get(key)
+            snippet = self._clean_text_snippet(value)
+            if snippet:
+                return snippet
+        data = annotation.get("data")
+        if isinstance(data, dict):
+            for key in ("/Alt", "Alt", "/ActualText", "ActualText", "/TU", "TU", "/T", "T"):
+                snippet = self._clean_text_snippet(data.get(key))
+                if snippet:
+                    return snippet
+        return None
+
+    def _normalize_link_text(self, value: str) -> str:
+        cleaned = " ".join(str(value or "").split()).lower()
+        cleaned = re.sub(r"[^a-z0-9\s]", "", cleaned)
+        return cleaned.strip()
+
+    def _is_generic_link_text(self, value: str) -> bool:
+        normalized = self._normalize_link_text(value)
+        return normalized in GENERIC_LINK_TEXTS
+
+    def _add_link_purpose_issue(
+        self,
+        page: int,
+        detail: str,
+        *,
+        severity: str,
+        context: Optional[str],
+    ):
+        description = f"Link annotation on page {page} {detail}."
+        self._add_wcag_issue(
+            description,
+            '2.4.4',
+            'AA',
+            severity,
+            'Provide descriptive link text or Alt/Contents data so the link purpose is clear.',
+            page=page,
+            context=context,
+        )
+        self.wcag_compliance['AA'] = False
+        self.wcag_compliance['AAA'] = False
     
     def _find_role_map_value(self, struct_type, role_map):
         """Return the mapped value for a structure type from the RoleMap."""
@@ -1680,7 +2069,7 @@ class WCAGValidator:
     
     def _calculate_wcag_score(self) -> int:
         """Calculate WCAG compliance score (0-100)."""
-        total_checks = 15  # Total number of WCAG checks performed
+        total_checks = 16  # Total number of WCAG checks performed
         failed_checks = len(self.issues['wcag'])
         passed_checks = total_checks - min(failed_checks, total_checks)
         return int((passed_checks / total_checks) * 100)

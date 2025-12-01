@@ -166,6 +166,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       poorContrast: { label: "Poor Contrast", severity: "medium", issues: [], icon: AlertTriangle },
       tableIssues: { label: "Table Issues", severity: "medium", issues: [], icon: AlertTriangle },
       formIssues: { label: "Form Issues", severity: "medium", issues: [], icon: AlertTriangle },
+      linkIssues: { label: "Link Purpose", severity: "medium", issues: [], icon: AlertTriangle },
       structureIssues: { label: "Structure Issues", severity: "low", issues: [], icon: Info },
       readingOrderIssues: { label: "Reading Order Issues", severity: "low", issues: [], icon: Info },
     }

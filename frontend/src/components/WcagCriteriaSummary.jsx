@@ -27,10 +27,21 @@ const WCAG_CRITERIA_DETAILS = {
     level: "AAA",
     summary: "Enhanced 7:1 contrast aids users with low vision.",
   },
+  "2.4.1": {
+    name: "Bypass Blocks",
+    level: "A",
+    summary:
+      "Provide direct entry to main content (e.g., first H1 or bookmarks) so assistive tech can skip repeated content.",
+  },
   "2.4.2": {
     name: "Page Titled",
     level: "A",
     summary: "Provide descriptive titles so users can identify content.",
+  },
+  "2.4.4": {
+    name: "Link Purpose (In Context)",
+    level: "AA",
+    summary: "Ensure link text or alternative descriptions clearly explain the destination.",
   },
   "2.4.6": {
     name: "Headings and Labels",
@@ -60,7 +71,9 @@ const WCAG_ORDER = [
   "1.3.2",
   "1.4.3",
   "1.4.6",
+  "2.4.1",
   "2.4.2",
+  "2.4.4",
   "2.4.6",
   "3.1.1",
   "3.3.2",

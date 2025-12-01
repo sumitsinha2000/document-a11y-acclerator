@@ -25,6 +25,8 @@ const STATUS_BADGE_STYLES = {
     "border-rose-100 bg-rose-50 text-rose-900 dark:border-rose-700/60 dark:bg-rose-900/20 dark:text-rose-100",
 };
 const SELECTED_STATUS_BADGE_CLASSES = "border-white bg-white/30 text-white";
+const TREE_ITEM_FOCUS_CLASSES =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
 
 export default function GroupTreeSidebar({
   onNodeSelect,
@@ -55,9 +57,7 @@ export default function GroupTreeSidebar({
   const [editingBatchId, setEditingBatchId] = useState(null);
   const [editingBatchGroupId, setEditingBatchGroupId] = useState(null);
   const [editingBatchName, setEditingBatchName] = useState("");
-  const [deletingBatchInfo, setDeletingBatchInfo] = useState({ id: null, groupId: null });
-  const [groupDeleteInProgress, setGroupDeleteInProgress] = useState(false);
-  const [batchDeleteInProgress, setBatchDeleteInProgress] = useState(false);
+  const [deletingBatchId, setDeletingBatchId] = useState(null);
   const [sidebarView, setSidebarView] = useState("projects");
   const [activeFolderView, setActiveFolderView] = useState(null);
   const [folderFiles, setFolderFiles] = useState([]);
@@ -68,6 +68,7 @@ export default function GroupTreeSidebar({
   const [refreshingFolderCounts, setRefreshingFolderCounts] = useState({});
   const handledFolderNavigationRef = useRef(null);
   const folderStatusRefreshKeyRef = useRef(null);
+  const treeContainerRef = useRef(null);
   const { confirm, showError, showSuccess } = useNotification();
   const mapFolderToSidebarEntry = (folder) => {
     if (!folder) {
@@ -191,6 +192,76 @@ export default function GroupTreeSidebar({
         detailsElement.focus({ preventScroll: false });
       }
     });
+  };
+
+  const getFocusableTreeItems = () => {
+    const container = treeContainerRef.current;
+    if (!container) {
+      return [];
+    }
+    return Array.from(container.querySelectorAll("[data-doca-tree-item]"));
+  };
+
+  const focusTreeItem = (item) => {
+    if (!item) {
+      return;
+    }
+    item.focus();
+    item.scrollIntoView({ block: "nearest" });
+  };
+
+  const handleTreeKeyDown = (event) => {
+    if (
+      event.defaultPrevented ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) {
+      return;
+    }
+    const navigationKeys = ["ArrowDown", "ArrowUp", "Home", "End"];
+    if (!navigationKeys.includes(event.key)) {
+      return;
+    }
+
+    const items = getFocusableTreeItems();
+    if (items.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    const activeElement =
+      typeof document !== "undefined" ? document.activeElement : null;
+    const currentIndex = items.indexOf(activeElement);
+    let targetIndex = 0;
+
+    switch (event.key) {
+      case "ArrowDown":
+        targetIndex =
+          currentIndex === -1
+            ? 0
+            : Math.min(items.length - 1, currentIndex + 1);
+        break;
+      case "ArrowUp":
+        targetIndex =
+          currentIndex === -1
+            ? items.length - 1
+            : Math.max(0, currentIndex - 1);
+        break;
+      case "Home":
+        targetIndex = 0;
+        break;
+      case "End":
+        targetIndex = items.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    const targetItem = items[targetIndex];
+    if (targetItem) {
+      focusTreeItem(targetItem);
+    }
   };
 
   useEffect(() => {
@@ -1147,41 +1218,10 @@ export default function GroupTreeSidebar({
     }
   };
 
-  const requestGroupDelete = (group) => {
-    setDeletingGroupId(group.id);
-    setEditingGroupId(null);
-    setGroupDeleteInProgress(false);
-  };
-
-  const cancelGroupDelete = () => {
-    setDeletingGroupId(null);
-    setGroupDeleteInProgress(false);
-  };
-
-  const confirmGroupDelete = async () => {
-    if (!deletingGroupId) {
-      return;
-    }
-    const normalizedId = normalizeId(deletingGroupId);
-    const targetGroup = groups.find((group) => normalizeId(group.id) === normalizedId);
-    setGroupDeleteInProgress(true);
-    try {
-      await axios.delete(`${API_BASE_URL}/api/groups/${deletingGroupId}`);
-      removeGroupById(deletingGroupId, targetGroup?.name);
-      setStatusMessage(`${targetGroup?.name || "Project"} deleted`);
-    } catch (error) {
-      console.error("[GroupTreeSidebar] Failed to delete group:", error);
-      setStatusMessage(error?.response?.data?.error || "Failed to delete project");
-    } finally {
-      cancelGroupDelete();
-    }
-  };
-
   const startBatchEdit = (batch, groupId) => {
     setEditingBatchId(batch.batchId);
     setEditingBatchGroupId(groupId);
     setEditingBatchName(batch.name || "");
-    setDeletingBatchInfo({ id: null, groupId: null });
   };
 
   const cancelBatchEdit = () => {
@@ -1224,32 +1264,55 @@ export default function GroupTreeSidebar({
     }
   };
 
-  const requestBatchDelete = (batch, groupId) => {
-    setDeletingBatchInfo({ id: batch.batchId, groupId });
-    setBatchDeleteInProgress(false);
-    cancelBatchEdit();
-  };
+  const handleGroupDelete = async (group) => {
+    const confirmed = await confirm({
+      title: "Delete project",
+      message: `Deleting "${group.name || "project"}" permanently removes all folders and files under it. This action cannot be undone.`,
+      confirmText: "Delete project",
+      cancelText: "Cancel",
+      type: "danger",
+    });
 
-  const cancelBatchDelete = () => {
-    setDeletingBatchInfo({ id: null, groupId: null });
-    setBatchDeleteInProgress(false);
-  };
-
-  const confirmBatchDelete = async () => {
-    if (!deletingBatchInfo.id) {
+    if (!confirmed) {
       return;
     }
-    const { id, groupId } = deletingBatchInfo;
-    const normalizedBatchId = normalizeId(id);
-    const normalizedGroupId = normalizeId(groupId);
-    const existingList = groupBatches[normalizedGroupId] || [];
-    const batchName =
-      existingList.find((batch) => normalizeId(batch.batchId) === normalizedBatchId)?.name || "Folder";
-    setBatchDeleteInProgress(true);
+
+    setDeletingGroupId(group.id);
     try {
-      await axios.delete(`${API_BASE_URL}/api/folders/${id}`);
+      await axios.delete(`${API_BASE_URL}/api/groups/${group.id}`);
+      removeGroupById(group.id, group?.name);
+      setStatusMessage(`${group?.name || "Project"} deleted`);
+    } catch (error) {
+      console.error("[GroupTreeSidebar] Failed to delete group:", error);
+      setStatusMessage(error?.response?.data?.error || "Failed to delete project");
+    } finally {
+      setDeletingGroupId(null);
+    }
+  };
+
+  const handleFolderDelete = async (batch, groupId) => {
+    const batchName = batch?.name || "Folder";
+    const confirmed = await confirm({
+      title: "Delete folder",
+      message: `Deleting "${batchName}" will permanently remove all files inside this folder. This action cannot be undone.`,
+      confirmText: "Delete folder",
+      cancelText: "Cancel",
+      type: "danger",
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    const normalizedGroupId = normalizeId(groupId);
+    const normalizedBatchId = normalizeId(batch.batchId);
+    const existingList = groupBatches[normalizedGroupId] || [];
+
+    setDeletingBatchId(batch.batchId);
+    try {
+      await axios.delete(`${API_BASE_URL}/api/folders/${batch.batchId}`);
       const updatedList = existingList.filter(
-        (batch) => normalizeId(batch.batchId) !== normalizedBatchId
+        (existingBatch) => normalizeId(existingBatch.batchId) !== normalizedBatchId
       );
       setGroupBatches((prev) => ({
         ...prev,
@@ -1271,7 +1334,7 @@ export default function GroupTreeSidebar({
       console.error("[GroupTreeSidebar] Failed to delete folder:", error);
       setStatusMessage(error?.response?.data?.error || "Failed to delete folder");
     } finally {
-      cancelBatchDelete();
+      setDeletingBatchId(null);
     }
   };
 
@@ -1375,7 +1438,7 @@ export default function GroupTreeSidebar({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto space-y-2">
+        <div className="flex-1 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-indigo-400 scrollbar-track-transparent max-h-[calc(100vh-200px)] pr-2">
           {folderFilesLoading ? (
             <div className="space-y-3">
               {[1, 2, 3, 4].map((item) => (
@@ -1501,7 +1564,7 @@ export default function GroupTreeSidebar({
 
   return (
     <aside
-      className="w-full max-w-sm flex-shrink-0 rounded-3xl border border-slate-100 bg-[#f7f9ff] p-6 text-slate-900 shadow-[0_20px_60px_rgba(15,23,42,0.08)] flex flex-col space-y-6 dark:border-slate-800 dark:bg-gradient-to-b dark:from-slate-950 dark:via-[#0b1120] dark:to-[#070b16] dark:text-slate-100 dark:shadow-[0_35px_80px_-40px_rgba(15,23,42,0.95)]"
+      className="w-full max-w-sm flex-shrink-0 dashboard-panel border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl shadow-slate-200/60 flex flex-col space-y-6 overflow-hidden dark:border-slate-800 dark:bg-[#0b152d]/95 dark:text-slate-100 dark:shadow-[0_40px_100px_-50px_rgba(2,6,23,0.9)]"
       aria-label="Group navigation"
     >
       <div className="flex items-center justify-between">
@@ -1563,14 +1626,21 @@ export default function GroupTreeSidebar({
         </button>
       </form>
 
-      <div className="space-y-3">
+      <div
+        className="space-y-3 overflow-y-auto max-h-[calc(100vh-260px)] pr-2 scrollbar-thin scrollbar-thumb-indigo-400 scrollbar-track-transparent"
+        ref={treeContainerRef}
+        role="tree"
+        aria-label="Project navigation tree"
+        onKeyDown={handleTreeKeyDown}
+      >
         {groups.length === 0 ? (
           <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
             <p>No groups yet. Create one to get started!</p>
           </div>
         ) : (
-          groups.map((group) => {
+          groups.map((group, groupIndex) => {
             const normalizedGroupId = normalizeId(group.id);
+            const panelId = `group-${normalizedGroupId}-panel`;
             const isExpanded = expandedGroups.has(normalizedGroupId);
             const files = groupFiles[normalizedGroupId] || [];
             const batches = groupBatches[normalizedGroupId] || [];
@@ -1587,7 +1657,7 @@ export default function GroupTreeSidebar({
               selectedNode?.type === "group" && normalizeId(selectedNode?.id) === normalizedGroupId;
             const isEditingGroup =
               editingGroupId && normalizeId(editingGroupId) === normalizedGroupId;
-            const isDeletingGroup =
+            const isGroupDeleting =
               deletingGroupId && normalizeId(deletingGroupId) === normalizedGroupId;
             const isRefreshingFolders = refreshingGroupId === normalizedGroupId;
 
@@ -1628,78 +1698,59 @@ export default function GroupTreeSidebar({
                         </svg>
                       </button>
                     </form>
-                  ) : isDeletingGroup ? (
-                    <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:bg-rose-950/40 dark:text-rose-100">
-                      <p className="mb-2">
-                        {groupDeleteInProgress ? "Deleting project..." : "Delete this project?"}
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={confirmGroupDelete}
-                          disabled={groupDeleteInProgress}
-                          className="flex-1 rounded-md bg-rose-600 px-3 py-1 text-white shadow-sm shadow-rose-200 transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {groupDeleteInProgress ? "Deleting..." : "Delete"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={cancelGroupDelete}
-                          disabled={groupDeleteInProgress}
-                          className="flex-1 rounded-md bg-gray-200 px-3 py-1 text-gray-700 hover:bg-gray-300 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-700 dark:text-gray-200"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
                   ) : (
                     <>
-                <button
-                  type="button"
-                  className={`w-full text-left rounded-2xl border transition group flex items-center gap-3 p-3 shadow-sm ${
-                    isSelected
-                      ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
-                      : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#121b33] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#182248]"
-                  }`}
-                  onClick={() => {
-                    void handleGroupSelection(group);
-                  }}
-                  aria-expanded={isExpanded}
-                  aria-controls={`group-${group.id}-panel`}
-                  aria-current={isSelected ? "true" : undefined}
-                >
-                  <span
-                    className={`w-4 h-4 flex-shrink-0 transition-transform ${
-                      isExpanded ? "rotate-90 text-indigo-400" : "text-slate-400"
-                    }`}
-                    aria-hidden="true"
-                  >
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </span>
-                  <span
-                    className={`w-5 h-5 flex-shrink-0 ${
-                      isSelected ? "text-white" : "text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200"
-                    }`}
-                  >
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                      />
-                    </svg>
-                  </span>
-                  <div className="flex-1 overflow-hidden">
-                    <h3
-                      className={`text-lg font-semibold truncate ${isSelected ? "text-white" : "text-slate-900 dark:text-slate-100"}`}
-                    >
-                      {group.name}
-                    </h3>
-                  </div>
-                </button>
+                      <button
+                        type="button"
+                        data-doca-tree-item="true"
+                        role="treeitem"
+                        aria-level={1}
+                        aria-setsize={groups.length}
+                        aria-posinset={groupIndex + 1}
+                        className={`w-full text-left rounded-2xl border transition group flex items-center gap-3 p-3 shadow-sm ${
+                          isSelected
+                            ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
+                            : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#121b33] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#182248]"
+                        } ${TREE_ITEM_FOCUS_CLASSES}`}
+                        onClick={() => {
+                          void handleGroupSelection(group);
+                        }}
+                        aria-expanded={isExpanded}
+                        aria-controls={panelId}
+                        aria-current={isSelected ? "true" : undefined}
+                      >
+                        <span
+                          className={`w-4 h-4 flex-shrink-0 transition-transform ${
+                            isExpanded ? "rotate-90 text-indigo-400" : "text-slate-400"
+                          }`}
+                          aria-hidden="true"
+                        >
+                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </span>
+                        <span
+                          className={`w-5 h-5 flex-shrink-0 ${
+                            isSelected ? "text-white" : "text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200"
+                          }`}
+                        >
+                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                            />
+                          </svg>
+                        </span>
+                        <div className="flex-1 overflow-hidden">
+                          <h3
+                            className={`text-lg font-semibold truncate ${isSelected ? "text-white" : "text-slate-900 dark:text-slate-100"}`}
+                          >
+                            {group.name}
+                          </h3>
+                        </div>
+                      </button>
                       <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100">
                         <button
                           type="button"
@@ -1707,7 +1758,7 @@ export default function GroupTreeSidebar({
                           className="pointer-events-auto rounded-lg border border-indigo-100 bg-indigo-50 p-1 text-indigo-600 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-200 dark:hover:bg-indigo-500/20 dark:hover:text-white"
                           title="Edit project"
                         >
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -1718,11 +1769,13 @@ export default function GroupTreeSidebar({
                         </button>
                         <button
                           type="button"
-                          onClick={() => requestGroupDelete(group)}
+                          onClick={() => handleGroupDelete(group)}
+                          disabled={isGroupDeleting}
+                          aria-busy={isGroupDeleting || undefined}
                           className="pointer-events-auto rounded-lg border border-rose-100 bg-rose-50 p-1 text-rose-600 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20 dark:hover:text-white"
-                          title="Delete project"
+                          title={isGroupDeleting ? "Deleting project..." : "Delete project"}
                         >
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -1736,11 +1789,11 @@ export default function GroupTreeSidebar({
                   )}
                 </div>
 
-                {isExpanded && (
-                  <div
-                    id={`group-${group.id}-panel`}
-                    className="pl-4 pt-2 pb-3 space-y-3"
-                  >
+                <div
+                  id={panelId}
+                  className={`pl-4 pt-2 pb-3 space-y-3 ${isExpanded ? "" : "hidden"}`}
+                  aria-hidden={!isExpanded}
+                >
                     <div className="flex items-center justify-between pr-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       <span>Folders</span>
                       <button
@@ -1774,17 +1827,20 @@ export default function GroupTreeSidebar({
                           No folders available
                         </p>
                       ) : (
-                        <ul className="mt-1 space-y-2" role="group">
-                          {batches.map((batch) => {
+                          <ul
+                            className="mt-1 space-y-2"
+                            role="group"
+                            aria-label={`Folders for ${group.name}`}
+                          >
+                        {batches.map((batch, batchIndex) => {
                             const normalizedBatchId = normalizeId(batch.batchId);
                             const isBatchSelected =
                               selectedNode?.type === "batch" &&
                               normalizeId(selectedNode?.id) === normalizedBatchId;
                             const isEditingBatch =
                               editingBatchId && normalizeId(editingBatchId) === normalizedBatchId;
-                            const isDeletingBatch =
-                              deletingBatchInfo.id &&
-                              normalizeId(deletingBatchInfo.id) === normalizedBatchId;
+                            const isBatchDeleting =
+                              deletingBatchId && normalizeId(deletingBatchId) === normalizedBatchId;
                             const isFolderRefreshing = Boolean(
                               refreshingFolderCounts[normalizedBatchId]
                             );
@@ -1825,53 +1881,34 @@ export default function GroupTreeSidebar({
                                       </svg>
                                     </button>
                                   </form>
-                                ) : isDeletingBatch ? (
-                                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-100">
-                                    <p className="mb-1">
-                                      {batchDeleteInProgress ? "Deleting folder..." : "Delete this folder?"}
-                                    </p>
-                                    <div className="flex gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={confirmBatchDelete}
-                                        disabled={batchDeleteInProgress}
-                                        className="flex-1 rounded-lg bg-rose-600 px-2 py-1 text-white shadow-sm shadow-rose-500/40 hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
-                                      >
-                                        {batchDeleteInProgress ? "Deleting..." : "Delete"}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={cancelBatchDelete}
-                                        disabled={batchDeleteInProgress}
-                                        className="flex-1 rounded-lg bg-slate-200 px-2 py-1 text-slate-700 hover:bg-slate-300 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-700"
-                                      >
-                                        Cancel
-                                      </button>
-                                    </div>
-                                  </div>
                                 ) : (
                                   <>
                                   <button
                                     type="button"
-                                  className={`group w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 shadow-sm ${
-                                    isBatchSelected
-                                      ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
-                                      : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
-                                  }`}
+                                    data-doca-tree-item="true"
+                                    role="treeitem"
+                                    aria-level={2}
+                                    aria-setsize={batches.length}
+                                    aria-posinset={batchIndex + 1}
+                                    className={`group w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 shadow-sm ${
+                                      isBatchSelected
+                                        ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
+                                        : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
+                                    } ${TREE_ITEM_FOCUS_CLASSES}`}
                                       onClick={() => handleFolderButtonClick(group, batch)}
                                       aria-current={isBatchSelected ? "true" : undefined}
                                     >
                                   <span
                                     className={`flex-shrink-0 rounded-lg p-1.5 ${isBatchSelected ? "bg-indigo-100 text-indigo-700 dark:bg-white/20 dark:text-white" : "bg-slate-100 text-indigo-500 dark:bg-slate-800/70 dark:text-indigo-200"}`}
                                   >
-                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                      <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                                      />
-                                    </svg>
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                                    />
+                                  </svg>
                                   </span>
                                       <span className="flex-1 min-w-0">
                                         <span
@@ -1933,9 +1970,11 @@ export default function GroupTreeSidebar({
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => requestBatchDelete(batch, group.id)}
+                                        onClick={() => handleFolderDelete(batch, group.id)}
+                                        disabled={isBatchDeleting}
+                                        aria-busy={isBatchDeleting || undefined}
                                         className="pointer-events-auto rounded-lg border border-rose-100 bg-rose-50 p-1 text-rose-600 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20 dark:hover:text-white"
-                                        title="Delete folder"
+                                        title={isBatchDeleting ? "Deleting folder..." : "Delete folder"}
                                       >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                           <path
@@ -2112,7 +2151,6 @@ export default function GroupTreeSidebar({
                       </>
                     )}
                   </div>
-                )}
               </div>
             );
           })

@@ -533,14 +533,31 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
         </div>
 
         {isUploaded && (
-          <div className="mt-4 px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg flex items-start gap-3">
-            <svg className="w-5 h-5 text-slate-600 dark:text-slate-300 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 6a9 9 0 110 12 9 9 0 010-12z" />
+          <div className="mt-4 px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center gap-3">
+            <svg
+              className="w-5 h-5 text-slate-600 dark:text-slate-300"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 2a10 10 0 100 20 10 10 0 000-20z"
+              />
             </svg>
             <div>
               <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Scan not started</p>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                This file has been uploaded but not analyzed yet. Use the "Begin Scan" option from the dashboard or batch view to generate accessibility results.
+                This file has been uploaded but not analyzed yet. Use the "Scan File" option to generate accessibility results.
               </p>
             </div>
           </div>

@@ -8,6 +8,7 @@ const CATEGORY_LABELS = {
   missingLanguage: "Language",
   formIssues: "Forms",
   tableIssues: "Tables",
+  linkIssues: "Link Purpose",
 }
 
 const STATUS_LABELS = {
@@ -131,7 +132,7 @@ export function FileInsightPanel({ results, summary }) {
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Showing up to three categories with the highest number of issues.
           </p>
-          <dl className="mt-4 space-y-3" aria-label="Top issue categories with counts and percentages">
+          <dl className="mt-4 space-y-3">
             {sortedCategories.map((category) => {
               const percent =
                 totalIssues > 0 ? Math.round((category.count / totalIssues) * 100) : 0
@@ -159,6 +160,7 @@ export function BatchInsightPanel({ scans }) {
     return null
   }
 
+  const hasScannedFiles = scans.some((scan) => resolveEntityStatus(scan).code !== "uploaded")
   const statusTotals = new Map()
   const issuesByFile = []
 
@@ -180,17 +182,22 @@ export function BatchInsightPanel({ scans }) {
     .filter(([, value]) => value > 0)
     .sort((a, b) => b[1] - a[1])
 
-  const topAttentionFiles = issuesByFile
-    .filter((file) => typeof file.totalIssues === "number")
-    .sort((a, b) => b.totalIssues - a.totalIssues)
-    .slice(0, 3)
+  const topAttentionFiles = hasScannedFiles
+    ? issuesByFile
+        .filter((file) => typeof file.totalIssues === "number")
+        .sort((a, b) => b.totalIssues - a.totalIssues)
+        .slice(0, 3)
+    : []
+
+  const progressHeading = totalScans === 1 ? "File Status" : "Files Status"
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  
       {sortedStatuses.length > 0 && (
         <section className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-5">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wide">
-            Scan Progress
+            {progressHeading}
           </h3>
           <div className="mt-4 space-y-3">
             {sortedStatuses.map(([statusKey, count]) => {
@@ -301,7 +308,7 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Showing up to three categories with the highest number of issues across the project.
           </p>
-          <dl className="mt-4 space-y-3" aria-label="Project top issue categories with counts and percentages">
+          <dl className="mt-4 space-y-3">
             {topCategories.map((category) => {
               const percent = totalIssues > 0 ? Math.round((category.count / totalIssues) * 100) : 0
               return (

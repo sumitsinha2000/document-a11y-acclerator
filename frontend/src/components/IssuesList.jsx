@@ -33,6 +33,7 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
       formIssues: "Form Issues",
       tableIssues: "Table Issues",
       wcagIssues: "WCAG Issues",
+      linkIssues: "Link Purpose",
       structureIssues: "Structure Issues",
       readingOrderIssues: "Reading Order Issues",
       pdfuaIssues: "PDF/UA Issues",
