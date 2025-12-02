@@ -139,6 +139,7 @@ const UploadArea = forwardRef(function UploadArea(
       return
     }
     handleFileSelection(files)
+    e.target.value = ""
   }
 
   const handleClick = () => {
@@ -164,11 +165,14 @@ const UploadArea = forwardRef(function UploadArea(
       setError(null)
     }
 
-    setSelectedFiles(pdfFiles)
-    setFileStatusList(pdfFiles.map(() => ({ status: "pending", message: "" })))
-    setSrAnnouncement(
-      `${pdfFiles.length} PDF ${pdfFiles.length === 1 ? "file" : "files"} selected. Please select a folder from the dashboard before uploading.`,
-    )
+    setSelectedFiles((prevSelected) => {
+      const updatedFiles = [...prevSelected, ...pdfFiles]
+      setSrAnnouncement(
+        `${updatedFiles.length} PDF ${updatedFiles.length === 1 ? "file" : "files"} selected. Please select a folder from the dashboard before uploading.`,
+      )
+      return updatedFiles
+    })
+    setFileStatusList((prevStatuses) => [...prevStatuses, ...pdfFiles.map(() => ({ status: "pending", message: "" }))])
   }
 
   const handleRemoveSelectedFile = (index) => {
