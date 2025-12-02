@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import axios from "axios"
 import FixSuggestions from "./FixSuggestions"
 import SidebarNav from "./SidebarNav"
@@ -23,7 +23,27 @@ const STATUS_BADGE_STYLES = {
   default: "bg-gray-100 text-gray-700 dark:bg-gray-800/60 dark:text-gray-200",
 }
 
-export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpen = true, onScanComplete }) {
+const filterDefinedFields = (payload) => {
+  if (!payload || typeof payload !== "object") {
+    return {}
+  }
+
+  return Object.entries(payload).reduce((acc, [key, value]) => {
+    if (value !== undefined) {
+      acc[key] = value
+    }
+    return acc
+  }, {})
+}
+
+export default function ReportViewer({
+  scans,
+  onBack,
+  onBackToFolder,
+  sidebarOpen = true,
+  onScanComplete,
+  onScanUpdate,
+}) {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -42,6 +62,33 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   const { showSuccess, showError, showWarning, showInfo } = useNotification()
+
+  const notifyScanUpdate = useCallback(
+    (data) => {
+      if (onScanUpdate && data) {
+        onScanUpdate(data)
+      }
+    },
+    [onScanUpdate],
+  )
+
+  const applyUpdatesFromPayload = (payload) => {
+    const definedPayload = filterDefinedFields(payload)
+    if (Object.keys(definedPayload).length === 0) {
+      return null
+    }
+
+    const referenceScan = reportData || scans[selectedFileIndex] || {}
+    const updatedData = {
+      ...referenceScan,
+      ...definedPayload,
+    }
+
+    setReportData(updatedData)
+    setRefreshKey((prev) => prev + 1)
+    notifyScanUpdate(updatedData)
+    return updatedData
+  }
 
   useEffect(() => {
     const currentScan = scans[selectedFileIndex]
@@ -146,30 +193,29 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
         updatedFixes !== undefined ||
         updatedCriteriaSummary !== undefined
 
-      if (hasFreshData && reportData) {
-        setReportData((prev) => {
-          if (!prev) return prev
-          return {
-            ...prev,
-            summary: updatedSummary !== undefined ? updatedSummary : prev.summary,
-            results: updatedResults !== undefined ? updatedResults : prev.results,
-            verapdfStatus:
-              updatedVerapdfStatus !== undefined ? updatedVerapdfStatus : prev.verapdfStatus,
-            fixes: updatedFixes !== undefined ? updatedFixes : prev.fixes,
-            criteriaSummary:
-              updatedCriteriaSummary !== undefined ? updatedCriteriaSummary : prev.criteriaSummary,
-          }
+      if (hasFreshData) {
+        const merged = applyUpdatesFromPayload({
+          summary: updatedSummary,
+          results: updatedResults,
+          verapdfStatus: updatedVerapdfStatus,
+          fixes: updatedFixes,
+          criteriaSummary: updatedCriteriaSummary,
         })
-        setRefreshKey((prev) => prev + 1)
-        showSuccess("Report updated with the latest scan data")
+        if (merged) {
+          showSuccess("Report updated with the latest scan data")
+        }
         return
       }
 
       if (targetScanId) {
         console.log("[v0] ReportViewer - Refreshing data for scan:", targetScanId)
-        await fetchReportDetails(targetScanId, { showSpinner: false })
-        setRefreshKey((prev) => prev + 1)
-        showSuccess("Report refreshed successfully")
+        const response = await axios.get(API_ENDPOINTS.scanDetails(targetScanId))
+        if (response?.data) {
+          setReportData(response.data)
+          setRefreshKey((prev) => prev + 1)
+          notifyScanUpdate(response.data)
+          showSuccess("Report refreshed successfully")
+        }
       } else {
         console.warn("[v0] ReportViewer - No scan ID available for refresh")
       }

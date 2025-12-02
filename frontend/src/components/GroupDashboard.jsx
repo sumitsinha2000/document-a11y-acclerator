@@ -922,6 +922,7 @@ export default function GroupDashboard({
                       }
                       sidebarOpen={false}
                       onScanComplete={refreshSelectedNodeData}
+                      onScanUpdate={refreshSelectedNodeData}
                     />
                   )}
 
