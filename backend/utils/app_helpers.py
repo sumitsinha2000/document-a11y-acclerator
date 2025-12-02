@@ -624,28 +624,13 @@ def save_scan_to_db(
         raise
 
 
-def _is_skipped_fix_entry(fix: Any) -> bool:
-    """
-    Treat entries containing explicit skip language as skipped fixes.
-    """
-    if not isinstance(fix, dict):
-        return False
-    description = fix.get("description")
-    if isinstance(description, str) and fix.get("success") is False:
-        if "skipp" in description.lower():
-            return True
-    if fix.get("skipped") is True:
-        return True
-    return False
-
-
 def _filter_skipped_fixes(fixes: Any) -> List[Dict[str, Any]]:
     """
-    Keep only the fixes that were actually applied so skip entries are hidden.
+    Keep every recorded fix entry so warnings stay visible during history playback.
     """
     if not isinstance(fixes, list):
         return []
-    return [fix for fix in fixes if not _is_skipped_fix_entry(fix)]
+    return fixes[:]
 
 
 def save_fix_history(
@@ -1586,6 +1571,10 @@ def _perform_automated_fix(
         raw_fixes_applied = result.get("fixesApplied") or []
         filtered_fixes_applied = _filter_skipped_fixes(raw_fixes_applied)
         result["fixesApplied"] = filtered_fixes_applied
+        successful_fixes = [
+            fix for fix in filtered_fixes_applied if fix.get("success", True) is not False
+        ]
+        success_count = len(successful_fixes)
 
         scan_results_payload = result.get("scanResults")
         if not isinstance(scan_results_payload, dict):
@@ -1600,9 +1589,8 @@ def _perform_automated_fix(
         summary = scan_results_payload.get("summary") or result.get("summary") or {}
         remaining_issues = summary.get("totalIssues", 0) or 0
         total_issues_before = scan_row.get("total_issues") or remaining_issues
-        issues_fixed = max(total_issues_before - remaining_issues, 0)
+        issues_fixed = success_count
         status = "fixed" if remaining_issues == 0 else "processed"
-        success_count = issues_fixed
         result["successCount"] = success_count
 
         cursor.execute(
