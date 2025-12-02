@@ -23,6 +23,17 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
     }
   }
 
+  const fetchLatestScanData = async () => {
+    if (!scanId) return null
+    try {
+      const response = await axios.get(API_ENDPOINTS.scanDetails(scanId))
+      return response.data
+    } catch (error) {
+      console.error("[v0] FixProgressStepper - Failed to fetch scan details:", error)
+      return null
+    }
+  }
+
   useEffect(() => {
     if (isOpen && scanId) {
       setProgress(null)
@@ -66,6 +77,14 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
 
             if (rescanStep && rescanStep.resultData) {
               latestResultData = buildResolvedResult(rescanStep.resultData)
+            }
+
+            const serverScanData = await fetchLatestScanData()
+            if (serverScanData) {
+              latestResultData = buildResolvedResult(serverScanData)
+            }
+
+            if (latestResultData) {
               setFinalResultData(latestResultData)
             }
           }

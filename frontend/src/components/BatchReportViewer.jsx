@@ -484,6 +484,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
             onBack={() => setSelectedScan(null)}
             sidebarOpen={false}
             onScanComplete={loadBatchData}
+            onScanUpdate={loadBatchData}
           />
         </div>
       </div>

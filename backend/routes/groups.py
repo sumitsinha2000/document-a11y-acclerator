@@ -13,6 +13,7 @@ from backend.utils.app_helpers import (
     SafeJSONResponse,
     _delete_batch_with_files,
     _delete_scan_with_files,
+    _ensure_scan_results_compliance,
     _parse_scan_results_json,
     derive_file_status,
     execute_query,
@@ -100,6 +101,10 @@ async def get_group_details(group_id: str):
 
         for scan in scans:
             scan_results = _parse_scan_results_json(scan.get("scan_results"))
+            if isinstance(scan_results, dict):
+                scan_results = _ensure_scan_results_compliance(scan_results)
+            else:
+                scan_results = {}
             summary = scan_results.get("summary", {})
             results = scan_results.get("results", {})
 

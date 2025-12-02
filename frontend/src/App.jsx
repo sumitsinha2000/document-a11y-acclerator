@@ -22,6 +22,21 @@ const ComponentLoader = () => (
   </div>
 )
 
+const getScanIdentifier = (scan) => {
+  if (!scan) return null
+  if (typeof scan === "string") {
+    return scan
+  }
+  return (
+    scan?.scanId ||
+    scan?.id ||
+    scan?.scan_id ||
+    scan?.filename ||
+    scan?.fileName ||
+    null
+  )
+}
+
 function AppContent() {
   const { showError, showSuccess } = useNotification()
 
@@ -132,6 +147,48 @@ function AppContent() {
     fetchScanHistory()
   }
 
+  const handleReportScanUpdate = useCallback((updatedScan) => {
+    if (!updatedScan || typeof updatedScan !== "object") {
+      return
+    }
+
+    const updatedScanId = getScanIdentifier(updatedScan)
+
+    setScanResults((prev) => {
+      const scansList = Array.isArray(prev) ? prev : []
+      if (scansList.length === 0) {
+        return updatedScanId ? [updatedScan] : prev
+      }
+
+      let matched = false
+      const updatedList = scansList.map((scan) => {
+        const scanId = getScanIdentifier(scan)
+        if (scanId && updatedScanId && scanId === updatedScanId) {
+          matched = true
+          return {
+            ...scan,
+            ...updatedScan,
+          }
+        }
+        return scan
+      })
+
+      if (matched) {
+        return updatedList
+      }
+
+      if (updatedScanId) {
+        return [updatedScan, ...scansList]
+      }
+
+      if (scansList.length === 1) {
+        return [{ ...scansList[0], ...updatedScan }]
+      }
+
+      return updatedList
+    })
+  }, [])
+
   const handleUploadDeferred = (rawDetails, { suppressToast = false } = {}) => {
     const details = rawDetails || {}
     console.log("[upload] deferred details", details)
@@ -227,10 +284,7 @@ function AppContent() {
   }
 
   const handleSelectScan = async (scan) => {
-    const scanIdentifier =
-      typeof scan === "string"
-        ? scan
-        : scan?.id || scan?.scanId || scan?.scan_id || scan?.filename || scan?.fileName
+    const scanIdentifier = getScanIdentifier(scan)
 
     if (!scanIdentifier) {
       console.error("handleSelectScan called without a valid scan identifier", scan)
@@ -481,6 +535,7 @@ function AppContent() {
               onBack={handleBackToUpload}
               onBackToFolder={handleReturnToBatchFromReport}
               sidebarOpen={false}
+              onScanUpdate={handleReportScanUpdate}
             />
           )}
         </div>
