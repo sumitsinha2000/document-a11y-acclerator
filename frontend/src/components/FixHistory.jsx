@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import axios from "axios"
 import { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
@@ -52,7 +52,7 @@ const formatTimestamp = (item) => {
   return parseBackendDate(timestampValue)
 }
 
-export default function FixHistory({ scanId, onRefresh }) {
+export default function FixHistory({ scanId, onRefresh, refreshSignal = 0 }) {
   const { showError } = useNotification()
 
   const [history, setHistory] = useState([])
@@ -60,11 +60,7 @@ export default function FixHistory({ scanId, onRefresh }) {
   const [error, setError] = useState(null)
   const [isCollapsed, setIsCollapsed] = useState(true)
 
-  useEffect(() => {
-    fetchFixHistory()
-  }, [scanId])
-
-  const fetchFixHistory = async () => {
+  const fetchFixHistory = useCallback(async () => {
     try {
       setLoading(true)
       console.log("[v0] Fetching fix history for scan:", scanId)
@@ -148,7 +144,11 @@ export default function FixHistory({ scanId, onRefresh }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [scanId])
+
+  useEffect(() => {
+    fetchFixHistory()
+  }, [fetchFixHistory, refreshSignal])
 
   const handlePreview = (item) => {
     if (!item || !item.fixedFile || !item.canPreview) {

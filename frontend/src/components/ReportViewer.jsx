@@ -70,13 +70,21 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
     }
   }, [selectedFileIndex])
 
+  const resolveScanIdentifier = (scan) =>
+    scan?.scanId ||
+    scan?.id ||
+    scan?.scan_id ||
+    scan?.filename ||
+    scan?.fileName ||
+    null
+
   const fetchReportDetails = async (scanId, { showSpinner = true } = {}) => {
     try {
       if (showSpinner) {
         setLoading(true)
       }
       console.log("[v0] Fetching report details for:", scanId)
-      const response = await axios.get(`${API_BASE_URL}/api/scan/${scanId}`)
+      const response = await axios.get(API_ENDPOINTS.scanDetails(scanId))
       console.log("[v0] Received report data:", response.data)
       console.log("[v0] Results structure:", response.data.results)
       console.log("[v0] Results keys:", Object.keys(response.data.results || {}))
@@ -129,7 +137,7 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
     try {
       const currentScan = scans[selectedFileIndex]
       const targetScanId =
-        currentScan?.scanId || currentScan?.id || reportData?.scanId || reportData?.id
+        resolveScanIdentifier(reportData) || resolveScanIdentifier(currentScan)
 
       const hasFreshData =
         updatedSummary !== undefined ||
@@ -430,13 +438,13 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
                   <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 4L4 10l6 6" />
                   </svg>
-                  <span>{`Back to ${folderLabel} files`}</span>
+                  <span>{`Back to ${folderLabel} dashboard`}</span>
                 </button>
               )}
             </div>
           <div className="flex items-center gap-2 ml-auto">
             <button
-              onClick={handleRefresh}
+              onClick={() => handleRefresh()}
               className="px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-1 font-semibold text-sm border border-slate-200 dark:border-slate-600"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -730,7 +738,11 @@ export default function ReportViewer({ scans, onBack, onBackToFolder, sidebarOpe
               </div>
 
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-                <FixHistory key={`fix-history-${refreshKey}`} scanId={reportData.scanId} onRefresh={handleRefresh} />
+                <FixHistory
+                  scanId={reportData.scanId}
+                  onRefresh={handleRefresh}
+                  refreshSignal={refreshKey}
+                />
               </div>
 
               <div id="criteria" key={`criteria-${refreshKey}`} className="space-y-6">
