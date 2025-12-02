@@ -1577,15 +1577,19 @@ def _perform_automated_fix(
         success_count = len(successful_fixes)
 
         scan_results_payload = result.get("scanResults")
-        if not isinstance(scan_results_payload, dict):
+        suggested_fixes = []
+        if isinstance(scan_results_payload, dict):
+            suggested_fixes = scan_results_payload.get("fixes") or result.get("fixes") or []
+            scan_results_payload.setdefault("fixes", suggested_fixes)
+        else:
+            suggested_fixes = result.get("fixes") or []
             scan_results_payload = {
                 "results": result.get("results"),
                 "summary": result.get("summary"),
                 "verapdfStatus": result.get("verapdfStatus"),
-                "fixes": filtered_fixes_applied,
+                "fixes": suggested_fixes,
             }
-        else:
-            scan_results_payload["fixes"] = filtered_fixes_applied
+        scan_results_payload["fixesApplied"] = filtered_fixes_applied
         summary = scan_results_payload.get("summary") or result.get("summary") or {}
         remaining_issues = summary.get("totalIssues", 0) or 0
         total_issues_before = scan_row.get("total_issues") or remaining_issues
