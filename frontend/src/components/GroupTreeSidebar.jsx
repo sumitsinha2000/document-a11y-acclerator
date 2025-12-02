@@ -61,6 +61,9 @@ export default function GroupTreeSidebar({
   const [editingBatchGroupId, setEditingBatchGroupId] = useState(null);
   const [editingBatchName, setEditingBatchName] = useState("");
   const [deletingBatchId, setDeletingBatchId] = useState(null);
+  const [pendingDeleteFolder, setPendingDeleteFolder] = useState(null);
+  const [isFolderDeleteLoading, setIsFolderDeleteLoading] = useState(false);
+  const [folderDeleteError, setFolderDeleteError] = useState("");
   const [sidebarView, setSidebarView] = useState("projects");
   const [activeFolderView, setActiveFolderView] = useState(null);
   const [folderFiles, setFolderFiles] = useState([]);
@@ -1314,34 +1317,59 @@ export default function GroupTreeSidebar({
     }
   };
 
-  const handleFolderDelete = async (batch, groupId) => {
-    const batchName = batch?.name || "Folder";
-    const confirmed = await confirm({
-      title: "Delete folder",
-      message: `Deleting "${batchName}" will permanently remove all files inside this folder. This action cannot be undone.`,
-      confirmText: "Delete folder",
-      cancelText: "Cancel",
-      type: "danger",
+  const handleFolderDelete = (batch, groupId) => {
+    setPendingDeleteFolder({
+      batch,
+      groupId,
     });
+    setFolderDeleteError("");
+  };
 
-    if (!confirmed) {
+  const closeFolderDeleteModal = () => {
+    if (isFolderDeleteLoading) {
+      return;
+    }
+    setPendingDeleteFolder(null);
+    setFolderDeleteError("");
+  };
+
+  const confirmFolderDeletion = async () => {
+    if (!pendingDeleteFolder) {
       return;
     }
 
+    const { batch, groupId } = pendingDeleteFolder;
+    const batchId = batch?.batchId || batch?.id;
+    const batchName = batch?.name || batch?.folderName || "Folder";
     const normalizedGroupId = normalizeId(groupId);
-    const normalizedBatchId = normalizeId(batch.batchId);
-    const existingList = groupBatches[normalizedGroupId] || [];
+    const normalizedBatchId = normalizeId(batchId);
 
-    setDeletingBatchId(batch.batchId);
+    if (!batchId || !normalizedGroupId) {
+      const message = "Unable to delete folder. Missing identifiers.";
+      setFolderDeleteError(message);
+      showError(message);
+      return;
+    }
+
+    setFolderDeleteError("");
+    setIsFolderDeleteLoading(true);
+    setDeletingBatchId(batchId);
+
     try {
-      await axios.delete(`${API_BASE_URL}/api/folders/${batch.batchId}`);
-      const updatedList = existingList.filter(
-        (existingBatch) => normalizeId(existingBatch.batchId) !== normalizedBatchId
-      );
-      setGroupBatches((prev) => ({
-        ...prev,
-        [normalizedGroupId]: updatedList,
-      }));
+      await axios.delete(`${API_BASE_URL}/api/folders/${batchId}`);
+
+      let updatedList = [];
+      setGroupBatches((prev) => {
+        const prevList = prev[normalizedGroupId] || [];
+        updatedList = prevList.filter(
+          (existingBatch) => normalizeId(existingBatch.batchId) !== normalizedBatchId
+        );
+        return {
+          ...prev,
+          [normalizedGroupId]: updatedList,
+        };
+      });
+
       setGroups((prev) =>
         prev.map((group) =>
           normalizeId(group.id) === normalizedGroupId
@@ -1353,12 +1381,24 @@ export default function GroupTreeSidebar({
             : group
         )
       );
+
       setStatusMessage(`${batchName} deleted`);
+      showSuccess(`Deleted "${batchName}"`);
+      setPendingDeleteFolder(null);
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete folder:", error);
-      setStatusMessage(error?.response?.data?.error || "Failed to delete folder");
+      const message = error?.response?.data?.error || "Failed to delete folder";
+      setFolderDeleteError(message);
+      setStatusMessage(message);
+      showError(message);
     } finally {
-      setDeletingBatchId(null);
+      setIsFolderDeleteLoading(false);
+      setDeletingBatchId((current) => {
+        if (!current) {
+          return null;
+        }
+        return normalizeId(current) === normalizedBatchId ? null : current;
+      });
     }
   };
 
@@ -1388,6 +1428,11 @@ export default function GroupTreeSidebar({
   };
 
   const deleteModalProjectName = pendingDeleteGroup?.name || "project";
+  const deleteModalFolderName =
+    pendingDeleteFolder?.batch?.name ||
+    pendingDeleteFolder?.batch?.folderName ||
+    pendingDeleteFolder?.batch?.batchId ||
+    "folder";
 
   if (loading) {
     return (
@@ -2250,6 +2295,72 @@ export default function GroupTreeSidebar({
                   </span>
                 ) : (
                   "Delete project"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {pendingDeleteFolder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-folder-title"
+          aria-describedby="delete-folder-description"
+          onClick={closeFolderDeleteModal}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-200">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 id="delete-folder-title" className="text-lg font-semibold text-slate-900 dark:text-white">
+                  Delete folder
+                </h3>
+                <p
+                  id="delete-folder-description"
+                  className="mt-1 text-sm text-slate-600 dark:text-slate-400"
+                >{`Deleting "${deleteModalFolderName}" will permanently remove all files inside this folder. This action cannot be undone.`}</p>
+                {folderDeleteError && (
+                  <p className="mt-3 text-sm text-rose-600 dark:text-rose-400">{folderDeleteError}</p>
+                )}
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeFolderDeleteModal}
+                disabled={isFolderDeleteLoading}
+                className="px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-medium hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmFolderDeletion}
+                disabled={isFolderDeleteLoading}
+                aria-busy={isFolderDeleteLoading || undefined}
+                className="px-4 py-2.5 rounded-lg bg-rose-600 text-white font-semibold shadow-sm hover:bg-rose-500 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center min-w-[11rem]"
+              >
+                {isFolderDeleteLoading ? (
+                  <span className="flex items-center gap-2 text-sm">
+                    <span className="h-4 w-4 rounded-full border-2 border-white/60 border-t-transparent animate-spin" />
+                    {`Deleting ${deleteModalFolderName}...`}
+                  </span>
+                ) : (
+                  "Delete folder"
                 )}
               </button>
             </div>
