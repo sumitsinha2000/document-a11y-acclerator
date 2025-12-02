@@ -52,6 +52,16 @@ const formatTimestamp = (item) => {
   return parseBackendDate(timestampValue)
 }
 
+const countSuccessfulFixes = (fixes) => {
+  if (!Array.isArray(fixes)) return 0
+  return fixes.reduce((total, fix) => {
+    if (typeof fix === "object" && fix !== null) {
+      return total + (fix.success === false ? 0 : 1)
+    }
+    return total + 1
+  }, 0)
+}
+
 export default function FixHistory({ scanId, onRefresh, refreshSignal = 0 }) {
   const { showError } = useNotification()
 
@@ -116,7 +126,7 @@ export default function FixHistory({ scanId, onRefresh, refreshSignal = 0 }) {
             ? item.successCount
             : typeof item.success_count === "number"
             ? item.success_count
-            : fixesApplied.length
+            : countSuccessfulFixes(fixesApplied)
         return {
           id: item.id || item.scan_id || index,
           timestamp: parsedTimestamp ? parsedTimestamp.toISOString() : null,

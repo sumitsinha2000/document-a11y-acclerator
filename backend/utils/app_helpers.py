@@ -624,13 +624,37 @@ def save_scan_to_db(
         raise
 
 
+def _is_skipped_fix_entry(fix: Any) -> bool:
+    if not isinstance(fix, dict):
+        return False
+    if fix.get("skipped") is True:
+        return True
+    success_flag = fix.get("success")
+    if success_flag is False:
+        return True
+    description = fix.get("description")
+    if isinstance(description, str) and "skipp" in description.lower():
+        return True
+    return False
+
+
 def _filter_skipped_fixes(fixes: Any) -> List[Dict[str, Any]]:
-    """
-    Keep every recorded fix entry so warnings stay visible during history playback.
-    """
     if not isinstance(fixes, list):
         return []
-    return fixes[:]
+    return [fix for fix in fixes if not _is_skipped_fix_entry(fix)]
+
+
+def _count_successful_fix_entries(fixes: Any) -> int:
+    if not isinstance(fixes, list):
+        return 0
+    count = 0
+    for fix in fixes:
+        if isinstance(fix, dict):
+            if fix.get("success", True) is not False:
+                count += 1
+        else:
+            count += 1
+    return count
 
 
 def save_fix_history(
@@ -657,7 +681,11 @@ def save_fix_history(
     Save fix history record - preserve original names.
     """
     normalized_fixes = _filter_skipped_fixes(fixes_applied or [])
-    stored_success_count = success_count if success_count is not None else len(normalized_fixes)
+    stored_success_count = (
+        success_count
+        if success_count is not None
+        else _count_successful_fix_entries(normalized_fixes)
+    )
     try:
         original_file = original_filename or fixed_filename or "unknown.pdf"
         fixed_file = fixed_filename or original_filename or "fixed.pdf"
@@ -1575,6 +1603,7 @@ def _perform_automated_fix(
             fix for fix in filtered_fixes_applied if fix.get("success", True) is not False
         ]
         success_count = len(successful_fixes)
+        skipped_fix_count = max(len(raw_fixes_applied) - len(filtered_fixes_applied), 0)
 
         scan_results_payload = result.get("scanResults")
         suggested_fixes = []
@@ -1591,9 +1620,20 @@ def _perform_automated_fix(
             }
         scan_results_payload["fixesApplied"] = filtered_fixes_applied
         summary = scan_results_payload.get("summary") or result.get("summary") or {}
-        remaining_issues = summary.get("totalIssues", 0) or 0
-        total_issues_before = scan_row.get("total_issues") or remaining_issues
+        reported_remaining = summary.get("totalIssues") or 0
+        total_issues_before = scan_row.get("total_issues") or reported_remaining
         issues_fixed = success_count
+        estimated_remaining = max(total_issues_before - issues_fixed, 0)
+        remaining_issues = max(reported_remaining, estimated_remaining)
+        total_issues_after = remaining_issues + issues_fixed
+        summary["totalIssues"] = total_issues_after
+        summary["issuesRemaining"] = remaining_issues
+        summary["issuesFixed"] = issues_fixed
+        skipped_issue_delta = max(remaining_issues - reported_remaining, 0)
+        if skipped_issue_delta > 0:
+            summary["skippedIssues"] = skipped_issue_delta
+        if skipped_fix_count:
+            summary["skippedFixes"] = skipped_fix_count
         status = "fixed" if remaining_issues == 0 else "processed"
         result["successCount"] = success_count
 
