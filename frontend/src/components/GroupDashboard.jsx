@@ -9,6 +9,21 @@ import API_BASE_URL from "../config/api"
 import { parseBackendDate } from "../utils/dates"
 import { resolveEntityStatus, isScannedStatus } from "../utils/statuses"
 
+function StatCard({ value, label, valueClass = "text-slate-900 dark:text-white", description }) {
+  const displayValue = value ?? 0
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
+      <div className={`text-3xl font-bold ${valueClass}`}>{displayValue}</div>
+      <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">{label}</div>
+      {description && (
+        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5" aria-hidden="true">
+          {description}
+        </p>
+      )}
+    </div>
+  )
+}
+
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id))
 const getCacheKey = (node) => (node ? `${node.type}:${normalizeId(node.id)}` : "")
 const SCANNABLE_STATUSES = new Set(["uploaded"])
@@ -18,6 +33,34 @@ const isScannableStatus = (entity) => SCANNABLE_STATUSES.has(getStatusCode(entit
 const isRemediableStatus = (entity) => isScannedStatus(entity)
 const UPLOAD_PANEL_ID = "group-dashboard-upload-panel"
 const UPLOAD_PANEL_HEADING_ID = "group-dashboard-upload-heading"
+
+const deriveGroupSummary = (data) => {
+  if (!data || data.type !== "group") {
+    return null
+  }
+
+  const totalIssues = data.total_issues ?? 0
+  const fixedIssues = data.issues_fixed ?? 0
+  const remainingIssues = Math.max(totalIssues - fixedIssues, 0)
+  const statusCounts = data.status_counts || {}
+  const unprocessedFiles = statusCounts.uploaded ?? 0
+  const totalFiles = data.file_count ?? 0
+  const fixedFiles = data.fixed_files ?? 0
+  const scannedFiles = Math.max(totalFiles - unprocessedFiles, 0)
+  const avgCompliance = data.avg_compliance ?? 0
+  return {
+    totalIssues,
+    fixedIssues,
+    remainingIssues,
+    unprocessedFiles,
+    totalFiles,
+    fixedFiles,
+    scannedFiles,
+    avgCompliance,
+    avgComplianceLabel:
+      typeof avgCompliance === "number" ? `${avgCompliance.toFixed(2)}%` : `${avgCompliance ?? 0}%`,
+  }
+}
 
 export default function GroupDashboard({
   onSelectScan,
@@ -54,6 +97,7 @@ export default function GroupDashboard({
   const [shouldAutoOpenFileDialog, setShouldAutoOpenFileDialog] = useState(false)
 
   const isFolderSelected = selectedNode?.type === "batch"
+  const groupSummary = deriveGroupSummary(nodeData)
 
   const latestRequestRef = useRef(0)
   const cacheRef = useRef(new Map())
@@ -851,31 +895,25 @@ export default function GroupDashboard({
                   {nodeData.type === "group" && (
                     <div className="px-6 py-6 space-y-6">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
-                          <div className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
-                            {nodeData.avg_compliance || 0}%
-                          </div>
-                          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Avg Compliance</div>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
-                          <div className="text-3xl font-bold text-rose-600 dark:text-rose-400">
-                            {nodeData.total_issues || 0}
-                          </div>
-                          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Issues</div>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
-                          <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
-                            {nodeData.issues_fixed || 0}
-                          </div>
-                          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Fixed Issues</div>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">
-                          <div className="text-3xl font-bold text-slate-900 dark:text-white">
-                            {nodeData.file_count || 0}
-                          </div>
-                          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Files</div>
-                        </div>
+                        <StatCard value={groupSummary?.totalIssues} label="Total Issues" />
+                        <StatCard
+                          value={groupSummary?.fixedIssues}
+                          label="Fixed Issues"
+                          valueClass="text-emerald-600 dark:text-emerald-400"
+                        />
+                        <StatCard
+                          value={groupSummary?.remainingIssues}
+                          label="Remaining"
+                          valueClass="text-amber-600 dark:text-amber-400"
+                          description="Issues still pending"
+                        />
+                        <StatCard
+                          value={groupSummary?.unprocessedFiles}
+                          label="Unprocessed"
+                          valueClass="text-indigo-600 dark:text-indigo-300"
+                        />
                       </div>
+
 
                       {nodeData.description && (
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#111b36]">

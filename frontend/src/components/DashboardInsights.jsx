@@ -22,6 +22,42 @@ const severityPalette = {
   low: "bg-emerald-500",
 }
 
+function collectBatchIssueData(scans = []) {
+  const severityTotals = { high: 0, medium: 0, low: 0 }
+  const categoryTotals = {}
+  let totalIssues = 0
+
+  scans.forEach((scan) => {
+    const scanResults = scan?.results
+    if (scanResults && typeof scanResults === "object") {
+      Object.entries(scanResults).forEach(([key, issues]) => {
+        if (!Array.isArray(issues)) {
+          return
+        }
+        categoryTotals[key] = (categoryTotals[key] || 0) + issues.length
+        issues.forEach((issue) => {
+          if (!issue || typeof issue !== "object") return
+          const severity = (issue.severity || "").toLowerCase()
+          if (severityTotals[severity] !== undefined) {
+            severityTotals[severity] += 1
+          }
+        })
+      })
+    }
+
+    let issueCount = scan?.summary?.totalIssues ?? scan?.initialSummary?.totalIssues ?? 0
+    if (typeof issueCount !== "number") {
+      issueCount = Number(issueCount)
+    }
+    if (!Number.isFinite(issueCount)) {
+      issueCount = 0
+    }
+    totalIssues += issueCount
+  })
+
+  return { severityTotals, categoryTotals, totalIssues }
+}
+
 function ProgressItem({ label, value, total, colorClass, srLabel }) {
   const percent = total > 0 ? Math.round((value / total) * 100) : 0
 
@@ -162,18 +198,12 @@ export function BatchInsightPanel({ scans }) {
 
   const hasScannedFiles = scans.some((scan) => resolveEntityStatus(scan).code !== "uploaded")
   const statusTotals = new Map()
-  const issuesByFile = []
+  const { severityTotals, categoryTotals, totalIssues } = collectBatchIssueData(scans)
 
   scans.forEach((scan) => {
     const { code } = resolveEntityStatus(scan)
     statusTotals.set(code, (statusTotals.get(code) || 0) + 1)
 
-    const totalIssues = scan?.summary?.totalIssues ?? scan?.initialSummary?.totalIssues ?? 0
-    issuesByFile.push({
-      filename: scan?.filename || scan?.scanId || "Unnamed file",
-      totalIssues,
-      compliance: scan?.summary?.complianceScore ?? null,
-    })
   })
 
   const totalScans = scans.length
@@ -182,18 +212,73 @@ export function BatchInsightPanel({ scans }) {
     .filter(([, value]) => value > 0)
     .sort((a, b) => b[1] - a[1])
 
-  const topAttentionFiles = hasScannedFiles
-    ? issuesByFile
-        .filter((file) => typeof file.totalIssues === "number")
-        .sort((a, b) => b.totalIssues - a.totalIssues)
-        .slice(0, 3)
-    : []
-
   const progressHeading = totalScans === 1 ? "File Status" : "Files Status"
 
+  const severityTotalCount = severityTotals.high + severityTotals.medium + severityTotals.low
+  if (totalIssues > severityTotalCount) {
+    severityTotals.low += totalIssues - severityTotalCount
+  }
+  const normalizedSeverityCount =
+    severityTotals.high + severityTotals.medium + severityTotals.low
+  const hasSeverity = normalizedSeverityCount > 0
+  const categoryEntries = Object.entries(categoryTotals || {}).map(([key, count]) => ({
+    key,
+    label: CATEGORY_LABELS[key] || key.replace(/([A-Z])/g, " $1").trim(),
+    count,
+  }))
+  const topCategories = categoryEntries.sort((a, b) => b.count - a.count).slice(0, 3)
+  const hasCategories = topCategories.length > 0
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-  
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {hasSeverity && (
+        <section className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-5">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wide">
+            Severity Overview
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Total issues analysed: {totalIssues}. Severity counts are shown below.
+          </p>
+          <div className="mt-4 space-y-3">
+            {["high", "medium", "low"].map((severity) => (
+              <ProgressItem
+                key={severity}
+                label={`${severity[0].toUpperCase()}${severity.slice(1)}`}
+                value={severityTotals[severity]}
+                total={normalizedSeverityCount}
+                colorClass={severityPalette[severity]}
+                srLabel={`Severity ${severity}: ${severityTotals[severity]} of ${normalizedSeverityCount}`}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {hasCategories && (
+        <section className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-5">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wide">
+            Top Issue Categories
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Showing up to three categories with the highest issue counts across this batch.
+          </p>
+          <dl className="mt-4 space-y-3">
+            {topCategories.map((category) => {
+              const percent =
+                totalIssues > 0 ? Math.round((category.count / totalIssues) * 100) : 0
+              return (
+                <div key={category.key} className="flex items-center justify-between text-sm">
+                  <dt className="text-slate-600 dark:text-slate-300">{category.label}</dt>
+                  <dd className="text-slate-900 dark:text-white font-medium">
+                    {category.count} issues<span className="ml-2 text-xs text-slate-500 dark:text-slate-400">({percent}%)</span>
+                  </dd>
+                </div>
+              )
+            })}
+          </dl>
+        </section>
+      )}
+
       {sortedStatuses.length > 0 && (
         <section className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-5">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wide">
@@ -214,27 +299,6 @@ export function BatchInsightPanel({ scans }) {
               )
             })}
           </div>
-        </section>
-      )}
-
-      {topAttentionFiles.length > 0 && (
-        <section className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-5">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wide">
-            Highest Issue Files
-          </h3>
-          <ol className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
-            {topAttentionFiles.map((file, index) => (
-              <li key={`${file.filename}-${index}`} className="flex items-center justify-between">
-                <div className="truncate pr-4">
-                  <span className="text-slate-400 dark:text-slate-500 mr-2">#{index + 1}</span>
-                  <span className="text-slate-900 dark:text-white font-medium truncate">
-                    {file.filename}
-                  </span>
-                </div>
-                <span className="text-slate-900 dark:text-white font-semibold">{file.totalIssues}</span>
-              </li>
-            ))}
-          </ol>
         </section>
       )}
     </div>
