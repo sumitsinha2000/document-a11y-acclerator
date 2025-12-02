@@ -54,6 +54,9 @@ export default function GroupTreeSidebar({
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editingGroupName, setEditingGroupName] = useState("");
   const [deletingGroupId, setDeletingGroupId] = useState(null);
+  const [pendingDeleteGroup, setPendingDeleteGroup] = useState(null);
+  const [isProjectDeleteLoading, setIsProjectDeleteLoading] = useState(false);
+  const [projectDeleteError, setProjectDeleteError] = useState("");
   const [editingBatchId, setEditingBatchId] = useState(null);
   const [editingBatchGroupId, setEditingBatchGroupId] = useState(null);
   const [editingBatchName, setEditingBatchName] = useState("");
@@ -1264,29 +1267,50 @@ export default function GroupTreeSidebar({
     }
   };
 
-  const handleGroupDelete = async (group) => {
-    const confirmed = await confirm({
-      title: "Delete project",
-      message: `Deleting "${group.name || "project"}" permanently removes all folders and files under it. This action cannot be undone.`,
-      confirmText: "Delete project",
-      cancelText: "Cancel",
-      type: "danger",
-    });
+  const handleGroupDelete = (group) => {
+    setPendingDeleteGroup(group);
+    setProjectDeleteError("");
+  };
 
-    if (!confirmed) {
+  const closeProjectDeleteModal = () => {
+    if (isProjectDeleteLoading) {
       return;
     }
+    setPendingDeleteGroup(null);
+    setProjectDeleteError("");
+  };
 
-    setDeletingGroupId(group.id);
+  const confirmProjectDeletion = async () => {
+    if (!pendingDeleteGroup) {
+      return;
+    }
+    const normalizedGroupId = normalizeId(pendingDeleteGroup.id);
+    const projectName = pendingDeleteGroup.name || "Project";
+
+    setProjectDeleteError("");
+    setIsProjectDeleteLoading(true);
+    setDeletingGroupId(pendingDeleteGroup.id);
+
     try {
-      await axios.delete(`${API_BASE_URL}/api/groups/${group.id}`);
-      removeGroupById(group.id, group?.name);
-      setStatusMessage(`${group?.name || "Project"} deleted`);
+      await axios.delete(`${API_BASE_URL}/api/groups/${pendingDeleteGroup.id}`);
+      removeGroupById(pendingDeleteGroup.id, pendingDeleteGroup?.name);
+      setStatusMessage(`${projectName} deleted`);
+      showSuccess(`Deleted "${projectName}"`);
+      setPendingDeleteGroup(null);
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete group:", error);
-      setStatusMessage(error?.response?.data?.error || "Failed to delete project");
+      const message = error?.response?.data?.error || "Failed to delete project";
+      setProjectDeleteError(message);
+      setStatusMessage(message);
+      showError(message);
     } finally {
-      setDeletingGroupId(null);
+      setIsProjectDeleteLoading(false);
+      setDeletingGroupId((current) => {
+        if (!current) {
+          return null;
+        }
+        return normalizeId(current) === normalizedGroupId ? null : current;
+      });
     }
   };
 
@@ -1362,6 +1386,8 @@ export default function GroupTreeSidebar({
       setRefreshingGroupId(null);
     }
   };
+
+  const deleteModalProjectName = pendingDeleteGroup?.name || "project";
 
   if (loading) {
     return (
@@ -1563,7 +1589,8 @@ export default function GroupTreeSidebar({
   }
 
   return (
-    <aside
+    <>
+      <aside
       className="w-full max-w-sm flex-shrink-0 dashboard-panel border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl shadow-slate-200/60 flex flex-col space-y-6 overflow-hidden dark:border-slate-800 dark:bg-[#0b152d]/95 dark:text-slate-100 dark:shadow-[0_40px_100px_-50px_rgba(2,6,23,0.9)]"
       aria-label="Group navigation"
     >
@@ -2163,5 +2190,72 @@ export default function GroupTreeSidebar({
         {statusMessage}
       </div>
     </aside>
+      {pendingDeleteGroup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-project-title"
+          aria-describedby="delete-project-description"
+          onClick={closeProjectDeleteModal}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-200">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 id="delete-project-title" className="text-lg font-semibold text-slate-900 dark:text-white">
+                  Delete project
+                </h3>
+                <p
+                  id="delete-project-description"
+                  className="mt-1 text-sm text-slate-600 dark:text-slate-400"
+                >{`Deleting "${deleteModalProjectName}" permanently removes all folders and files under it. This action cannot be undone.`}</p>
+                {projectDeleteError && (
+                  <p className="mt-3 text-sm text-rose-600 dark:text-rose-400">{projectDeleteError}</p>
+                )}
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeProjectDeleteModal}
+                disabled={isProjectDeleteLoading}
+                className="px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-medium hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmProjectDeletion}
+                disabled={isProjectDeleteLoading}
+                aria-busy={isProjectDeleteLoading || undefined}
+                className="px-4 py-2.5 rounded-lg bg-rose-600 text-white font-semibold shadow-sm hover:bg-rose-500 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center min-w-[11rem]"
+              >
+                {isProjectDeleteLoading ? (
+                  <span className="flex items-center gap-2 text-sm">
+                    <span className="h-4 w-4 rounded-full border-2 border-white/60 border-t-transparent animate-spin" />
+                    {`Deleting ${deleteModalProjectName}...`}
+                  </span>
+                ) : (
+                  "Delete project"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
