@@ -310,11 +310,10 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
-  const handleProgressComplete = async (success, newScanData) => {
+  const handleProgressComplete = (success, newScanData) => {
     console.log("[v0] FixSuggestions - Progress complete:", { success, hasNewData: !!newScanData })
-    const outcome = { success, newScanData }
-
-    await processProgressOutcome(outcome)
+    handleProgressModalClose()
+    void processProgressOutcome({ success, newScanData })
   }
 
   const handleProgressModalClose = async () => {
