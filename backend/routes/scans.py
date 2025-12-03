@@ -846,6 +846,22 @@ async def get_scan(scan_id: str):
             )
 
         results_dict = results if isinstance(results, dict) else {}
+        current_issue_count = sum(
+            len(items)
+            for items in results_dict.values()
+            if isinstance(items, list)
+        )
+        total_issues_value = summary.get("totalIssues")
+        if not isinstance(total_issues_value, (int, float)):
+            total_issues_value = current_issue_count
+        remaining_issues_value = summary.get("remainingIssues")
+        if not isinstance(remaining_issues_value, (int, float)):
+            remaining_issues_value = summary.get("issuesRemaining")
+        if not isinstance(remaining_issues_value, (int, float)):
+            remaining_issues_value = current_issue_count
+        summary["totalIssues"] = total_issues_value
+        summary["remainingIssues"] = remaining_issues_value
+        summary["issuesRemaining"] = remaining_issues_value
         response_verapdf = verapdf_status or {
             "isActive": False,
             "wcagCompliance": None,
@@ -870,11 +886,7 @@ async def get_scan(scan_id: str):
             if batch_rows:
                 batch_info = batch_rows[0]
 
-        remaining_issues = (
-            scan.get("issues_remaining")
-            or summary.get("issuesRemaining")
-            or summary.get("remainingIssues")
-        )
+        remaining_issues = remaining_issues_value
         status_code, status_label = derive_file_status(
             scan.get("status"),
             issues_remaining=remaining_issues,
@@ -891,6 +903,9 @@ async def get_scan(scan_id: str):
             "folderId": batch_id_value,
             "uploadDate": scan.get("upload_date") or scan.get("created_at"),
             "summary": summary,
+            "totalIssues": total_issues_value,
+            "remainingIssues": remaining_issues_value,
+            "issuesRemaining": remaining_issues_value,
             "results": results_dict,
             "criteriaSummary": criteria_summary,
             "fixes": scan_results.get("fixes", []),

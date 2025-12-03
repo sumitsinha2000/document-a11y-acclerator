@@ -23,6 +23,8 @@ const STATUS_BADGE_STYLES = {
   default: "bg-gray-100 text-gray-700 dark:bg-gray-800/60 dark:text-gray-200",
 }
 
+const isNumeric = (value) => typeof value === "number" && Number.isFinite(value)
+
 const filterDefinedFields = (payload) => {
   if (!payload || typeof payload !== "object") {
     return {}
@@ -334,6 +336,27 @@ export default function ReportViewer({
     results: reportData.results,
     verapdfStatus,
   })
+
+  const totalIssuesValue = isNumeric(reportData.totalIssues)
+    ? reportData.totalIssues
+    : isNumeric(summary.totalIssues)
+      ? summary.totalIssues
+      : 0
+  const remainingIssuesValue = isNumeric(reportData.remainingIssues)
+    ? reportData.remainingIssues
+    : isNumeric(summary.remainingIssues)
+      ? summary.remainingIssues
+      : isNumeric(summary.issuesRemaining)
+        ? summary.issuesRemaining
+        : 0
+  const fixesAppliedCount = isNumeric(reportData.appliedFixes?.successCount)
+    ? reportData.appliedFixes.successCount
+    : isNumeric(reportData.issuesFixed)
+      ? reportData.issuesFixed
+      : isNumeric(summary.issuesFixed)
+        ? summary.issuesFixed
+        : 0
+  const issueDelta = totalIssuesValue - remainingIssuesValue
 
   const scanStatusInfo = resolveEntityStatus(reportData)
   const scanStatus = scanStatusInfo.code
@@ -658,7 +681,7 @@ export default function ReportViewer({
           {!isUploaded ? (
             <>
               <div id="overview" key={`overview-${refreshKey}`}>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
                     <div className="flex items-center justify-between mb-4">
                       <div>
@@ -730,14 +753,33 @@ export default function ReportViewer({
                   <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Total Issues</p>
+                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Remaining Issues</p>
                         <div className="flex items-baseline">
-                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.totalIssues}</p>
+                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{remainingIssuesValue}</p>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Issues still reported on the latest scan</p>
+                        <div className="mt-2 flex items-center gap-1 text-xs font-semibold">
+                          {issueDelta > 0 ? (
+                            <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                              <span aria-hidden className="text-base leading-none">↓</span>
+                              <span>{issueDelta} resolved</span>
+                            </span>
+                          ) : issueDelta < 0 ? (
+                            <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                              <span aria-hidden className="text-base leading-none">↑</span>
+                              <span>{Math.abs(issueDelta)} new</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                              <span aria-hidden className="text-base leading-none">—</span>
+                              <span>No change</span>
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
+                      <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/10 rounded-full flex items-center justify-center">
                         <svg
-                          className="w-8 h-8 text-amber-600 dark:text-amber-400"
+                          className="w-8 h-8 text-amber-500 dark:text-amber-300"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -748,6 +790,36 @@ export default function ReportViewer({
                             strokeLinejoin="round"
                             strokeWidth={2}
                             d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                          />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Fixes Applied</p>
+                        <div className="flex items-baseline">
+                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{fixesAppliedCount}</p>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          Fixes recorded for this scan
+                        </p>
+                      </div>
+                      <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center">
+                        <svg
+                          className="w-8 h-8 text-emerald-600 dark:text-emerald-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
                           />
                         </svg>
                       </div>

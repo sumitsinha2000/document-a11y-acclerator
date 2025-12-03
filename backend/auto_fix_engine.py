@@ -422,6 +422,7 @@ class AutoFixEngine:
         temp_path = None
         upload_dir = Path("uploads")
         resolved_path = None
+        scan_data = scan_data or {}
         if scan_data:
             resolved_path = scan_data.get("resolved_file_path")
         if resolved_path:
@@ -501,17 +502,22 @@ class AutoFixEngine:
                 tracker.start_step(step_id)
             
             try:
-                # Always set language to ensure compliance
-                pdf.Root.Lang = 'en-US'
-                print("[AutoFixEngine] ✓ Set document language (en-US)")
-                
-                fixes_applied.append({
-                    'type': 'addLanguage',
-                    'description': 'Set document language (en-US)',
-                    'success': True
-                })
-                if tracker:
-                    tracker.complete_step(step_id, "Set language: en-US")
+                existing_lang = pdf.Root.get('/Lang')
+                if not existing_lang:
+                    pdf.Root['/Lang'] = 'en-US'
+                    print("[AutoFixEngine] ✓ Set document language (en-US)")
+                    
+                    fixes_applied.append({
+                        'type': 'addLanguage',
+                        'description': 'Set document language (en-US)',
+                        'success': True
+                    })
+                    if tracker:
+                        tracker.complete_step(step_id, "Set language: en-US")
+                else:
+                    print("[AutoFixEngine] → Document already defines a language; skipping fix")
+                    if tracker:
+                        tracker.skip_step(step_id, "Document already defines a language")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error adding language: {e}")
                 if tracker:
@@ -529,34 +535,43 @@ class AutoFixEngine:
             try:
                 filename = scan_data.get('filename', os.path.basename(pdf_path))
                 title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
+                metadata_changed = False
                 
-                # Ensure docinfo exists
                 if not hasattr(pdf, 'docinfo') or pdf.docinfo is None:
                     pdf.docinfo = pdf.make_indirect(Dictionary())
                     print("[AutoFixEngine] Created new docinfo dictionary")
                 
-                # Always set title to ensure compliance
-                pdf.docinfo['/Title'] = title
-                print(f"[AutoFixEngine] ✓ Set DocInfo title: {title}")
+                docinfo = pdf.docinfo
+                current_title = docinfo.get('/Title')
+                if not current_title:
+                    docinfo['/Title'] = title
+                    metadata_changed = True
+                    print(f"[AutoFixEngine] ✓ Set DocInfo title: {title}")
                 
-                # Always set XMP metadata to ensure compliance
                 with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
-                    meta['dc:title'] = title
-                    print(f"[AutoFixEngine] ✓ Set XMP dc:title: {title}")
-                
-                fixes_applied.append({
-                    'type': 'addTitle',
-                    'description': f'Set document title and metadata: {title}',
-                    'success': True
-                })
-                fixes_applied.append({
-                    'type': 'pdfuaNotice',
-                    'description': 'PDF/UA identifier not asserted - manual tagging and validation required.',
-                    'success': False,
-                    'warning': True
-                })
-                if tracker:
-                    tracker.complete_step(step_id, f"Set title: {title}")
+                    if not meta.get('dc:title'):
+                        meta['dc:title'] = title
+                        metadata_changed = True
+                        print(f"[AutoFixEngine] ✓ Set XMP dc:title: {title}")
+
+                if metadata_changed:
+                    fixes_applied.append({
+                        'type': 'addTitle',
+                        'description': f'Set document title and metadata: {title}',
+                        'success': True
+                    })
+                    fixes_applied.append({
+                        'type': 'pdfuaNotice',
+                        'description': 'PDF/UA identifier not asserted - manual tagging and validation required.',
+                        'success': False,
+                        'warning': True
+                    })
+                    if tracker:
+                        tracker.complete_step(step_id, f"Set title: {title}")
+                else:
+                    print("[AutoFixEngine] → Title metadata already present; skipping fix")
+                    if tracker:
+                        tracker.skip_step(step_id, "Title metadata already present")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error adding title/metadata: {e}")
                 if tracker:
@@ -624,23 +639,34 @@ class AutoFixEngine:
                 tracker.start_step(step_id)
             
             try:
-                if not hasattr(pdf.Root, 'ViewerPreferences'):
+                viewer_prefs = getattr(pdf.Root, 'ViewerPreferences', None)
+                preferences_changed = False
+
+                if viewer_prefs is None:
                     pdf.Root.ViewerPreferences = pdf.make_indirect(Dictionary(
                         DisplayDocTitle=True
                     ))
+                    preferences_changed = True
                     print("[AutoFixEngine] ✓ Created ViewerPreferences")
                 else:
-                    # Always set to ensure compliance
-                    pdf.Root.ViewerPreferences['/DisplayDocTitle'] = True
-                    print("[AutoFixEngine] ✓ Updated ViewerPreferences")
-                
-                fixes_applied.append({
-                    'type': 'fixViewerPreferences',
-                    'description': 'Set ViewerPreferences to display document title',
-                    'success': True
-                })
-                if tracker:
-                    tracker.complete_step(step_id, "ViewerPreferences configured")
+                    display_doc_title = viewer_prefs.get('/DisplayDocTitle')
+                    if not display_doc_title:
+                        viewer_prefs['/DisplayDocTitle'] = True
+                        preferences_changed = True
+                        print("[AutoFixEngine] ✓ Enabled DisplayDocTitle")
+
+                if preferences_changed:
+                    fixes_applied.append({
+                        'type': 'fixViewerPreferences',
+                        'description': 'Set ViewerPreferences to display document title',
+                        'success': True
+                    })
+                    if tracker:
+                        tracker.complete_step(step_id, "ViewerPreferences configured")
+                else:
+                    print("[AutoFixEngine] → ViewerPreferences already configured; skipping fix")
+                    if tracker:
+                        tracker.skip_step(step_id, "ViewerPreferences already configured")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error setting ViewerPreferences: {e}")
                 if tracker:
