@@ -357,6 +357,7 @@ export default function ReportViewer({
         ? summary.issuesFixed
         : 0
   const issueDelta = totalIssuesValue - remainingIssuesValue
+  const hasIssueDelta = typeof issueDelta === "number" && issueDelta !== 0
 
   const scanStatusInfo = resolveEntityStatus(reportData)
   const scanStatus = scanStatusInfo.code
@@ -753,29 +754,32 @@ export default function ReportViewer({
                   <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Remaining Issues</p>
+                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">
+                          {issueDelta === 0 ? "Issues" : "Remaining Issues"}
+                        </p>
                         <div className="flex items-baseline">
                           <p className="text-4xl font-bold text-slate-900 dark:text-white">{remainingIssuesValue}</p>
                         </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Issues still reported on the latest scan</p>
-                        <div className="mt-2 flex items-center gap-1 text-xs font-semibold">
-                          {issueDelta > 0 ? (
-                            <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                              <span aria-hidden className="text-base leading-none">↓</span>
-                              <span>{issueDelta} resolved</span>
-                            </span>
-                          ) : issueDelta < 0 ? (
-                            <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                              <span aria-hidden className="text-base leading-none">↑</span>
-                              <span>{Math.abs(issueDelta)} new</span>
-                            </span>
-                          ) : (
-                            <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                              <span aria-hidden className="text-base leading-none">—</span>
-                              <span>No change</span>
-                            </span>
-                          )}
-                        </div>
+                        {hasIssueDelta && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            Issues still reported on the latest scan
+                          </p>
+                        )}
+                        {hasIssueDelta && (
+                          <div className="mt-2 flex items-center gap-1 text-xs font-semibold">
+                            {issueDelta > 0 ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                <span aria-hidden className="text-base leading-none">↓</span>
+                                <span>{issueDelta} resolved</span>
+                              </span>
+                            ) : (
+                              <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                                <span aria-hidden className="text-base leading-none">↑</span>
+                                <span>{Math.abs(issueDelta)} new</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/10 rounded-full flex items-center justify-center">
                         <svg

@@ -1637,6 +1637,8 @@ def _perform_automated_fix(
         status = "fixed" if remaining_issues == 0 else "processed"
         result["successCount"] = success_count
 
+        scan_results_payload = _ensure_scan_results_compliance(scan_results_payload)
+
         cursor.execute(
             """
             UPDATE scans

@@ -35,6 +35,7 @@ from backend.utils.app_helpers import (
     _combine_compliance_scores,
     _delete_scan_with_files,
     _ensure_local_storage,
+    _ensure_scan_results_compliance,
     _fetch_scan_record,
     _parse_scan_results_json,
     _resolve_scan_file_path,
@@ -217,6 +218,8 @@ async def scan_pdf(
     summary = formatted_results.get("summary", {}) or {}
     verapdf_status = formatted_results.get("verapdfStatus")
     fix_suggestions = formatted_results.get("fixes", [])
+
+    formatted_results = _ensure_scan_results_compliance(formatted_results)
 
     try:
         total_issues = formatted_results.get("summary", {}).get("totalIssues", 0)

@@ -1707,7 +1707,7 @@ export default function GroupTreeSidebar({
       >
         {groups.length === 0 ? (
           <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
-            <p>No groups yet. Create one to get started!</p>
+            <p>No projects yet. Create one to get started!</p>
           </div>
         ) : (
           groups.map((group, groupIndex) => {
