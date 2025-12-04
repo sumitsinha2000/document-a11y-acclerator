@@ -515,17 +515,39 @@ export default function ReportViewer({
           <div className="flex items-center gap-2 ml-auto">
             <button
               onClick={() => handleRefresh()}
-              className="px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-1 font-semibold text-sm border border-slate-200 dark:border-slate-600"
+              disabled={isRefreshing}
+              aria-busy={isRefreshing}
+              className={`px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-1 font-semibold text-sm border border-slate-200 dark:border-slate-600 ${
+                isRefreshing ? "cursor-wait opacity-80" : ""
+              }`}
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-              <span>Refresh</span>
+              {isRefreshing ? (
+                <svg
+                  className="w-4 h-4 animate-spin text-slate-500 dark:text-slate-200"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="3" stroke="currentColor" />
+                  <path
+                    className="opacity-75"
+                    d="M4 12a8 8 0 018-8"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    stroke="currentColor"
+                  />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+              )}
+              <span>{isRefreshing ? "Refreshing…" : "Refresh"}</span>
             </button>
             {isUploaded && (
               <button
