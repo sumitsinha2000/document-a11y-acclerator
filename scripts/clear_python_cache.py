@@ -2,7 +2,6 @@
 """
 Clear Python bytecode cache to ensure latest code is used
 """
-import os
 import shutil
 from pathlib import Path
 
