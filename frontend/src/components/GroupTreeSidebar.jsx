@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { resolveEntityStatus } from "../utils/statuses";
 import { useNotification } from "../contexts/NotificationContext";
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id));
+const buildTreeItemId = (type, identifier) => `${type}-${normalizeId(identifier)}`;
 const FILE_STATUS_STYLES = {
   uploaded: "bg-gray-100 text-gray-700",
   scanned: "bg-blue-100 text-blue-800",
@@ -75,7 +76,53 @@ export default function GroupTreeSidebar({
   const handledFolderNavigationRef = useRef(null);
   const folderStatusRefreshKeyRef = useRef(null);
   const treeContainerRef = useRef(null);
+  const treeItemMetadataRef = useRef({});
+  const [activeTreeItemId, setActiveTreeItemId] = useState(null);
   const { confirm, showError, showSuccess } = useNotification();
+  const treeItemsMetadata = useMemo(() => {
+    const metadata = {};
+    groups.forEach((group, groupIndex) => {
+      const normalizedGroupId = normalizeId(group.id);
+      if (!normalizedGroupId) {
+        return;
+      }
+      const treeId = buildTreeItemId("group", group.id);
+      const groupEntry = {
+        type: "group",
+        group,
+        normalizedGroupId,
+        treeId,
+        groupIndex,
+        childTreeIds: [],
+      };
+      metadata[treeId] = groupEntry;
+      const batches = groupBatches[normalizedGroupId] || [];
+      batches.forEach((batch, batchIndex) => {
+        const batchIdentifier = batch.batchId ?? batch.id;
+        const normalizedBatchId = normalizeId(batchIdentifier);
+        if (!normalizedBatchId) {
+          return;
+        }
+        const folderTreeId = buildTreeItemId("folder", batchIdentifier);
+        groupEntry.childTreeIds.push(folderTreeId);
+        metadata[folderTreeId] = {
+          type: "folder",
+          batch: {
+            ...batch,
+            batchId: batchIdentifier,
+          },
+          group,
+          normalizedBatchId,
+          treeId: folderTreeId,
+          parentTreeId: treeId,
+          batchIndex,
+          groupIndex,
+        };
+      });
+    });
+    return metadata;
+  }, [groups, groupBatches]);
+  treeItemMetadataRef.current = treeItemsMetadata;
   const mapFolderToSidebarEntry = (folder) => {
     if (!folder) {
       return null;
@@ -216,6 +263,30 @@ export default function GroupTreeSidebar({
     item.scrollIntoView({ block: "nearest" });
   };
 
+  const handleTreeFocusCapture = (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const treeItem = target.closest("[data-doca-tree-item]");
+    if (treeItem?.dataset?.treeId) {
+      setActiveTreeItemId(treeItem.dataset.treeId);
+      return;
+    }
+
+    const actionsRegion = target.closest("[data-tree-actions-for]");
+    if (actionsRegion?.dataset?.treeActionsFor) {
+      setActiveTreeItemId(actionsRegion.dataset.treeActionsFor);
+    }
+  };
+
+  const handleTreeBlurCapture = (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      setActiveTreeItemId(null);
+    }
+  };
+
   const handleTreeKeyDown = (event) => {
     if (
       event.defaultPrevented ||
@@ -225,7 +296,7 @@ export default function GroupTreeSidebar({
     ) {
       return;
     }
-    const navigationKeys = ["ArrowDown", "ArrowUp", "Home", "End"];
+    const navigationKeys = ["ArrowDown", "ArrowUp", "Home", "End", "ArrowLeft", "ArrowRight"];
     if (!navigationKeys.includes(event.key)) {
       return;
     }
@@ -240,6 +311,15 @@ export default function GroupTreeSidebar({
       typeof document !== "undefined" ? document.activeElement : null;
     const currentIndex = items.indexOf(activeElement);
     let targetIndex = 0;
+    const treeItemElement =
+      activeElement instanceof Element
+        ? activeElement.closest("[data-doca-tree-item]")
+        : null;
+    const treeItemId = treeItemElement?.dataset?.treeId || null;
+    const treeMetadata =
+      treeItemId && treeItemMetadataRef.current
+        ? treeItemMetadataRef.current[treeItemId]
+        : null;
 
     switch (event.key) {
       case "ArrowDown":
@@ -260,6 +340,57 @@ export default function GroupTreeSidebar({
       case "End":
         targetIndex = items.length - 1;
         break;
+      case "ArrowRight":
+        if (!treeMetadata) {
+          return;
+        }
+        if (treeMetadata.type === "group") {
+          if (!expandedGroups.has(treeMetadata.normalizedGroupId)) {
+            void handleGroupSelection(treeMetadata.group);
+            return;
+          }
+          const firstChildId = treeMetadata.childTreeIds?.[0];
+          if (firstChildId) {
+            const childElement = items.find(
+              (item) => item.dataset.treeId === firstChildId
+            );
+            if (childElement) {
+              focusTreeItem(childElement);
+            }
+          }
+        } else if (treeMetadata.type === "folder") {
+          void handleFolderButtonClick(treeMetadata.group, treeMetadata.batch);
+        }
+        return;
+      case "ArrowLeft":
+        if (!treeMetadata) {
+          return;
+        }
+        if (treeMetadata.type === "group") {
+          if (expandedGroups.has(treeMetadata.normalizedGroupId)) {
+            setExpandedGroups((prev) => {
+              if (!prev.has(treeMetadata.normalizedGroupId)) {
+                return prev;
+              }
+              const next = new Set(prev);
+              next.delete(treeMetadata.normalizedGroupId);
+              return next;
+            });
+          }
+          return;
+        }
+        if (treeMetadata.type === "folder") {
+          const parentId = treeMetadata.parentTreeId;
+          if (parentId) {
+            const parentElement = items.find(
+              (item) => item.dataset.treeId === parentId
+            );
+            if (parentElement) {
+              focusTreeItem(parentElement);
+            }
+          }
+        }
+        return;
       default:
         return;
     }
@@ -1704,6 +1835,8 @@ export default function GroupTreeSidebar({
         role="tree"
         aria-label="Project navigation tree"
         onKeyDown={handleTreeKeyDown}
+        onFocusCapture={handleTreeFocusCapture}
+        onBlurCapture={handleTreeBlurCapture}
       >
         {groups.length === 0 ? (
           <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
@@ -1712,6 +1845,7 @@ export default function GroupTreeSidebar({
         ) : (
           groups.map((group, groupIndex) => {
             const normalizedGroupId = normalizeId(group.id);
+            const groupTreeId = buildTreeItemId("group", group.id);
             const panelId = `group-${normalizedGroupId}-panel`;
             const isExpanded = expandedGroups.has(normalizedGroupId);
             const files = groupFiles[normalizedGroupId] || [];
@@ -1732,6 +1866,8 @@ export default function GroupTreeSidebar({
             const isGroupDeleting =
               deletingGroupId && normalizeId(deletingGroupId) === normalizedGroupId;
             const isRefreshingFolders = refreshingGroupId === normalizedGroupId;
+            const groupActionsTabIndex =
+              activeTreeItemId === groupTreeId ? 0 : -1;
 
             return (
               <div key={group.id} className="space-y-2">
@@ -1775,6 +1911,9 @@ export default function GroupTreeSidebar({
                       <button
                         type="button"
                         data-doca-tree-item="true"
+                        data-tree-id={groupTreeId}
+                        data-tree-type="group"
+                        data-tree-level={1}
                         role="treeitem"
                         aria-level={1}
                         aria-setsize={groups.length}
@@ -1796,8 +1935,9 @@ export default function GroupTreeSidebar({
                             isExpanded ? "rotate-90 text-indigo-400" : "text-slate-400"
                           }`}
                           aria-hidden="true"
+                          tabIndex={-1}
                         >
-                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" tabIndex={-1}>
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                           </svg>
                         </span>
@@ -1805,8 +1945,9 @@ export default function GroupTreeSidebar({
                           className={`w-5 h-5 flex-shrink-0 ${
                             isSelected ? "text-white" : "text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200"
                           }`}
+                          tabIndex={-1}
                         >
-                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" tabIndex={-1}>
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -1823,12 +1964,16 @@ export default function GroupTreeSidebar({
                           </h3>
                         </div>
                       </button>
-                      <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100">
+                      <div
+                        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100"
+                        data-tree-actions-for={groupTreeId}
+                      >
                         <button
                           type="button"
                           onClick={() => startGroupEdit(group)}
                           className="pointer-events-auto rounded-lg border border-indigo-100 bg-indigo-50 p-1 text-indigo-600 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-200 dark:hover:bg-indigo-500/20 dark:hover:text-white"
                           title="Edit project"
+                          tabIndex={groupActionsTabIndex}
                         >
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path
@@ -1846,6 +1991,7 @@ export default function GroupTreeSidebar({
                           aria-busy={isGroupDeleting || undefined}
                           className="pointer-events-auto rounded-lg border border-rose-100 bg-rose-50 p-1 text-rose-600 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20 dark:hover:text-white"
                           title={isGroupDeleting ? "Deleting project..." : "Delete project"}
+                          tabIndex={groupActionsTabIndex}
                         >
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path
@@ -1906,7 +2052,8 @@ export default function GroupTreeSidebar({
                             aria-label={`Folders for ${group.name}`}
                           >
                         {batches.map((batch, batchIndex) => {
-                            const normalizedBatchId = normalizeId(batch.batchId);
+                            const folderIdentifier = batch.batchId ?? batch.id;
+                            const normalizedBatchId = normalizeId(folderIdentifier);
                             const isBatchSelected =
                               selectedNode?.type === "batch" &&
                               normalizeId(selectedNode?.id) === normalizedBatchId;
@@ -1917,6 +2064,9 @@ export default function GroupTreeSidebar({
                             const isFolderRefreshing = Boolean(
                               refreshingFolderCounts[normalizedBatchId]
                             );
+                            const folderTreeId = buildTreeItemId("folder", folderIdentifier);
+                            const folderActionsTabIndex =
+                              activeTreeItemId === folderTreeId ? 0 : -1;
 
                             return (
                               <li key={batch.batchId} className="relative group/folder">
@@ -1959,13 +2109,17 @@ export default function GroupTreeSidebar({
                                   <button
                                     type="button"
                                     data-doca-tree-item="true"
+                                    data-tree-id={folderTreeId}
+                                    data-tree-parent={groupTreeId}
+                                    data-tree-type="folder"
+                                    data-tree-level={2}
                                     role="treeitem"
                                     aria-level={2}
                                     aria-setsize={batches.length}
                                     aria-posinset={batchIndex + 1}
                                     className={`group w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 shadow-sm ${
                                       isBatchSelected
-                                        ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
+                                        ? "border-indigo-500 bg-white text-slate-900 shadow-[0_0_0_3px_rgba(99,102,241,0.35)] dark:bg-[#0f172a] dark:text-white"
                                         : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
                                     } ${TREE_ITEM_FOCUS_CLASSES}`}
                                       onClick={() => handleFolderButtonClick(group, batch)}
@@ -1973,8 +2127,9 @@ export default function GroupTreeSidebar({
                                     >
                                   <span
                                     className={`flex-shrink-0 rounded-lg p-1.5 ${isBatchSelected ? "bg-indigo-100 text-indigo-700 dark:bg-white/20 dark:text-white" : "bg-slate-100 text-indigo-500 dark:bg-slate-800/70 dark:text-indigo-200"}`}
+                                    tabIndex={-1}
                                   >
-                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" tabIndex={-1}>
                                     <path
                                       strokeLinecap="round"
                                       strokeLinejoin="round"
@@ -1986,17 +2141,17 @@ export default function GroupTreeSidebar({
                                       <span className="flex-1 min-w-0">
                                         <span
                                         className={`block truncate text-lg font-medium ${
-                                          isBatchSelected ? "text-white" : "text-slate-800 dark:text-current"
-                                        } group-focus-within:text-white dark:group-focus-within:text-white`}
+                                          isBatchSelected ? "text-slate-900 dark:text-white" : "text-slate-800 dark:text-current"
+                                        } group-focus-within:text-slate-900 dark:group-focus-within:text-white`}
                                       >
                                           {batch.name || `Batch ${batch.batchId}`}
                                         </span>
                                         <span
                                           className={`text-sm ${
                                             isBatchSelected
-                                              ? "text-indigo-100 dark:text-white/90"
+                                              ? "text-slate-500 dark:text-slate-200"
                                               : "text-slate-500 dark:text-slate-400"
-                                          } group-focus-within:text-indigo-100 dark:group-focus-within:text-white/90`}
+                                          }`}
                                         >
                                           <span className="inline-flex items-center gap-1">
                                             {isFolderRefreshing && (
@@ -2025,12 +2180,16 @@ export default function GroupTreeSidebar({
                                         </span>
                                       </span>
                                 </button>
-                                    <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 transition-opacity group-hover/folder:opacity-100 group-focus-within/folder:opacity-100">
+                                    <div
+                                      className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 transition-opacity group-hover/folder:opacity-100 group-focus-within/folder:opacity-100"
+                                      data-tree-actions-for={folderTreeId}
+                                    >
                                       <button
                                         type="button"
                                         onClick={() => startBatchEdit(batch, group.id)}
                                         className="pointer-events-auto rounded-lg border border-indigo-100 bg-indigo-50 p-1 text-indigo-600 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-200 dark:hover:bg-indigo-500/20 dark:hover:text-white"
                                         title="Edit folder"
+                                        tabIndex={folderActionsTabIndex}
                                       >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                           <path
@@ -2048,6 +2207,7 @@ export default function GroupTreeSidebar({
                                         aria-busy={isBatchDeleting || undefined}
                                         className="pointer-events-auto rounded-lg border border-rose-100 bg-rose-50 p-1 text-rose-600 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20 dark:hover:text-white"
                                         title={isBatchDeleting ? "Deleting folder..." : "Delete folder"}
+                                        tabIndex={folderActionsTabIndex}
                                       >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                           <path
