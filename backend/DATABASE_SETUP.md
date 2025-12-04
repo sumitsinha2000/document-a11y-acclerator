@@ -13,24 +13,27 @@ If you want to use PostgreSQL instead:
 ### 1. Install PostgreSQL
 
 **Windows:**
-- Download from https://www.postgresql.org/download/windows/
+
+- Download from <https://www.postgresql.org/download/windows/>
 - Run the installer and remember your password
 
 **Mac:**
-\`\`\`bash
+
+```bash
 brew install postgresql
 brew services start postgresql
-\`\`\`
+```
 
 **Linux:**
-\`\`\`bash
+
+```bash
 sudo apt-get install postgresql postgresql-contrib
 sudo systemctl start postgresql
-\`\`\`
+```
 
 ### 2. Create Database
 
-\`\`\`bash
+```bash
 # Connect to PostgreSQL
 psql -U postgres
 
@@ -39,30 +42,30 @@ CREATE DATABASE accessibility_scans;
 
 # Exit
 \q
-\`\`\`
+```
 
 ### 3. Install Python Package
 
-\`\`\`bash
+```bash
 pip install psycopg2-binary
-\`\`\`
+```
 
 ### 4. Configure Environment Variables
 
 Create a `.env` file in the `backend` directory:
 
-\`\`\`env
+```env
 DATABASE_TYPE=postgresql
 DATABASE_URL=postgresql://postgres:yourpassword@localhost:5432/accessibility_scans
-\`\`\`
+```
 
 Replace `yourpassword` with your PostgreSQL password.
 
 ### 5. Start the Server
 
-\`\`\`bash
+```bash
 python app.py
-\`\`\`
+```
 
 ## Switching Between Databases
 
@@ -78,17 +81,17 @@ To switch from PostgreSQL back to SQLite:
 
 This means DATABASE_URL is missing the password. Update your `.env` file:
 
-\`\`\`env
+```env
 DATABASE_URL=postgresql://postgres:YOUR_PASSWORD_HERE@localhost:5432/accessibility_scans
-\`\`\`
+```
 
 ### "psycopg2 not installed" Error
 
 Install the PostgreSQL driver:
 
-\`\`\`bash
+```bash
 pip install psycopg2-binary
-\`\`\`
+```
 
 ### Connection Refused
 

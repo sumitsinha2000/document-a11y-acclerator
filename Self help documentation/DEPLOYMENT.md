@@ -4,11 +4,13 @@
 
 This application uses **React + Vite** as the main frontend application, deployed directly to Vercel at `https://document-a11y-acclerator.vercel.app/`.
 
+Current deployment is hosted on Render at <https://document-a11y-acclerator-cwgk.onrender.com>
+
 ## Architecture
 
 - **Frontend**: React + Vite (main application)
 - **Backend**: Flask API (requires separate deployment)
-- **Database**: Neon PostgreSQL (already connected via Vercel integration)
+- **Database**: Online PostgreSQL database (Currently Aiven)
 
 ## Deployment Steps
 
@@ -20,28 +22,29 @@ Your Flask backend needs to be deployed separately. Choose one of these options:
 
 1. Create a `vercel.json` in the `backend` directory:
 
-\`\`\`json
-{
-  "builds": [
+    ```json
     {
-      "src": "app.py",
-      "use": "@vercel/python"
+      "builds": [
+        {
+          "src": "app.py",
+          "use": "@vercel/python"
+        }
+      ],
+      "routes": [
+        {
+          "src": "/(.*)",
+          "dest": "app.py"
+        }
+      ]
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "app.py"
-    }
-  ]
-}
-\`\`\`
+    ```
 
 2. Deploy the backend:
-\`\`\`bash
-cd backend
-vercel deploy --prod
-\`\`\`
+
+    ```bash
+    cd backend
+    vercel deploy --prod
+    ```
 
 3. Note the deployment URL (e.g., `https://your-backend.vercel.app`)
 
@@ -67,9 +70,9 @@ vercel deploy --prod
 
 Go to your Vercel project settings → Environment Variables and add:
 
-\`\`\`env
+```env
 VITE_BACKEND_URL=https://your-backend-url.vercel.app
-\`\`\`
+```
 
 **Important**: Replace `your-backend-url.vercel.app` with your actual deployed backend URL from Step 1.
 
@@ -79,7 +82,7 @@ The Neon database variables are automatically provided by the Vercel integration
 
 The `vercel.json` is already configured to build the frontend from the `frontend/` directory:
 
-\`\`\`json
+```json
 {
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
@@ -91,7 +94,7 @@ The `vercel.json` is already configured to build the frontend from the `frontend
     }
   ]
 }
-\`\`\`
+```
 
 Update the `destination` URL with your actual backend URL from Step 1.
 
@@ -99,7 +102,7 @@ Update the `destination` URL with your actual backend URL from Step 1.
 
 Update your Flask backend to allow requests from your Vercel domain:
 
-\`\`\`python
+```python
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -107,23 +110,23 @@ CORS(app, origins=[
     "https://document-a11y-acclerator.vercel.app",
     "http://localhost:3000"  # for local development
 ])
-\`\`\`
+```
 
 ### 5. Deploy to Vercel
 
-\`\`\`bash
+```bash
 # Deploy to production
 vercel --prod
 
 # Or push to your main branch (if auto-deploy is enabled)
 git push origin main
-\`\`\`
+```
 
-## Local Development
+## Local Development - Start up
 
 For local development:
 
-\`\`\`bash
+```bash
 # Terminal 1: Start backend
 cd backend
 python app.py
@@ -131,7 +134,7 @@ python app.py
 # Terminal 2: Start frontend
 cd frontend
 npm run dev
-\`\`\`
+```
 
 Visit `http://localhost:3000` to see your app.
 
@@ -142,13 +145,13 @@ Visit `http://localhost:3000` to see your app.
 - `VITE_BACKEND_URL` - Your deployed backend URL
 - Neon database variables (automatically provided by Vercel integration)
 
-### Local Development
+### Local Development - ENV
 
 Create `frontend/.env.local`:
 
-\`\`\`env
+```env
 VITE_BACKEND_URL=http://localhost:5000
-\`\`\`
+```
 
 ## Architecture Details
 
@@ -165,7 +168,7 @@ The main application is built with:
 
 ### File Structure
 
-\`\`\`
+```markdown
 document-a11y-acclerator/
 ├── frontend/                 # Main React + Vite application
 │   ├── src/
@@ -179,7 +182,7 @@ document-a11y-acclerator/
 ├── backend/                 # Flask backend (deploy separately)
 ├── app/                     # Next.js (not used for main app)
 └── vercel.json             # Vercel configuration
-\`\`\`
+```
 
 ## Troubleshooting
 

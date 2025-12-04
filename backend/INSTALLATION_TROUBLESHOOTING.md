@@ -4,19 +4,21 @@
 
 ### Issue 1: Build Error with Pillow (KeyError: '__version__')
 
-**Error Message:**
-\`\`\`
+__Error Message:__
+
+```bash
 Getting requirements to build wheel did not run successfully
 KeyError: '__version__'
 ERROR: Failed to build 'Pillow' when getting requirements to build wheel
-\`\`\`
+```
 
-**Cause:** Outdated build tools or incompatibility between setuptools and the package being built.
+__Cause:__ Outdated build tools or incompatibility between setuptools and the package being built.
 
-**Solutions (try in order):**
+__Solutions (try in order):__
 
-**Solution 1: Update build tools and use latest Pillow**
-\`\`\`bash
+__Solution 1: Update build tools and use latest Pillow__
+
+```bash
 # Update pip, setuptools, and wheel
 python -m pip install --upgrade pip setuptools wheel
 
@@ -25,10 +27,11 @@ pip install Pillow
 
 # Then install remaining requirements
 pip install -r requirements.txt
-\`\`\`
+```
 
-**Solution 2: Install Pillow from pre-built wheel**
-\`\`\`bash
+__Solution 2: Install Pillow from pre-built wheel__
+
+```bash
 # Update build tools
 python -m pip install --upgrade pip setuptools wheel
 
@@ -37,84 +40,94 @@ pip install --only-binary :all: Pillow
 
 # Then install remaining requirements
 pip install -r requirements.txt
-\`\`\`
+```
 
-**Solution 3: Use conda for Pillow**
-\`\`\`bash
+__Solution 3: Use conda for Pillow__
+
+```bash
 # If using conda environment
 conda install pillow
 
 # Then install remaining requirements with pip
 pip install -r requirements.txt
-\`\`\`
+```
 
-**Solution 4: Skip Pillow temporarily**
-\`\`\`bash
+__Solution 4: Skip Pillow temporarily__
+
+```bash
 # Install all packages except Pillow
 pip install Flask Flask-CORS PyPDF2 pdfplumber pytesseract pdf2image fpdf pikepdf psycopg2-binary python-dotenv
 
 # Try Pillow separately later
 pip install Pillow
-\`\`\`
+```
 
 ### Issue 2: psycopg2-binary Installation Fails
 
-**Error Message:**
-\`\`\`
-error: Microsoft Visual C++ 14.0 or greater is required
-\`\`\`
+__Error Message:__
 
-**Solution (Windows):**
+```bash
+error: Microsoft Visual C++ 14.0 or greater is required
+```
+
+__Solution (Windows):__
 
 Option 1: Use the binary package (already in requirements.txt):
-\`\`\`bash
+
+```bash
 pip install psycopg2-binary
-\`\`\`
+```
 
 Option 2: If you still have issues, install PostgreSQL development libraries or use SQLite instead by setting in `.env`:
-\`\`\`
+
+```markdown
 USE_SQLITE=true
-\`\`\`
+```
 
 ### Issue 3: pytesseract or pdf2image Issues
 
-**Error Message:**
-\`\`\`
-TesseractNotFoundError: tesseract is not installed
-\`\`\`
+__Error Message:__
 
-**Solution:**
+```bash
+TesseractNotFoundError: tesseract is not installed
+```
+
+__Solution:__
 
 These packages require external binaries:
 
-**Windows:**
-1. Download Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki
+__Windows:__
+
+1. Download Tesseract from: <https://github.com/UB-Mannheim/tesseract/wiki>
 2. Install and add to PATH
-3. Download Poppler from: https://github.com/oschwartz10612/poppler-windows/releases
+3. Download Poppler from: <https://github.com/oschwartz10612/poppler-windows/releases>
 4. Extract and add `bin` folder to PATH
 
-**macOS:**
-\`\`\`bash
-brew install tesseract poppler
-\`\`\`
+__macOS:__
 
-**Linux:**
-\`\`\`bash
+```bash
+brew install tesseract poppler
+```
+
+__Linux:__
+
+```bash
 sudo apt-get install tesseract-ocr poppler-utils
-\`\`\`
+```
 
 ### Issue 4: Permission Errors (Linux/macOS)
 
-**Error Message:**
-\`\`\`
-PermissionError: [Errno 13] Permission denied
-\`\`\`
+__Error Message:__
 
-**Solution:**
+```bash
+PermissionError: [Errno 13] Permission denied
+```
+
+__Solution:__
 
 Don't use `sudo` with pip. Instead, use a virtual environment:
 
-\`\`\`bash
+```bash
 # Create virtual environment
 python -m venv venv
 
@@ -126,13 +139,13 @@ source venv/bin/activate
 
 # Install requirements
 pip install -r requirements.txt
-\`\`\`
+```
 
 ## Complete Fresh Installation Steps
 
 ### Windows
 
-\`\`\`bash
+```bash
 # 1. Create and activate virtual environment
 python -m venv venv
 venv\Scripts\activate
@@ -149,11 +162,11 @@ copy .env.example .env
 
 # 5. Run the application
 python app.py
-\`\`\`
+```
 
 ### macOS/Linux
 
-\`\`\`bash
+```bash
 # 1. Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate
@@ -170,13 +183,13 @@ cp .env.example .env
 
 # 5. Run the application
 python app.py
-\`\`\`
+```
 
 ## Verifying Installation
 
 After installation, verify everything is working:
 
-\`\`\`bash
+```bash
 # Check Python version (should be 3.8+)
 python --version
 
@@ -185,34 +198,38 @@ pip list
 
 # Test imports
 python -c "import flask, PyPDF2, pdfplumber, pikepdf; print('All core packages imported successfully')"
-\`\`\`
+```
 
 ## Database Setup
 
 ### PostgreSQL (Recommended)
 
-1. Install PostgreSQL from https://www.postgresql.org/download/
+1. Install PostgreSQL from <https://www.postgresql.org/download/>
 2. Create a database:
-\`\`\`sql
-CREATE DATABASE doc_a11y_db;
-\`\`\`
+
+    ```sql
+    CREATE DATABASE doc_a11y_db;
+    ```
+
 3. Update `.env` with your credentials:
-\`\`\`
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=doc_a11y_db
-DB_USER=your_username
-DB_PASSWORD=your_password
-\`\`\`
+
+    ```bash
+    DB_HOST=localhost
+    DB_PORT=5432
+    DB_NAME=doc_a11y_db
+    DB_USER=your_username
+    DB_PASSWORD=your_password
+    ```
 
 ### SQLite (Fallback)
 
 If you don't want to set up PostgreSQL, use SQLite:
 
-1. Update `.env`:
-\`\`\`
+Update `.env`:
+
+```markdown
 USE_SQLITE=true
-\`\`\`
+```
 
 The application will automatically create a SQLite database file.
 
@@ -233,7 +250,7 @@ If you continue to experience issues:
 
 If you're using Conda instead of venv:
 
-\`\`\`bash
+```bash
 # Create conda environment
 conda create -n doc-a11y python=3.10
 conda activate doc-a11y
@@ -243,13 +260,13 @@ pip install --upgrade pip setuptools wheel
 
 # Install requirements
 pip install -r requirements.txt
-\`\`\`
+```
 
 ### Docker Users
 
 If you prefer Docker, create a `Dockerfile`:
 
-\`\`\`dockerfile
+```dockerfile
 FROM python:3.10-slim
 
 WORKDIR /app
@@ -272,9 +289,10 @@ COPY . .
 EXPOSE 5000
 
 CMD ["python", "app.py"]
-\`\`\`
+```
 
 Build and run:
-\`\`\`bash
+
+```bash
 docker build -t doc-a11y-accelerator .
 docker run -p 5000:5000 doc-a11y-accelerator

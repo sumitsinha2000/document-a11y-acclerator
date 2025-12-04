@@ -22,9 +22,9 @@ The application was experiencing critical build errors on Vercel:
 
 **Action Required**: Run the cleanup script to remove all "use client" directives:
 
-\`\`\`bash
+```bash
 npm run cleanup:use-client
-\`\`\`
+```
 
 This script will:
 
@@ -38,7 +38,7 @@ This script will:
 
 Updated `frontend/vite.config.js` to split the bundle into smaller chunks:
 
-\`\`\`javascript
+```javascript
 manualChunks(id) {
   if (id.includes("node_modules")) {
     // React and React-DOM separately
@@ -69,7 +69,7 @@ manualChunks(id) {
     return "vendor"
   }
 }
-\`\`\`
+```
 
 **Result**: Instead of one 1.2MB bundle, the app now has:
 
@@ -86,7 +86,7 @@ manualChunks(id) {
 
 Updated `frontend/src/App.jsx` to lazy load components that aren't needed immediately:
 
-\`\`\`javascript
+```javascript
 import { lazy, Suspense } from "react"
 
 // Lazy load heavy components
@@ -101,7 +101,7 @@ const GroupMaster = lazy(() => import("./components/GroupMaster"))
 <Suspense fallback={<ComponentLoader />}>
   <History ... />
 </Suspense>
-\`\`\`
+```
 
 **Result**: Only the upload page loads initially. Other components load on-demand when the user navigates to them.
 
@@ -117,13 +117,14 @@ Changed `chunkSizeWarningLimit` from 1000KB to 600KB to catch large chunks earli
 
 ### Step 1: Run Cleanup Script
 
-\`\`\`bash
+```bash
 # From the project root
 npm run cleanup:use-client
-\`\`\`
+```
 
 Expected output:
-\`\`\`
+
+```bash
 Starting to remove "use client" directives from all frontend files...
 
 ✓ Removed "use client" from: /path/to/frontend/src/App.jsx
@@ -131,15 +132,15 @@ Starting to remove "use client" directives from all frontend files...
 ... (34 files total)
 
 ✓ Complete! Removed "use client" from 34 file(s).
-\`\`\`
+```
 
 ### Step 2: Commit Changes
 
-\`\`\`bash
+```bash
 git add .
 git commit -m "fix: remove use client directives and implement code splitting"
 git push origin main
-\`\`\`
+```
 
 ### Step 3: Verify Build on Vercel
 
@@ -164,7 +165,7 @@ git push origin main
 
 After fixes, your Vercel build logs should show:
 
-\`\`\`
+```bash
 ✓ built in 18.15s
 dist/assets/react-vendor-xxx.js      150.23 kB │ gzip: 48.12 kB
 dist/assets/pdf-libs-xxx.js          198.70 kB │ gzip: 46.38 kB
@@ -174,7 +175,7 @@ dist/assets/axios-xxx.js             48.23 kB  │ gzip: 15.67 kB
 dist/assets/icons-xxx.js             52.18 kB  │ gzip: 18.23 kB
 dist/assets/vendor-xxx.js            245.67 kB │ gzip: 78.34 kB
 dist/assets/index-xxx.js             312.45 kB │ gzip: 98.23 kB
-\`\`\`
+```
 
 ## Troubleshooting
 
@@ -182,9 +183,11 @@ dist/assets/index-xxx.js             312.45 kB │ gzip: 98.23 kB
 
 1. Verify the cleanup script ran successfully
 2. Check if any files were missed:
-   \`\`\`bash
+
+   ```bash
    grep -r "use client" frontend/src/
-   \`\`\`
+   ```
+
 3. Manually remove any remaining "use client" directives
 
 ### If bundle is still too large:
@@ -208,11 +211,12 @@ To prevent this issue in the future:
 2. **Monitor bundle sizes** during development
 3. **Use lazy loading** for heavy components from the start
 4. **Test builds locally** before deploying:
-   \`\`\`bash
+
+   ```bash
    cd frontend
    npm run build
    npm run preview
-   \`\`\`
+   ```
 
 ## Additional Resources
 

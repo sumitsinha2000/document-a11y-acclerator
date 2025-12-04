@@ -27,28 +27,25 @@ The frontend is trying to call API endpoints that don't exist yet.
 If you have a backend codebase elsewhere:
 
 1. **Add backend to repository:**
-   \`\`\`bash
 
-   # Create backend directory
+      ```markdown
+      # Create backend directory
+      mkdir backend
+      cd backend
 
-   mkdir backend
-   cd backend
+      # Add your Flask app files here
+      # - app.py or server.py
+      # - requirements.txt
+      # - Any other backend files
 
-   # Add your Flask app files here
-
-   # - app.py or server.py
-
-   # - requirements.txt
-
-   # - Any other backend files
-
-   \`\`\`
+      ```
 
 2. **Deploy backend to Vercel:**
-   \`\`\`bash
+
+   ```bash
    cd backend
    vercel deploy --prod
-   \`\`\`
+   ```
 
 3. **Update environment variable in Vercel:**
    - Go to Vercel project settings
@@ -60,7 +57,8 @@ If you have a backend codebase elsewhere:
 If you need to create a backend from scratch:
 
 1. **Create Flask backend structure:**
-   \`\`\`
+
+   ```markdown
    backend/
    ├── app.py              # Main Flask application
    ├── requirements.txt    # Python dependencies
@@ -69,7 +67,7 @@ If you need to create a backend from scratch:
        ├── **init**.py
        ├── routes.py      # API routes
        └── models.py      # Database models
-   \`\`\`
+   ```
 
 2. **Required API endpoints:**
    - `GET /api/health` - Health check
@@ -120,16 +118,6 @@ The Neon PostgreSQL database is already connected via Vercel integration. Your b
 3. Set the `VITE_API_URL` environment variable in Vercel
 4. Redeploy the frontend
 5. Test the application
-
-## Need Help?
-
-If you have questions about:
-
-- Where your backend code is located
-- How to structure the backend
-- Which deployment option to choose
-
-Please provide more information about your backend setup, and I can help you configure it properly.
 
 ## Current Frontend Configuration
 
