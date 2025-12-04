@@ -5,6 +5,7 @@ Automated PDF accessibility scanning and remediation tool with WCAG 2.1, PDF/UA,
 ## ✨ User Experience
 
 The application features a **professional loading screen** that:
+
 - Displays a sleek progress bar animation
 - Showcases 4 key features with smooth transitions
 - Takes approximately 10 seconds to complete
@@ -15,8 +16,8 @@ The application features a **professional loading screen** that:
 - 📄 **PDF Scanning**: Automated accessibility issue detection
 - 🔧 **Auto-Fix**: Intelligent remediation of common issues
 - 📊 **Compliance Reports**: WCAG 2.1, PDF/UA, Section 508 validation
-- 📁 **Batch Processing**: Handle multiple documents simultaneously
-- 🎯 **Group Management**: Organize documents by projects/clients
+- 🎯 **Project Management**: Organize documents by projects/clients
+- 📁 **Folder Processing**: Handle multiple documents simultaneously
 - 📈 **Dashboard**: Visual analytics and progress tracking
 - 🌙 **Dark Mode**: Full dark mode support
 - 📱 **Responsive**: Works on desktop, tablet, and mobile
@@ -24,14 +25,12 @@ The application features a **professional loading screen** that:
 
 ## Tech Stack
 
-- **Frontend (Main App)**: React 18 + Vite, Axios, Tailwind CSS
-- **Backend**: Python Flask, PDF Extract Kit
-- **Database**: Neon PostgreSQL
+- **Frontent**: React 18 + Vite, Axios, Tailwind CSS
+- **Backend**: Python FastAPI, PDF Extract Kit
+- **Database**: Online PostgreSQL database
 - **Deployment**: Vercel
-- **PDF Processing**: PyPDF2, pikepdf, pdfplumber
+- **PDF Processing**: PyPDF2 (moving to pypdf), pikepdf, pdfplumber
 - **Validation**: Built-in WCAG 2.1 & PDF/UA-1 validator, veraPDF (optional)
-
-> **Note**: The `app/` directory contains a Next.js setup that is **not used in production**. The main application is the React + Vite frontend in the `frontend/` directory.
 
 ## Quick Start
 
@@ -39,53 +38,59 @@ The application features a **professional loading screen** that:
 
 - Node.js 18+ and npm
 - Python 3.8+
-- PostgreSQL (or Neon account)
+- PostgreSQL (currently Aiven)
 
 ### Installation
 
 1. **Clone the repository**
-\`\`\`bash
-git clone https://github.com/yourusername/document-a11y-acclerator.git
-cd document-a11y-acclerator
-\`\`\`
+
+   ```bash
+   git clone <https://github.com/sumitsinha2000/document-a11y-acclerator>
+   cd document-a11y-acclerator
+   ```
 
 2. **Install frontend dependencies**
-\`\`\`bash
-cd frontend
-npm install
-\`\`\`
+
+   ```bash
+   cd frontend
+   npm install
+   ```
 
 3. **Install backend dependencies**
-\`\`\`bash
-cd backend
-pip install -r requirements.txt
-\`\`\`
+
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   ```
 
 4. **Set up environment variables**
 
-Create `frontend/.env.local`:
-\`\`\`env
-VITE_BACKEND_URL=http://localhost:5000
-\`\`\`
+   1. **Frontend**
+      - Duplicate `frontend/.example.env` and rename the copy to `.env`,  
+        or manually create `frontend/.env` with:
 
-Create `backend/.env`:
-\`\`\`env
-NEON_NEON_DATABASE_URL=your_neon_database_url
-\`\`\`
+        ```env
+        VITE_BACKEND_URL=http://localhost:5000
+        ```
+
+   2. **Backend**
+      - Duplicate `backend/.example.env` and rename the copy to `.env`.
+      - Update any required values inside the file.
 
 5. **Set up the database**
-\`\`\`bash
-# Run the SQL scripts in order
-psql -U your_user -d your_database -f scripts/01_create_schemas.sql
-psql -U your_user -d your_database -f scripts/02_create_auth_tables.sql
-# ... continue with remaining scripts
-\`\`\`
+
+   ```bash
+   # Run the SQL scripts in order
+   psql -U your_user -d your_database -f scripts/01_create_schemas.sql
+   psql -U your_user -d your_database -f scripts/02_create_auth_tables.sql
+   # ... continue with remaining scripts
+   ```
 
 ### Development
 
 Run both frontend and backend:
 
-\`\`\`bash
+```bash
 # Terminal 1: Backend
 cd backend
 python app.py
@@ -93,13 +98,28 @@ python app.py
 # Terminal 2: Frontend (Main App)
 cd frontend
 npm run dev
-\`\`\`
+```
 
-Visit `http://localhost:3000` - you'll see the loading screen with feature showcase, then the main upload page.
+Visit <http://localhost:3000> - you'll see the loading screen with feature showcase, then the main upload page.
+
+## Testing
+
+### Backend tests (FastAPI + pytest)
+
+Backend tests live under `backend/tests/` and are run with `pytest`.
+
+From the project root:
+
+```bash
+cd backend
+pytest -v
+```
+
+More details at [backend/tests/README.md](/backend/tests/README.md)
 
 ## Deployment
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
+See [DEPLOYMENT.md](/documentation/DEPLOYMENT.md) for detailed deployment instructions.
 
 ### Quick Deploy to Vercel
 
@@ -110,7 +130,7 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
 
 ## Project Structure
 
-\`\`\`
+```markdown
 document-a11y-acclerator/
 ├── frontend/              # React + Vite main application ⭐
 │   ├── src/
@@ -130,7 +150,7 @@ document-a11y-acclerator/
 ├── scripts/             # Database setup scripts
 ├── app/                 # Next.js (not used in production)
 └── vercel.json          # Vercel configuration (deploys frontend/)
-\`\`\`
+```
 
 ## Accessibility Standards
 
@@ -185,13 +205,13 @@ The tool validates PDFs against:
 
 ## Documentation
 
-- [Deployment Guide](./DEPLOYMENT.md) - Complete deployment instructions
-- [Database Setup](./backend/DATABASE_SETUP.md) - Database configuration
-- [Built-in WCAG Validator Info](./backend/WCAG_VALIDATOR_INFO.md) - Validation details
-- [veraPDF Setup Guide](./backend/VERAPDF_SETUP.md) - Optional enhanced validation
-- [PDF Extract Kit Setup](./backend/PDF_EXTRACT_KIT_SETUP.md) - Advanced PDF analysis
-- [PostgreSQL Setup](./backend/POSTGRESQL_SETUP.md) - Database configuration
-- [Installation Troubleshooting](./backend/INSTALLATION_TROUBLESHOOTING.md) - Common issues
+- [Deployment Guide](./documentation/DEPLOYMENT.md) - Complete deployment instructions
+- [Database Setup](./backend/documentation/DATABASE_SETUP.md) - Database configuration
+- [Built-in WCAG Validator Info](./backend/documentation/WCAG_VALIDATOR_INFO.md) - Validation details
+- [veraPDF Setup Guide](./backend/documentation/VERAPDF_SETUP.md) - Optional enhanced validation
+- [PDF Extract Kit Setup](./backend/documentation/PDF_EXTRACT_KIT_SETUP.md) - Advanced PDF analysis
+- [PostgreSQL Setup](./backend/documentation/POSTGRESQL_SETUP.md) - Database configuration
+- [Installation Troubleshooting](./backend/documentation/INSTALLATION_TROUBLESHOOTING.md) - Common issues
 
 ## Troubleshooting
 
@@ -210,7 +230,7 @@ If you see "ERR_CONNECTION_REFUSED" errors:
 
 ### Installation Issues
 
-See [INSTALLATION_TROUBLESHOOTING.md](./backend/INSTALLATION_TROUBLESHOOTING.md) for common solutions.
+See [INSTALLATION_TROUBLESHOOTING.md](./backend/documentation/INSTALLATION_TROUBLESHOOTING.md) for common solutions.
 
 ## Contributing
 
@@ -223,9 +243,10 @@ Contributions are welcome! Please read our contributing guidelines before submit
 ## Support
 
 For issues and questions:
+
 - Open an issue on GitHub
 - Check the documentation in the `/backend` directory
-- Review the [DEPLOYMENT.md](./DEPLOYMENT.md) guide
+- Review the [DEPLOYMENT.md](/documentation/DEPLOYMENT.md) guide
 
 ## Acknowledgments
 
