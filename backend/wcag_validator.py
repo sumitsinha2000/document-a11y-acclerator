@@ -8,7 +8,7 @@ without requiring external dependencies like veraPDF CLI.
 
 import pikepdf
 from pikepdf import Name, String
-from typing import Dict, List, Any, Tuple, Optional, Callable, Set, Mapping
+from typing import Dict, List, Any, Tuple, Optional, Callable, Set, Mapping, Iterable, cast
 import logging
 from collections import defaultdict
 import re
@@ -48,6 +48,24 @@ def _object_key(obj: Any) -> Optional[str]:
     return None
 
 
+def _iter_array_items(value: Any) -> Iterable[Any]:
+    """Best-effort iterable wrapper for pikepdf.Array/list values."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, pikepdf.Array):
+        return cast(Iterable[Any], value)
+    return ()
+
+
+def _array_to_list(value: Any) -> List[Any]:
+    """Convert pikepdf.Array/list to a Python list for safer iteration."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, pikepdf.Array):
+        return list(cast(Iterable[Any], value))
+    return []
+
+
 def _element_has_alt_text(element: Any) -> bool:
     """Determine if a structure element exposes alt text."""
     if not isinstance(element, pikepdf.Dictionary):
@@ -75,7 +93,8 @@ def _extract_structure_refs(entry: Any) -> Tuple[List[int], List[Any]]:
             return
 
         if isinstance(value, pikepdf.Dictionary):
-            value_type = str(value.get('/Type', ''))
+            type_obj = value.get('/Type')
+            value_type = str(type_obj) if type_obj is not None else ''
             if value_type == '/MCR' and '/MCID' in value:
                 try:
                     mcids.append(int(value.MCID))
@@ -889,13 +908,37 @@ class WCAGValidator:
 
     def _has_valid_outline_navigation(self) -> bool:
         """Check if the document has outlines/bookmarks pointing to a valid destination."""
-        if not self.pdf or "/Outlines" not in self.pdf.Root:
+        if not self.pdf:
             return False
 
-        outlines_root = self.pdf.Root.Outlines
-        first_entry = outlines_root.get("/First")
-        return self._traverse_outline_entries(first_entry, set())
+        try:
+            # Safer access: use .get instead of attribute, and handle missing/None
+            outlines_root = self.pdf.Root.get("/Outlines", None)
+            if outlines_root is None:
+                return False
 
+            # Some files will have /Outlines but not as a proper dictionary.
+            # Guard against "pikepdf.Object is not a Dictionary or Stream".
+            try:
+                # outlines_root may be a pikepdf.Dictionary-like; .get should exist then.
+                first_entry = outlines_root.get("/First", None)
+            except Exception:
+                # If it's not dictionary-like, bail out gracefully.
+                return False
+
+            if first_entry is None:
+                return False
+
+            # Delegate to the traversal helper
+            return self._traverse_outline_entries(first_entry, set())
+
+        except Exception as e:
+            # Any weird structure: treat as "no valid outline navigation"
+            logger.debug(
+                "[WCAGValidator] Skipping outline navigation check due to error: %s", e
+            )
+            return False
+    
     def _traverse_outline_entries(self, entry: Any, visited: Set[int]) -> bool:
         """Walk the outline tree looking for entries with valid destinations."""
         entry = _resolve_pdf_object(entry)
@@ -907,12 +950,27 @@ class WCAGValidator:
             return False
         visited.add(entry_id)
 
-        if self._resolve_outline_entry_destination(entry) is not None:
-            return True
+        # If this outline entry isn't dictionary-like, we can't safely access /First or /Next
+        if not isinstance(entry, Mapping):
+            return False
 
+        # If this entry points to a valid destination, we're done
+        try:
+            if self._resolve_outline_entry_destination(entry) is not None:
+                return True
+        except Exception as e:
+            # If resolving the destination for this entry fails, just skip this node
+            logger.debug(
+                "[WCAGValidator] Skipping outline entry due to destination error: %s",
+                e,
+            )
+            return False
+
+        # Traverse children and siblings defensively
         first_child = entry.get("/First")
         if first_child and self._traverse_outline_entries(first_child, visited):
             return True
+
         next_sibling = entry.get("/Next")
         if next_sibling and self._traverse_outline_entries(next_sibling, visited):
             return True
