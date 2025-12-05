@@ -134,11 +134,13 @@ export default function CriteriaSummarySection({
           } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500`}
           style={{ alignSelf: "flex-start" }}
         >
+          <span className="sr-only">{isCollapsed ? "Expand criteria summary" : "Collapse criteria summary"}</span>
           <svg
             className={`w-5 h-5 transition-transform ${isCollapsed ? "" : "rotate-180"}`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
@@ -209,6 +211,7 @@ export default function CriteriaSummarySection({
                         viewBox="0 0 20 20"
                         fill="none"
                         stroke="currentColor"
+                        aria-hidden="true"
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 8l4 4 4-4" />
                       </svg>

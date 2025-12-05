@@ -222,6 +222,7 @@ export default function FixHistory({ scanId, onRefresh, refreshSignal = 0 }) {
             className="w-5 h-5 text-yellow-600 dark:text-yellow-500 flex-shrink-0"
             fill="currentColor"
             viewBox="0 0 20 20"
+            aria-hidden="true"
           >
             <path
               fillRule="evenodd"
@@ -245,6 +246,7 @@ export default function FixHistory({ scanId, onRefresh, refreshSignal = 0 }) {
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -284,6 +286,7 @@ export default function FixHistory({ scanId, onRefresh, refreshSignal = 0 }) {
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
