@@ -10,7 +10,7 @@ import threading
 import traceback
 import tempfile
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator, Optional, cast
 from urllib.parse import quote, unquote, urlparse
 from datetime import datetime
 from botocore.config import Config
@@ -222,9 +222,11 @@ def _get_b2_authorization() -> dict:
         if _B2_AUTH_CACHE and now < _B2_AUTH_CACHE.get("expires_at", 0):
             return _B2_AUTH_CACHE
 
+        key_id = cast(str, B2_KEY_ID)
+        application_key = cast(str, B2_APPLICATION_KEY)
         auth_res = requests.get(
             "https://api.backblazeb2.com/b2api/v2/b2_authorize_account",
-            auth=(B2_KEY_ID, B2_APPLICATION_KEY),
+            auth=(key_id, application_key),
             timeout=10,
         )
         auth_res.raise_for_status()

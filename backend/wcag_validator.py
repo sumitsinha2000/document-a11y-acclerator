@@ -108,7 +108,7 @@ def _extract_structure_refs(entry: Any) -> Tuple[List[int], List[Any]]:
             return
 
         if isinstance(value, (list, pikepdf.Array)):
-            for item in value:
+            for item in _iter_array_items(value):
                 _walk(item)
 
     _walk(entry)
@@ -122,7 +122,7 @@ def _iter_structure_children(entry: Any) -> List[Any]:
         return []
 
     if isinstance(entry, (list, pikepdf.Array)):
-        return list(entry)
+        return list(_iter_array_items(entry))
 
     if isinstance(entry, pikepdf.Dictionary):
         # Only dictionaries with structure semantics should be traversed as children.
@@ -179,7 +179,7 @@ def _build_figure_alt_lookup(pdf) -> Dict[str, Any]:
                 _walk(child, next_page)
 
         elif isinstance(element, (list, pikepdf.Array)):
-            for child in element:
+            for child in _iter_array_items(element):
                 _walk(child, current_page)
 
     try:
@@ -273,8 +273,9 @@ class WCAGValidator:
         role_map = None
 
         try:
-            if self.pdf and '/StructTreeRoot' in self.pdf.Root:
-                struct_tree_root = self.pdf.Root.StructTreeRoot
+            pdf = self.pdf
+            if pdf and '/StructTreeRoot' in pdf.Root:
+                struct_tree_root = pdf.Root.StructTreeRoot
                 if '/RoleMap' in struct_tree_root:
                     role_map = struct_tree_root.RoleMap
         except Exception as exc:
@@ -317,9 +318,10 @@ class WCAGValidator:
             return self._page_lookup
 
         lookup: Dict[str, int] = {}
-        if self.pdf:
+        pdf = self.pdf
+        if pdf is not None:
             try:
-                for page_num, page in enumerate(self.pdf.pages, 1):
+                for page_num, page in enumerate(pdf.pages, 1):
                     key = _object_key(page)
                     if key:
                         lookup[key] = page_num
@@ -383,10 +385,11 @@ class WCAGValidator:
 
     def _traverse_structure(self, visitor: Callable[[pikepdf.Dictionary, Any], None]):
         """Traverse the structure tree depth-first and invoke visitor for structure elements."""
-        if not self.pdf or '/StructTreeRoot' not in self.pdf.Root:
+        pdf = self.pdf
+        if pdf is None or '/StructTreeRoot' not in pdf.Root:
             return
 
-        struct_tree_root = self.pdf.Root.StructTreeRoot
+        struct_tree_root = pdf.Root.StructTreeRoot
         if '/K' not in struct_tree_root:
             return
 
@@ -411,7 +414,7 @@ class WCAGValidator:
                 return
 
             if isinstance(node, (list, pikepdf.Array)):
-                for child in node:
+                for child in _iter_array_items(node):
                     _walk(child, current_page)
 
         try:
@@ -514,7 +517,7 @@ class WCAGValidator:
                 return
 
             if isinstance(payload, (list, pikepdf.Array)):
-                for entry in payload:
+                for entry in _iter_array_items(payload):
                     _collect(entry)
 
         try:
@@ -601,8 +604,13 @@ class WCAGValidator:
         Based on veraPDF rules: 7.1-1, 7.1-2, 7.1-3
         """
         try:
+            pdf = self.pdf
+            if pdf is None:
+                logger.debug("[WCAGValidator] Skipping document structure validation; PDF not loaded.")
+                return
+
             # Rule 7.1-1: Check for PDF/UA Identification Schema
-            if '/Metadata' not in self.pdf.Root:
+            if '/Metadata' not in pdf.Root:
                 self._add_pdfua_issue(
                     'Document lacks metadata stream',
                     'ISO 14289-1:7.1',
@@ -612,7 +620,7 @@ class WCAGValidator:
                 self.pdfua_compliance = False
             
             # Rule 7.1-2: Check if document is tagged
-            if '/MarkInfo' not in self.pdf.Root:
+            if '/MarkInfo' not in pdf.Root:
                 self._add_pdfua_issue(
                     'Document not marked as tagged',
                     'ISO 14289-1:7.1',
@@ -622,8 +630,9 @@ class WCAGValidator:
                 self.pdfua_compliance = False
                 return
             
-            mark_info = self.pdf.Root.MarkInfo
-            if not mark_info.get('/Marked', False):
+            mark_info = pdf.Root.MarkInfo
+            marked_value = mark_info.get('/Marked')
+            if not bool(marked_value):
                 self._add_pdfua_issue(
                     'Document MarkInfo.Marked is false',
                     'ISO 14289-1:7.1',
@@ -633,7 +642,8 @@ class WCAGValidator:
                 self.pdfua_compliance = False
             
             # Rule 7.1-3: Check Suspects entry
-            if mark_info.get('/Suspects', False):
+            suspects_value = mark_info.get('/Suspects')
+            if bool(suspects_value):
                 self._add_pdfua_issue(
                     'Document has Suspects entry set to true',
                     'ISO 14289-1:7.1',
@@ -643,7 +653,7 @@ class WCAGValidator:
                 self.pdfua_compliance = False
             
             # Rule 7.1-4: Check ViewerPreferences DisplayDocTitle
-            if '/ViewerPreferences' not in self.pdf.Root:
+            if '/ViewerPreferences' not in pdf.Root:
                 self._add_pdfua_issue(
                     'Document lacks ViewerPreferences dictionary',
                     'ISO 14289-1:7.1',
@@ -651,8 +661,9 @@ class WCAGValidator:
                     'Add ViewerPreferences dictionary with DisplayDocTitle=true'
                 )
             else:
-                viewer_prefs = self.pdf.Root.ViewerPreferences
-                if not viewer_prefs.get('/DisplayDocTitle', False):
+                viewer_prefs = pdf.Root.ViewerPreferences
+                display_doc_title = viewer_prefs.get('/DisplayDocTitle')
+                if not bool(display_doc_title):
                     self._add_pdfua_issue(
                         'ViewerPreferences.DisplayDocTitle is not set to true',
                         'ISO 14289-1:7.1',
@@ -666,7 +677,12 @@ class WCAGValidator:
     def _validate_document_language(self):
         """Validate WCAG 3.1.1 (Language of Page) - Level A."""
         try:
-            if '/Lang' not in self.pdf.Root:
+            pdf = self.pdf
+            if pdf is None:
+                logger.debug("[WCAGValidator] Skipping language validation; PDF not loaded.")
+                return
+
+            if '/Lang' not in pdf.Root:
                 self._add_wcag_issue(
                     'Document language not specified',
                     '3.1.1',
@@ -678,7 +694,7 @@ class WCAGValidator:
                 self.wcag_compliance['AA'] = False
                 self.wcag_compliance['AAA'] = False
             else:
-                lang = str(self.pdf.Root.Lang)
+                lang = str(pdf.Root.Lang)
                 if not lang or len(lang) < 2:
                     self._add_wcag_issue(
                         'Invalid document language code',
@@ -698,10 +714,15 @@ class WCAGValidator:
         Based on veraPDF rules: 7.1-5, 7.1-6
         """
         try:
+            pdf = self.pdf
+            if pdf is None:
+                logger.debug("[WCAGValidator] Skipping document title validation; PDF not loaded.")
+                return
+
             has_dc_title = False
-            if '/Metadata' in self.pdf.Root:
+            if '/Metadata' in pdf.Root:
                 try:
-                    with self.pdf.open_metadata() as meta:
+                    with pdf.open_metadata() as meta:
                         # Check if dc:title exists and is not empty
                         dc_title = meta.get('dc:title', '')
                         if dc_title and str(dc_title).strip():
@@ -733,9 +754,9 @@ class WCAGValidator:
             
             has_docinfo_title = False
             try:
-                if hasattr(self.pdf, 'docinfo') and self.pdf.docinfo is not None:
-                    if '/Title' in self.pdf.docinfo:
-                        title = str(self.pdf.docinfo['/Title'])
+                if hasattr(pdf, 'docinfo') and pdf.docinfo is not None:
+                    if '/Title' in pdf.docinfo:
+                        title = str(pdf.docinfo['/Title'])
                         if title and title.strip():
                             has_docinfo_title = True
                             logger.info(f"[WCAGValidator] Found docinfo title: {title}")
@@ -767,7 +788,12 @@ class WCAGValidator:
         Based on veraPDF rules: 7.2-1 through 7.2-5
         """
         try:
-            if '/StructTreeRoot' not in self.pdf.Root:
+            pdf = self.pdf
+            if pdf is None:
+                logger.debug("[WCAGValidator] Skipping structure tree validation; PDF not loaded.")
+                return
+
+            if '/StructTreeRoot' not in pdf.Root:
                 self._add_pdfua_issue(
                     'Document lacks structure tree',
                     'ISO 14289-1:7.1',
@@ -777,7 +803,7 @@ class WCAGValidator:
                 self.pdfua_compliance = False
                 return
             
-            struct_tree_root = self.pdf.Root.StructTreeRoot
+            struct_tree_root = pdf.Root.StructTreeRoot
             
             # Rule 7.2-1: Validate structure tree has children
             if '/K' not in struct_tree_root:
@@ -826,7 +852,7 @@ class WCAGValidator:
                             f'Invalid structure type: {struct_type_raw}',
                             'ISO 14289-1:7.2',
                             'medium',
-                            f'Use a standard structure type from PDF/UA-1 specification'
+                            'Use a standard structure type from PDF/UA-1 specification'
                         )
                 
                 # Recursively check children
@@ -839,11 +865,16 @@ class WCAGValidator:
     def _validate_reading_order(self):
         """Validate WCAG 1.3.2 (Meaningful Sequence) - Level A."""
         try:
-            if '/StructTreeRoot' not in self.pdf.Root:
+            pdf = self.pdf
+            if pdf is None:
+                logger.debug("[WCAGValidator] Skipping reading order validation; PDF not loaded.")
+                return
+
+            if '/StructTreeRoot' not in pdf.Root:
                 return  # Already reported in structure tree validation
             
             # Check if structure tree defines reading order
-            struct_tree_root = self.pdf.Root.StructTreeRoot
+            struct_tree_root = pdf.Root.StructTreeRoot
             if '/K' not in struct_tree_root:
                 self._add_wcag_issue(
                     'Reading order not defined',
@@ -908,12 +939,13 @@ class WCAGValidator:
 
     def _has_valid_outline_navigation(self) -> bool:
         """Check if the document has outlines/bookmarks pointing to a valid destination."""
-        if not self.pdf:
+        pdf = self.pdf
+        if pdf is None:
             return False
 
         try:
             # Safer access: use .get instead of attribute, and handle missing/None
-            outlines_root = self.pdf.Root.get("/Outlines", None)
+            outlines_root = pdf.Root.get("/Outlines", None)
             if outlines_root is None:
                 return False
 
@@ -999,9 +1031,10 @@ class WCAGValidator:
             return None
 
         if isinstance(dest, (list, pikepdf.Array)):
-            if not dest:
+            entries = _array_to_list(dest)
+            if not entries:
                 return None
-            return self._resolve_page_number(dest[0])
+            return self._resolve_page_number(entries[0])
 
         normalized = None
         if isinstance(dest, (str, bytes, Name, String)):
@@ -1033,11 +1066,12 @@ class WCAGValidator:
             return self._named_destinations
 
         named_map: Dict[str, Any] = {}
-        if not self.pdf or "/Names" not in self.pdf.Root:
+        pdf = self.pdf
+        if pdf is None or "/Names" not in pdf.Root:
             self._named_destinations = named_map
             return named_map
 
-        names_root = self.pdf.Root.Names
+        names_root = pdf.Root.Names
         dests_root = names_root.get("/Dests")
 
         def _walk(node: Any):
@@ -1047,7 +1081,7 @@ class WCAGValidator:
 
             names_array = node.get("/Names")
             if isinstance(names_array, (list, pikepdf.Array)):
-                entries = list(names_array)
+                entries = list(_iter_array_items(names_array))
                 for idx in range(0, len(entries), 2):
                     name = entries[idx]
                     target = entries[idx + 1] if idx + 1 < len(entries) else None
@@ -1056,7 +1090,7 @@ class WCAGValidator:
 
             kids = node.get("/Kids")
             if isinstance(kids, (list, pikepdf.Array)):
-                for kid in kids:
+                for kid in _iter_array_items(kids):
                     _walk(kid)
 
         _walk(dests_root)
@@ -1065,12 +1099,13 @@ class WCAGValidator:
 
     def _has_internal_toc_links(self) -> bool:
         """Look for /GoTo annotations on the first two pages that target internal destinations."""
-        if not self.pdf:
+        pdf = self.pdf
+        if pdf is None:
             return False
 
-        max_check_page = min(2, len(self.pdf.pages))
+        max_check_page = min(2, len(pdf.pages))
         for page_index in range(1, max_check_page + 1):
-            page = self.pdf.pages[page_index - 1]
+            page = pdf.pages[page_index - 1]
             annots = getattr(page, "Annots", None)
             if not annots:
                 continue
@@ -1095,8 +1130,13 @@ class WCAGValidator:
     def _validate_alternative_text(self):
         """Validate WCAG 1.1.1 (Non-text Content) - Level A."""
         try:
+            pdf = self.pdf
+            if pdf is None:
+                logger.debug("[WCAGValidator] Skipping alternative text validation; PDF not loaded.")
+                return
+
             # Check for images without alt text
-            for page_num, page in enumerate(self.pdf.pages, 1):
+            for page_num, page in enumerate(pdf.pages, 1):
                 if '/Resources' in page and '/XObject' in page.Resources:
                     xobjects = page.Resources.XObject
                     for name, xobject in xobjects.items():
@@ -1133,12 +1173,13 @@ class WCAGValidator:
 
     def _get_figure_alt_lookup(self) -> Optional[Dict[str, Any]]:
         """Return cached mapping of Figure structure elements with alt text."""
-        if self.pdf is None:
+        pdf = self.pdf
+        if pdf is None:
             return None
 
         if self._figure_alt_lookup is None:
             try:
-                self._figure_alt_lookup = _build_figure_alt_lookup(self.pdf)
+                self._figure_alt_lookup = _build_figure_alt_lookup(pdf)
             except Exception as exc:
                 logger.debug(f"[WCAGValidator] Could not build Figure alt lookup: {exc}")
                 self._figure_alt_lookup = None
@@ -1151,7 +1192,12 @@ class WCAGValidator:
         Ensures tables expose header cells and associate data cells with headers.
         """
         try:
-            if '/StructTreeRoot' not in self.pdf.Root:
+            pdf = self.pdf
+            if pdf is None:
+                logger.debug("[WCAGValidator] Skipping table validation; PDF not loaded.")
+                return
+
+            if '/StructTreeRoot' not in pdf.Root:
                 return
 
             tables_found = self._find_structure_elements('Table')
@@ -1171,9 +1217,10 @@ class WCAGValidator:
         if found is None:
             found = []
         if element is None:
-            if '/StructTreeRoot' not in self.pdf.Root:
+            pdf = self.pdf
+            if pdf is None or '/StructTreeRoot' not in pdf.Root:
                 return found
-            element = self.pdf.Root.StructTreeRoot
+            element = pdf.Root.StructTreeRoot
         
         try:
             if isinstance(element, pikepdf.Dictionary):
@@ -1181,8 +1228,8 @@ class WCAGValidator:
                     found.append(element)
                 if '/K' in element:
                     self._find_structure_elements(struct_type, element.K, found)
-            elif isinstance(element, list):
-                for item in element:
+            elif isinstance(element, (list, pikepdf.Array)):
+                for item in _iter_array_items(element):
                     self._find_structure_elements(struct_type, item, found)
         except Exception as e:
             logger.error(f"[WCAGValidator] Error finding structure elements: {str(e)}")
@@ -1287,7 +1334,7 @@ class WCAGValidator:
                     _walk(node.K)
                 return
             if isinstance(node, (list, pikepdf.Array)):
-                for child in node:
+                for child in _iter_array_items(node):
                     _walk(child)
 
         try:
@@ -1314,7 +1361,7 @@ class WCAGValidator:
                     _walk(node.K)
                 return
             if isinstance(node, (list, pikepdf.Array)):
-                for child in node:
+                for child in _iter_array_items(node):
                     _walk(child)
 
         try:
@@ -1329,7 +1376,6 @@ class WCAGValidator:
     def _assess_table_model(self, table_model: Dict[str, Any], table_index: int, table_label: Optional[str]):
         """Evaluate a parsed table model for structural issues."""
         headers = table_model['headers']
-        data_cells = table_model['data_cells']
         page_num = table_model['page']
         page_text = str(page_num) if page_num is not None else 'unknown'
         table_desc = self._describe_table_reference(table_index, page_text, table_label)
@@ -1563,7 +1609,7 @@ class WCAGValidator:
             if value is None:
                 return
             if isinstance(value, (list, pikepdf.Array)):
-                for item in value:
+                for item in _iter_array_items(value):
                     _collect(item)
                 return
             normalized = self._normalize_id_value(value)
@@ -1741,13 +1787,18 @@ class WCAGValidator:
     def _validate_form_fields(self):
         """Validate WCAG 1.3.1, 3.3.2 (Labels or Instructions) for form fields - Level A."""
         try:
-            if '/AcroForm' not in self.pdf.Root:
+            pdf = self.pdf
+            if pdf is None:
+                logger.debug("[WCAGValidator] Skipping form field validation; PDF not loaded.")
+                return
+
+            if '/AcroForm' not in pdf.Root:
                 return  # No forms to validate
             
-            acro_form = self.pdf.Root.AcroForm
+            acro_form = pdf.Root.AcroForm
             if '/Fields' in acro_form:
                 fields = acro_form.Fields
-                for field in fields:
+                for field in _iter_array_items(fields):
                     # Check if field has a label
                     if '/T' not in field:  # T is the field name/label
                         self._add_wcag_issue(
@@ -1804,9 +1855,14 @@ class WCAGValidator:
     def _validate_annotations(self):
         """Validate PDF/UA-1 annotation requirements."""
         try:
-            for page_num, page in enumerate(self.pdf.pages, 1):
+            pdf = self.pdf
+            if pdf is None:
+                logger.debug("[WCAGValidator] Skipping annotation validation; PDF not loaded.")
+                return
+
+            for page_num, page in enumerate(pdf.pages, 1):
                 if '/Annots' in page:
-                    for annot in page.Annots:
+                    for annot in _iter_array_items(page.Annots):
                         # Check if annotation has Contents (tooltip/description)
                         if '/Contents' not in annot:
                             self._add_pdfua_issue(
@@ -1984,9 +2040,8 @@ class WCAGValidator:
         try:
             visited = set()
             
-            for custom_type, mapped_type in role_map.items():
+            for custom_type, _ in role_map.items():
                 custom_type_str = str(custom_type)
-                mapped_type_str = str(mapped_type)
                 normalized_custom = self._normalize_structure_type(custom_type)
                 
                 # Rule 7.2-2: Check for circular mappings
@@ -2083,7 +2138,7 @@ class WCAGValidator:
         context: Optional[str] = None,
     ):
         """Add a WCAG issue to the results with optional context."""
-        issue = {
+        issue: Dict[str, Any] = {
             'description': description,
             'criterion': criterion,
             'level': level,
@@ -2111,7 +2166,7 @@ class WCAGValidator:
         pages: Optional[List[int]] = None,
     ):
         """Add a PDF/UA issue to the results."""
-        issue = {
+        issue: Dict[str, Any] = {
             'description': description,
             'clause': clause,
             'severity': severity,
