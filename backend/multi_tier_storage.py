@@ -15,6 +15,9 @@ from urllib.parse import quote, unquote, urlparse
 from datetime import datetime
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ================================
 # CONFIGURATION
