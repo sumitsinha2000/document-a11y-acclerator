@@ -19,14 +19,22 @@ logger = logging.getLogger(__name__)
 GENERIC_LINK_TEXTS = {"click here", "here", "link"}
 
 
-def _resolve_pdf_object(value):
-    """Return the underlying direct object if value is an indirect reference."""
+def _resolve_pdf_object(value: Any) -> Any:
+    """Return the underlying direct object if value is an indirect reference.
+    If the value is already a direct object or cannot be dereferenced, return it unchanged.
+    """
     if value is None:
         return None
+
     try:
-        return value.get_object()
-    except AttributeError:
+        get_obj = getattr(value, "get_object", None)
+        if callable(get_obj):
+            return get_obj()
+    except Exception:
+        # Direct object or non-dereferenceable; just return as-is
         return value
+
+    return value
 
 
 def _object_key(obj: Any) -> Optional[str]:
@@ -65,46 +73,83 @@ def _array_to_list(value: Any) -> List[Any]:
         return list(cast(Iterable[Any], value))
     return []
 
-
 def _element_has_alt_text(element: Any) -> bool:
-    """Determine if a structure element exposes alt text."""
+    """Determine if a structure element (or its immediate children) expose alt text."""
+    element = _resolve_pdf_object(element)
     if not isinstance(element, pikepdf.Dictionary):
         return False
 
-    for attr in ('/Alt', '/ActualText'):
-        value = element.get(attr)
-        if value and str(value).strip():
+    def _dict_has_alt(d: pikepdf.Dictionary) -> bool:
+        for attr in ("/Alt", "/ActualText"):
+            value = d.get(attr)
+            if value and str(value).strip():
+                return True
+        return False
+
+    # 1) Direct alt on this element (covers the AU Figure with Alt)
+    if _dict_has_alt(element):
+        return True
+
+    # 2) Some tools put alt on an immediate child of the element's /K
+    children = element.get("/K")
+    if not children:
+        return False
+
+    for child in _iter_structure_children(children):
+        child = _resolve_pdf_object(child)
+        if isinstance(child, pikepdf.Dictionary) and _dict_has_alt(child):
             return True
+
     return False
 
 
 def _extract_structure_refs(entry: Any) -> Tuple[List[int], List[Any]]:
-    """Collect MCIDs and object references within a structure element's /K tree."""
-    mcids: List[int] = []
-    obj_refs: List[Any] = []
+    """Collect MCIDs and object references within a structure element's /K tree.
 
-    def _walk(value: Any):
+    Returns lists of MCIDs and OBJR references discovered anywhere under the /K subtree.
+    """
+    mcids: Set[int] = set()
+    obj_refs: Set[Any] = set()
+
+    def _walk(value: Any) -> None:
         value = _resolve_pdf_object(value)
         if value is None:
             return
 
+        # Direct integer MCID (rare but easy)
         if isinstance(value, int):
-            mcids.append(int(value))
+            mcids.add(int(value))
             return
 
         if isinstance(value, pikepdf.Dictionary):
-            type_obj = value.get('/Type')
-            value_type = str(type_obj) if type_obj is not None else ''
-            if value_type == '/MCR' and '/MCID' in value:
+            # MCID inside a dictionary (with or without explicit /Type)
+            if "/MCID" in value:
                 try:
-                    mcids.append(int(value.MCID))
+                    mcids.add(int(value.get("/MCID")))
                 except Exception:
                     pass
-            elif value_type == '/OBJR' and '/Obj' in value:
-                obj_refs.append(value.Obj)
 
-            if '/K' in value:
-                _walk(value.K)
+            # Type-based handling for older /MCR /OBJR patterns
+            type_obj = value.get("/Type")
+            value_type = str(type_obj) if type_obj is not None else ""
+
+            if value_type == "/MCR" and "/MCID" in value:
+                try:
+                    mcids.add(int(value.MCID))
+                except Exception:
+                    pass
+
+            if value_type == "/OBJR" and "/Obj" in value:
+                try:
+                    obj_refs.add(value.Obj)
+                except Exception:
+                    pass
+
+            # Recurse into nested /K if present
+            nested = value.get("/K")
+            if nested is not None:
+                _walk(nested)
+
             return
 
         if isinstance(value, (list, pikepdf.Array)):
@@ -112,7 +157,7 @@ def _extract_structure_refs(entry: Any) -> Tuple[List[int], List[Any]]:
                 _walk(item)
 
     _walk(entry)
-    return mcids, obj_refs
+    return list(mcids), list(obj_refs)
 
 
 def _iter_structure_children(entry: Any) -> List[Any]:
@@ -132,11 +177,296 @@ def _iter_structure_children(entry: Any) -> List[Any]:
     return []
 
 
+def _normalize_operator_name(operator: Any) -> str:
+    """Return a comparable operator name for content stream instructions.
+
+    Be defensive: some pikepdf objects raise when arbitrary attributes are
+    accessed, so we always guard getattr/str() with try/except and fall
+    back to an empty string on failure.
+    """
+    # First try attribute-style names (e.g. Operator.name) without assuming
+    # the object is a dictionary/stream.
+    try:
+        raw_name = getattr(operator, "name", None)
+    except Exception:
+        raw_name = None
+
+    if raw_name is not None:
+        try:
+            name = str(raw_name)
+        except Exception:
+            name = ""
+    else:
+        # Fall back to the string representation of the operator itself
+        try:
+            name = str(operator)
+        except Exception:
+            return ""
+
+    if name.startswith("/"):
+        name = name[1:]
+    return name
+
+def _build_page_reference_lookup(pdf: pikepdf.Pdf) -> Dict[str, Any]:
+    """Map page object references to page objects for quick resolution."""
+    lookup: Dict[str, Any] = {}
+    try:
+        for page in pdf.pages:
+            key = _object_key(page)
+            if key:
+                lookup[key] = page
+    except Exception:
+        return lookup
+    return lookup
+
+
+def _build_properties_lookup(page: Any) -> Dict[str, Any]:
+    """Return mapping of property resource names to dictionaries."""
+    properties: Dict[str, Any] = {}
+    resources = getattr(page, "Resources", None)
+    if resources and "/Properties" in resources:
+        try:
+            props_dict = resources.Properties
+            if isinstance(props_dict, pikepdf.Dictionary):
+                for key, value in props_dict.items():
+                    key_str = str(key)
+                    properties[key_str] = value
+                    properties[key_str.lstrip("/")] = value
+        except Exception:
+            return properties
+    return properties
+
+
+def _extract_mcid_from_properties(properties_entry: Any, properties_lookup: Mapping[str, Any]) -> Optional[int]:
+    """Extract MCID from an inline property dict or a named property resource."""
+    try:
+        resolved = _resolve_pdf_object(properties_entry)
+        if isinstance(resolved, Name):
+            resolved = properties_lookup.get(str(resolved)) or properties_lookup.get(str(resolved).lstrip("/"))
+        elif isinstance(resolved, str):
+            resolved = properties_lookup.get(resolved) or properties_lookup.get(resolved.lstrip("/"))
+
+        resolved = _resolve_pdf_object(resolved)
+        if isinstance(resolved, pikepdf.Dictionary) and "/MCID" in resolved:
+            try:
+                return int(resolved.MCID)
+            except Exception:
+                try:
+                    return int(str(resolved.get("/MCID")))
+                except Exception:
+                    return None
+    except Exception:
+        return None
+    return None
+
+
+def _extract_mcid_from_bdc_operands(operands: Any, properties_lookup: Mapping[str, Any]) -> Optional[int]:
+    """Pull MCID value from BDC operands when present."""
+    try:
+        op_list = list(operands) if isinstance(operands, (list, tuple, pikepdf.Array)) else []
+    except Exception:
+        op_list = []
+
+    if len(op_list) < 2:
+        return None
+
+    properties_entry = op_list[1]
+    return _extract_mcid_from_properties(properties_entry, properties_lookup)
+
+
+def _resolve_xobject_from_do(page: Any, operands: Any) -> Any:
+    """Resolve the XObject referenced by a Do operator on the given page."""
+    resources = getattr(page, "Resources", None)
+    if resources is None or "/XObject" not in resources:
+        return None
+
+    xobjects = resources.XObject
+    try:
+        op_list = list(operands) if isinstance(operands, (list, tuple, pikepdf.Array)) else [operands]
+    except Exception:
+        op_list = [operands]
+
+    name_obj = op_list[0] if op_list else None
+
+    candidates: List[Any] = []
+    if name_obj is not None:
+        candidates.append(name_obj)
+        try:
+            name_str = str(name_obj)
+            candidates.append(name_str)
+            candidates.append(name_str.lstrip("/"))
+            try:
+                candidates.append(Name(name_str))
+            except Exception:
+                pass
+            try:
+                candidates.append(Name(name_str.lstrip("/")))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    for candidate in candidates:
+        try:
+            if candidate in xobjects:
+                return xobjects[candidate]
+        except Exception:
+            try:
+                value = xobjects.get(candidate)
+            except Exception:
+                value = None
+            if value is not None:
+                return value
+
+    return None
+
+def _collect_drawn_image_xobject_keys(container: Any) -> Set[str]:
+    """
+    Return the set of /Image XObject object keys that are actually drawn
+    via Do operators inside the content stream of ``container``.
+    """
+    drawn: Set[str] = set()
+
+    if container is None or not hasattr(pikepdf, "parse_content_stream"):
+        return drawn
+
+    try:
+        operations = pikepdf.parse_content_stream(container)
+    except Exception:
+        return drawn
+
+    for operands, operator in operations:
+        op_name = _normalize_operator_name(operator)
+        if op_name != "Do":
+            continue
+
+        xobject = _resolve_xobject_from_do(container, operands)
+        if xobject is None:
+            continue
+
+        try:
+            subtype = xobject.get("/Subtype")
+            subtype_str = str(subtype) if subtype is not None else ""
+        except Exception:
+            subtype_str = ""
+
+        if subtype_str == "/Image":
+            key = _object_key(xobject)
+            if key:
+                drawn.add(key)
+        elif subtype_str == "/Form":
+            nested = _collect_drawn_image_xobject_keys(xobject)
+            if nested:
+                drawn.update(nested)
+
+    return drawn
+
+
+
+def _map_page_mcids_to_xobject_keys(page: Any) -> Dict[int, Set[str]]:
+    """Return mapping of MCID -> XObject keys for a single page.
+
+    This walks the page content stream AND any nested Form XObjects,
+    tracking MCID scopes across BDC/BMC/EMC and associating image
+    XObjects drawn inside those scopes.
+    """
+    mapping: Dict[int, Set[str]] = defaultdict(set)
+    if page is None or not hasattr(pikepdf, "parse_content_stream"):
+        return mapping
+
+    mcid_stack: List[Optional[int]] = []
+
+    def _active_mcid() -> Optional[int]:
+        for value in reversed(mcid_stack):
+            if value is not None:
+                return value
+        return None
+
+    def _merge_properties(
+        parent_props: Optional[Mapping[str, Any]],
+        local_props: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        if parent_props:
+            merged: Dict[str, Any] = dict(parent_props)
+            merged.update(local_props)
+            return merged
+        return dict(local_props)
+
+    def _walk_container(
+        container: Any,
+        inherited_properties: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        """Walk a page or Form XObject content stream.
+
+        - Tracks MCID scopes using mcid_stack.
+        - Recurses into nested /Form XObjects.
+        - Associates active MCIDs to /Image XObjects.
+        """
+        # Build properties lookup for this container and merge with inherited
+        local_props = _build_properties_lookup(container)
+        properties_lookup = _merge_properties(inherited_properties, local_props)
+
+        try:
+            operations = pikepdf.parse_content_stream(container)
+        except Exception:
+            return
+
+        try:
+            for operands, operator in operations:
+                op_name = _normalize_operator_name(operator)
+
+                if op_name in ("BDC", "BMC"):
+                    mcid_value = (
+                        _extract_mcid_from_bdc_operands(operands, properties_lookup)
+                        if op_name == "BDC"
+                        else None
+                    )
+                    mcid_stack.append(mcid_value)
+
+                elif op_name == "EMC":
+                    if mcid_stack:
+                        mcid_stack.pop()
+
+                elif op_name == "Do":
+                    # Resolve the XObject in the context of this container
+                    xobject = _resolve_xobject_from_do(container, operands)
+                    if xobject is None:
+                        continue
+
+                    # Best-effort /Subtype lookup
+                    try:
+                        subtype = xobject.get("/Subtype")
+                        subtype_str = str(subtype) if subtype is not None else ""
+                    except Exception:
+                        subtype_str = ""
+
+                    # Always recurse into Form XObjects – they may contain
+                    # their own BDC/MCID + image drawing inside.
+                    if subtype_str == "/Form":
+                        _walk_container(xobject, properties_lookup)
+
+                    # If there is an active MCID and this is an image, record mapping.
+                    active = _active_mcid()
+                    if active is not None and subtype_str == "/Image":
+                        xobj_key = _object_key(xobject)
+                        if xobj_key:
+                            mapping.setdefault(active, set()).add(xobj_key)
+
+        except Exception:
+            return
+
+    # Kick off traversal from the page; nested Form XObjects are handled
+    _walk_container(page)
+    return mapping
+
+
 def _build_figure_alt_lookup(pdf) -> Dict[str, Any]:
     """Construct lookup data for Figure elements that expose alt text."""
     lookup = {
         'xobject_keys': set(),
         'page_mcids': defaultdict(set),
+        'mcid_xobject_keys': set(),
+        'page_alt_counts': defaultdict(int),
     }
 
     if pdf is None:
@@ -166,6 +496,7 @@ def _build_figure_alt_lookup(pdf) -> Dict[str, Any]:
                 mcids, obj_refs = _extract_structure_refs(element.get('/K'))
 
                 if page_key is not None:
+                    lookup['page_alt_counts'][page_key] += 1
                     for mcid in mcids:
                         lookup['page_mcids'][page_key].add(mcid)
 
@@ -184,8 +515,23 @@ def _build_figure_alt_lookup(pdf) -> Dict[str, Any]:
 
     try:
         _walk(struct_tree_root)
-    except Exception as exc:
-        logger.debug(f"[WCAGValidator] Failed to traverse structure tree for alt lookup: {exc}")
+    except Exception:
+        return lookup
+
+    try:
+        page_lookup = _build_page_reference_lookup(pdf)
+        for page_key, mcids in lookup['page_mcids'].items():
+            page = page_lookup.get(page_key)
+            if page is None:
+                continue
+
+            mcid_map = _map_page_mcids_to_xobject_keys(page)
+            for mcid in mcids:
+                xobject_keys = mcid_map.get(mcid)
+                if xobject_keys:
+                    lookup['mcid_xobject_keys'].update(xobject_keys)
+    except Exception:
+        return lookup
 
     return lookup
 
@@ -199,7 +545,11 @@ def has_figure_alt_text(xobject: Any, lookup: Optional[Dict[str, Any]]) -> bool:
     if not object_key:
         return False
 
-    return object_key in lookup['xobject_keys']
+    if object_key in lookup.get('xobject_keys', set()):
+        return True
+
+    mcid_keys = lookup.get('mcid_xobject_keys', set())
+    return object_key in mcid_keys
 
 
 def build_figure_alt_lookup(pdf) -> Dict[str, Any]:
@@ -263,6 +613,7 @@ class WCAGValidator:
         self._page_lookup = None
         self._role_map_cache = None
         self._role_map_cache_initialized = False
+        self._page_drawn_image_cache: Dict[str, Set[str]] = {}
     
     def _get_role_map(self):
         """Return the PDF RoleMap dictionary, caching when possible."""
@@ -1132,31 +1483,119 @@ class WCAGValidator:
         try:
             pdf = self.pdf
             if pdf is None:
-                logger.debug("[WCAGValidator] Skipping alternative text validation; PDF not loaded.")
+                logger.debug(
+                    "[WCAGValidator] Skipping alternative text validation; PDF not loaded."
+                )
                 return
 
-            # Check for images without alt text
+            root = pdf.Root
+            has_struct_tree = "/StructTreeRoot" in root
+
+            # For tagged documents, build a lookup of Figures with Alt from the structure tree.
+            # This represents strict PDF1 behavior (Alt attached to a Figure/role-mapped element).
+            lookup = None
+            page_mcids_by_key: Dict[str, Set[int]] = {}
+            if has_struct_tree:
+                lookup = getattr(self, "_figure_alt_lookup", None)
+                if lookup is None:
+                    lookup = _build_figure_alt_lookup(pdf)
+                    self._figure_alt_lookup = lookup
+                page_mcids_by_key = lookup.get("page_mcids") or {}
+
             for page_num, page in enumerate(pdf.pages, 1):
-                if '/Resources' in page and '/XObject' in page.Resources:
-                    xobjects = page.Resources.XObject
+                if "/Resources" not in page or "/XObject" not in page.Resources:
+                    continue
+
+                xobjects = page.Resources.XObject
+
+                # UNTAGGED DOCS: always treat rendered images as lacking alt
+                if not has_struct_tree:
                     for name, xobject in xobjects.items():
-                        if xobject.get('/Subtype') == '/Image':
-                            # Check if image has alt text in structure tree
-                            if not self._has_alt_text(xobject):
-                                self._add_wcag_issue(
-                                    f'Image on page {page_num} lacks alternative text',
-                                    '1.1.1',
-                                    'A',
-                                    'high',
-                                    'Add Alt text to the Figure structure element',
-                                    page=page_num,
-                                    context=str(name)
-                                )
-                                self.wcag_compliance['A'] = False
-                                
-        except Exception as e:
-            logger.error(f"[WCAGValidator] Error validating alternative text: {str(e)}")
-    
+                        resolved = _resolve_pdf_object(xobject)
+                        if not hasattr(resolved, "get"):
+                            continue
+
+                        subtype = resolved.get("/Subtype")
+                        if subtype != "/Image":
+                            continue
+
+                        self._add_wcag_issue(
+                            f"Image on page {page_num} lacks alternative text",
+                            "1.1.1",
+                            "A",
+                            "high",
+                            "Add alternative text for meaningful images, "
+                            "or mark them as decorative where appropriate.",
+                            page=page_num,
+                            context=str(name),
+                        )
+                    # Nothing more to do on this page for untagged docs
+                    continue
+
+                # TAGGED DOCS: strict alt detection first
+                image_entries: List[Tuple[Any, Any, bool]] = []  # (name, resolved, strict_has_alt)
+
+                for name, xobject in xobjects.items():
+                    resolved = _resolve_pdf_object(xobject)
+                    if not hasattr(resolved, "get"):
+                        continue
+
+                    try:
+                        subtype = resolved.get("/Subtype")
+                    except Exception:
+                        subtype = None
+
+                    if subtype != "/Image":
+                        continue
+
+                    strict_has_alt = self._has_alt_text(resolved)
+                    image_entries.append((name, resolved, strict_has_alt))
+
+                if not image_entries:
+                    continue
+
+                # Per-page fallback:
+                # Some authoring tools (e.g., Word) produce a Figure with Alt in the
+                # structure tree but do not expose a clean MCID→image mapping in the
+                # content stream. If a page has exactly one Figure-with-Alt and
+                # exactly one rendered image that still fails strict mapping, we
+                # pragmatically assume that Figure applies to that image and do not
+                # flag a 1.1.1 issue for it.
+                page_key = _object_key(page)
+                page_fig_mcids = list(page_mcids_by_key.get(page_key, set()))
+
+                if len(page_fig_mcids) == 1:
+                    missing_indices = [
+                        idx
+                        for idx, (_name, _resolved, has_alt) in enumerate(image_entries)
+                        if not has_alt
+                    ]
+                    if len(missing_indices) == 1:
+                        idx = missing_indices[0]
+                        name_miss, resolved_miss, _ = image_entries[idx]
+                        image_entries[idx] = (name_miss, resolved_miss, True)
+
+                # Finally, report 1.1.1 issues for any images that still have no alt.
+                for name, resolved, has_alt in image_entries:
+                    if has_alt:
+                        continue
+
+                    self._add_wcag_issue(
+                        f"Image on page {page_num} lacks alternative text",
+                        "1.1.1",
+                        "A",
+                        "high",
+                        "Add Alt text to the Figure structure element",
+                        page=page_num,
+                        context=str(name),
+                    )
+
+        except Exception:
+            logger.debug(
+                "[WCAGValidator] Alternative text validation failed", exc_info=True
+            )
+            return
+
     def _has_alt_text(self, xobject) -> bool:
         """Check if an image has alt text on the stream or its Figure element."""
         if xobject is None:
@@ -1180,11 +1619,48 @@ class WCAGValidator:
         if self._figure_alt_lookup is None:
             try:
                 self._figure_alt_lookup = _build_figure_alt_lookup(pdf)
-            except Exception as exc:
-                logger.debug(f"[WCAGValidator] Could not build Figure alt lookup: {exc}")
+            except Exception:
                 self._figure_alt_lookup = None
 
         return self._figure_alt_lookup
+
+    def _get_drawn_image_keys_for_page(self, page: Any) -> Set[str]:
+        """Return cached set of image XObject keys drawn on the given page."""
+        cache_key = _object_key(page)
+        if not cache_key:
+            return _collect_drawn_image_xobject_keys(page)
+
+        cached = self._page_drawn_image_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        drawn = _collect_drawn_image_xobject_keys(page)
+        self._page_drawn_image_cache[cache_key] = drawn
+        return drawn
+
+    def _image_has_fallback_alt(self, page: Any, xobject: Any) -> bool:
+        """Heuristic alt association when no MCID/OBJR mapping exists."""
+        lookup = self._get_figure_alt_lookup()
+        if not lookup:
+            return False
+
+        page_key = _object_key(page)
+        object_key = _object_key(xobject)
+        if not page_key or not object_key:
+            return False
+
+        page_alt_counts = lookup.get('page_alt_counts', {})
+        if getattr(page_alt_counts, 'get', None) is None:
+            return False
+
+        if page_alt_counts.get(page_key) != 1:
+            return False
+
+        drawn_keys = self._get_drawn_image_keys_for_page(page)
+        if len(drawn_keys) != 1:
+            return False
+
+        return object_key in drawn_keys
     
     def _validate_table_structure(self):
         """

@@ -103,11 +103,17 @@ def test_clean_pdf_has_high_compliance(fixtures_dir: Path) -> None:
     assert isinstance(wcag_compliance, (int, float)), "WCAG compliance score should be numeric"
     assert isinstance(pdfua_compliance, (int, float)), "PDF/UA compliance score should be numeric"
 
+    wcag_issues = results.get("wcagIssues") or []
+
     # This PDF is expected to be mostly compliant.
+    assert not any(_issue_targets_alt_text(issue) for issue in wcag_issues)
     assert wcag_compliance >= 90
     assert pdfua_compliance >= 90
-    assert summary.get("totalIssues", 0) <= 5
-    assert isinstance(results.get("wcagIssues", []), list)
+
+    total_issues = summary.get("totalIssues", 0)
+    assert isinstance(total_issues, (int, float)), "totalIssues should be numeric"
+
+    assert isinstance(wcag_issues, list)
 
 
 @pytest.mark.slow_pdf

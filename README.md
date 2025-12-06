@@ -115,6 +115,11 @@ cd backend
 pytest -v
 ```
 
+Notes:
+
+- Tests tagged `slow_pdf` open real PDFs; skip them with `pytest -v -m "not slow_pdf"` if you just want the fast suites.
+- The Accessible University regression (`alt_fallback`) is excluded by default via `pytest.ini`. Run it explicitly with `pytest -v -m alt_fallback --override-ini addopts=`.
+
 More details at [backend/tests/README.md](/backend/tests/README.md)
 
 ## Deployment

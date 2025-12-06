@@ -56,6 +56,19 @@ class PDFAccessibilityAnalyzer:
     Includes built-in WCAG 2.1 and PDF/UA-1 validation
     """
 
+    # Penalties used when calculating the compliance score.
+    # Contrast-related checks rely on light heuristics, so their weight is intentionally lower.
+    _CRITERION_PENALTIES = {
+        "1.4.3": 5,
+        "1.4.6": 3,
+    }
+    _SEVERITY_PENALTIES = {
+        "high": 15,
+        "medium": 5,
+        "low": 2,
+        "info": 0,
+    }
+
     def __init__(self):
         self.issues = {
             "missingMetadata": [],
@@ -668,6 +681,7 @@ class PDFAccessibilityAnalyzer:
             "severity": "medium",
             "description": description,
             "recommendation": "Manually verify that text meets WCAG 1.4.3/1.4.6 contrast thresholds.",
+            "penaltyWeight": 0,
         })
         self._contrast_manual_note_added = True
 
@@ -712,6 +726,21 @@ class PDFAccessibilityAnalyzer:
         # Simulated issues disabled to ensure consumers only see real findings.
         # self.issues["missingMetadata"].append({...})
 
+    def _determine_issue_penalty(self, issue: Dict[str, Any]) -> int:
+        """Return the penalty weight for an issue, honoring overrides for contrast checks."""
+        penalty = issue.get("penaltyWeight")
+        if isinstance(penalty, (int, float)):
+            return max(0, int(penalty))
+
+        criterion = issue.get("criterion")
+        if isinstance(criterion, str):
+            normalized = criterion.strip()
+            if normalized in self._CRITERION_PENALTIES:
+                return self._CRITERION_PENALTIES[normalized]
+
+        severity = str(issue.get("severity") or "medium").lower()
+        return self._SEVERITY_PENALTIES.get(severity, self._SEVERITY_PENALTIES["medium"])
+
     def calculate_compliance_score(self) -> int:
         """Calculate overall accessibility compliance score (0-100)"""
         try:
@@ -720,17 +749,13 @@ class PDFAccessibilityAnalyzer:
             if total_issues == 0:
                 return 100
             
-            high_severity = sum(
-                len([i for i in v if isinstance(i, dict) and i.get("severity") == "high"])
-                for v in self.issues.values()
-            )
-            medium_severity = sum(
-                len([i for i in v if isinstance(i, dict) and i.get("severity") == "medium"])
-                for v in self.issues.values()
-            )
-            low_severity = total_issues - high_severity - medium_severity
+            total_penalty = 0
+            for category in self.issues.values():
+                for issue in category:
+                    if isinstance(issue, dict):
+                        total_penalty += self._determine_issue_penalty(issue)
 
-            score = 100 - (high_severity * 15) - (medium_severity * 5) - (low_severity * 2)
+            score = 100 - total_penalty
             return max(0, min(100, score))
         except Exception as e:
             print(f"[Analyzer] Error calculating score: {e}")
