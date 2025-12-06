@@ -169,13 +169,31 @@ const enrichWithMetadata = (data) => {
   return { ...data, items: enrichedItems }
 }
 
+const ALT_TEXT_LIMITATION_TOOLTIP =
+  "Professionally tagged PDFs may still show missing alt text when they use uncommon PDF/UA tagging; typical Word-to-PDF exports are supported."
+
+const addAltTextTooltip = (data) => {
+  if (!data || !Array.isArray(data.items)) {
+    return data
+  }
+  return {
+    ...data,
+    items: data.items.map((item) =>
+      item.code === "1.1.1" ? { ...item, infoTooltip: ALT_TEXT_LIMITATION_TOOLTIP } : item,
+    ),
+  }
+}
+
 export default function WcagCriteriaSummary({ criteriaSummary, results }) {
   const data = useMemo(() => {
+    let baseData = null
     if (criteriaSummary && Array.isArray(criteriaSummary.items)) {
-      return enrichWithMetadata(criteriaSummary)
+      baseData = enrichWithMetadata(criteriaSummary)
     }
-    const fallback = buildFallbackSummary(results)
-    return enrichWithMetadata(fallback)
+    if (!baseData) {
+      baseData = enrichWithMetadata(buildFallbackSummary(results))
+    }
+    return addAltTextTooltip(baseData)
   }, [criteriaSummary, results])
 
   if (!data) {

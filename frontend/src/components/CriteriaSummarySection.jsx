@@ -171,7 +171,7 @@ export default function CriteriaSummarySection({
 
           <div className="space-y-3">
             {items.map((criterion) => {
-              const { code, name, level, summary: description, issues = [] } = criterion
+              const { code, name, level, summary: description, issues = [], infoTooltip } = criterion
               const statusMeta = STATUS_META[criterion.status] || STATUS_META.supports
               const showIssueCount = issues.length > 0 && criterion.status !== "supports"
               const isExpanded = expandedSet.has(code)
@@ -195,7 +195,32 @@ export default function CriteriaSummarySection({
                           </span>
                         )}
                       </div>
-                      {description && <p className="text-sm text-slate-500 dark:text-slate-400">{description}</p>}
+                      {description && (
+                        <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                          <span>{description}</span>
+                          {infoTooltip && (
+                            <span
+                              role="img"
+                              aria-label={infoTooltip}
+                              title={infoTooltip}
+                              className="flex items-center justify-center w-5 h-5 rounded-full border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 text-[10px] font-semibold cursor-help"
+                            >
+                              <svg
+                                className="w-3 h-3"
+                                viewBox="0 0 16 16"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="M8 1.333a6.667 6.667 0 100 13.334A6.667 6.667 0 008 1.333zm0 1.333a5.334 5.334 0 110 10.668A5.334 5.334 0 018 2.667zM8.667 5.333h-1.334v1.334h1.334V5.333zm0 2.667h-1.334v4h1.334v-4z"
+                                  fill="currentColor"
+                                />
+                              </svg>
+                            </span>
+                          )}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <span className={`text-xs font-semibold rounded-full px-3 py-1 ${statusMeta.badgeClass}`}>
