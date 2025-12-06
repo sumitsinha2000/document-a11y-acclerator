@@ -42,6 +42,8 @@ except ImportError:
     has_figure_alt_text = None
     print("[Analyzer] WCAG validator not available")
 
+from backend.utils.compliance_scoring import derive_wcag_score
+
 # PDF/A validation is intentionally disabled; the analyzer now focuses on WCAG 2.1 and PDF/UA-1.
 
 
@@ -68,6 +70,7 @@ class PDFAccessibilityAnalyzer:
         "low": 2,
         "info": 0,
     }
+    _LOW_CONTRAST_PENALTY = 3
 
     def __init__(self):
         self.issues = {
@@ -87,6 +90,8 @@ class PDFAccessibilityAnalyzer:
         }
         self._contrast_manual_note_added = False
         self._low_contrast_issue_count = 0
+        self._wcag_validator_metrics: Optional[Dict[str, Any]] = None
+        self._verapdf_alt_findings: List[Dict[str, Any]] = []
         
         self.pdf_extract_kit = None
         if PDF_EXTRACT_KIT_AVAILABLE:
@@ -151,6 +156,7 @@ class PDFAccessibilityAnalyzer:
                 traceback_text=traceback_text,
             )
         
+        self._consolidate_poor_contrast_issues()
         return self.issues
 
     def _analyze_with_pdf_extract_kit(self, pdf_path: str):
@@ -329,8 +335,12 @@ class PDFAccessibilityAnalyzer:
                         total_form_fields += len(page.annots)
                 
                 missing_alt_issues = self._collect_missing_alt_text_issues(pdf_path, image_candidates)
-                if not self.issues["missingAltText"] and missing_alt_issues:
-                    self.issues["missingAltText"].extend(missing_alt_issues)
+                self._verapdf_alt_findings = missing_alt_issues or []
+                if self.wcag_validator_available:
+                    # WCAGValidator will be the source of truth for missingAltText later.
+                    self.issues["missingAltText"] = []
+                elif self._verapdf_alt_findings:
+                    self.issues["missingAltText"].extend(self._verapdf_alt_findings)
                 
                 if not self.issues["tableIssues"] and total_tables > 0 and not tables_reviewed:
                     table_issue = {
@@ -355,10 +365,11 @@ class PDFAccessibilityAnalyzer:
                 
                 if total_images > 0:
                     self.issues["poorContrast"].append({
-                        "severity": "medium",
+                        "severity": "info",
                         "description": "Document contains images - text contrast should be manually verified",
                         "count": total_images,
                         "pages": pages_with_images[:5],
+                        "penaltyWeight": 0,
                         "recommendation": "Manually check that all text has sufficient contrast ratio (4.5:1 for normal text)",
                     })
                     self._contrast_manual_note_added = True
@@ -374,7 +385,10 @@ class PDFAccessibilityAnalyzer:
         pdf_path: str,
         image_candidates: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
-        """Return precise missing-alt issues based on structure-aware scanning."""
+        """Return precise missing-alt issues based on structure-aware scanning.
+
+        These findings act as VeraPDF-style advisories until WCAGValidator confirms 1.1.1 failures.
+        """
         if not image_candidates:
             return []
 
@@ -497,6 +511,42 @@ class PDFAccessibilityAnalyzer:
             })
 
         return issue
+
+    def _format_missing_alt_from_wcag_issue(self, wcag_issue: Dict[str, Any]) -> Dict[str, Any]:
+        """Mirror WCAG 1.1.1 findings into the same structure used by missingAltText."""
+        try:
+            page_num = int(wcag_issue.get("page"))
+        except (TypeError, ValueError):
+            page_num = 1
+        formatted = self._format_missing_alt_issue(page_num, None)
+        formatted["severity"] = wcag_issue.get("severity", formatted["severity"])
+        formatted["description"] = wcag_issue.get("description", formatted["description"])
+        formatted["recommendation"] = wcag_issue.get("remediation", formatted["recommendation"])
+        formatted["criterion"] = wcag_issue.get("criterion")
+        context = wcag_issue.get("context")
+        if context:
+            formatted["context"] = context
+        return formatted
+
+    def _sync_missing_alt_from_wcag(self, validation_results: Dict[str, Any]):
+        """
+        Align missingAltText with WCAG 1.1.1 output.
+        WCAGValidator is authoritative, VeraPDF-style findings remain advisory only.
+        """
+        issues = validation_results.get("wcagIssues") or []
+        alt_issues = [
+            issue for issue in issues if str(issue.get("criterion")).strip() == "1.1.1"
+        ]
+        if alt_issues:
+            self.issues["missingAltText"] = [
+                self._format_missing_alt_from_wcag_issue(issue) for issue in alt_issues
+            ]
+        else:
+            self.issues["missingAltText"] = []
+
+    def get_wcag_validator_metrics(self) -> Optional[Dict[str, Any]]:
+        """Expose the latest WCAG/PDF-UA scores so summaries can prioritize them."""
+        return self._wcag_validator_metrics
 
     @staticmethod
     def _normalize_xobject_name(name: Optional[Any]) -> Optional[str]:
@@ -658,12 +708,15 @@ class PDFAccessibilityAnalyzer:
         self._low_contrast_issue_count += 1
 
         self.issues["poorContrast"].append({
-            "severity": "high",
+            "severity": "medium",
             "criterion": "1.4.3",
+            "level": "AA",
             "description": f"Text on page {page_num} has low contrast (~{ratio:.1f}:1) against assumed white background",
             "pages": [page_num],
             "contrastRatio": round(ratio, 2),
             "recommendation": "Increase text color contrast to at least 4.5:1 (WCAG 1.4.3 / 1.4.6).",
+            "penaltyWeight": self._LOW_CONTRAST_PENALTY,
+            "advisoryCriteria": ["1.4.6"],
         })
 
     def _ensure_manual_contrast_notice(self, reason: Optional[str] = None):
@@ -678,12 +731,61 @@ class PDFAccessibilityAnalyzer:
             description += "."
 
         self.issues["poorContrast"].append({
-            "severity": "medium",
+            "severity": "info",
             "description": description,
             "recommendation": "Manually verify that text meets WCAG 1.4.3/1.4.6 contrast thresholds.",
             "penaltyWeight": 0,
         })
         self._contrast_manual_note_added = True
+
+    def _consolidate_poor_contrast_issues(self):
+        """Merge duplicate contrast entries so summaries/fixes stay readable."""
+        issues = self.issues.get("poorContrast")
+        if not isinstance(issues, list) or not issues:
+            self.issues["poorContrast"] = []
+            return
+
+        aggregated: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+        ordered: List[Dict[str, Any]] = []
+
+        for issue in issues:
+            if not isinstance(issue, dict):
+                continue
+
+            pages = issue.get("pages")
+            if not isinstance(pages, list):
+                single_page = issue.get("page")
+                pages = [single_page] if single_page else []
+
+            normalized_pages = tuple(pages or [])
+            key = (
+                issue.get("criterion"),
+                normalized_pages,
+                str(issue.get("description", "")).strip(),
+                str(issue.get("severity", "")).lower(),
+                issue.get("contrastRatio"),
+            )
+
+            raw_count = issue.get("count")
+            if isinstance(raw_count, (int, float)):
+                increment = max(1, int(round(raw_count)))
+            else:
+                increment = 1
+
+            existing = aggregated.get(key)
+            if existing:
+                existing["count"] = existing.get("count", 0) + increment
+                if not existing.get("pages") and pages:
+                    existing["pages"] = list(pages)
+                continue
+
+            prepared = dict(issue)
+            prepared["pages"] = list(pages)
+            prepared["count"] = max(increment, 1)
+            aggregated[key] = prepared
+            ordered.append(prepared)
+
+        self.issues["poorContrast"] = ordered
 
     def _use_simulated_analysis(
         self,
@@ -779,6 +881,7 @@ class PDFAccessibilityAnalyzer:
                 "highSeverity": high_severity,
                 "mediumSeverity": medium_severity,
                 "complianceScore": self.calculate_compliance_score(),
+                "wcagCompliance": derive_wcag_score(self.issues),
             }
         except Exception as e:
             print(f"[Analyzer] Error getting summary: {e}")
@@ -829,6 +932,10 @@ class PDFAccessibilityAnalyzer:
                 "complianceScore": compliance_score,
             }
 
+            derived_wcag = derive_wcag_score(results)
+            if derived_wcag is not None:
+                summary["wcagCompliance"] = derived_wcag
+
             if isinstance(verapdf_status, dict):
                 summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
                 summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
@@ -844,8 +951,12 @@ class PDFAccessibilityAnalyzer:
             }
 
     def _analyze_with_wcag_validator(self, pdf_path: str):
-        """Analyze PDF using built-in WCAG 2.1 and PDF/UA-1 validator"""
+        """
+        Analyze PDF using built-in WCAG 2.1 and PDF/UA-1 validator.
+        WCAG 1.1.1 output controls missingAltText and primary compliance scores.
+        """
         try:
+            self._wcag_validator_metrics = None
             print("[Analyzer] ========== WCAG VALIDATOR ANALYSIS ==========")
             print(f"[Analyzer] Analyzing: {pdf_path}")
             
@@ -881,6 +992,14 @@ class PDFAccessibilityAnalyzer:
             wcag_score = validation_results.get('wcagScore', 0)
             pdfua_score = validation_results.get('pdfuaScore', 0)
             wcag_compliance = validation_results.get('wcagCompliance', {})
+            self._wcag_validator_metrics = {
+                "wcagScore": wcag_score,
+                "pdfuaScore": pdfua_score,
+                "wcagCompliance": wcag_compliance,
+                "pdfuaCompliance": validation_results.get('pdfuaCompliance'),
+            }
+            # WCAG 1.1.1 output directly controls the missingAltText bucket.
+            self._sync_missing_alt_from_wcag(validation_results)
             
             print("[Analyzer] ========== COMPLIANCE SCORES ==========")
             print(f"[Analyzer] WCAG 2.1 Compliance Score: {wcag_score}%")
@@ -896,6 +1015,9 @@ class PDFAccessibilityAnalyzer:
             print(f"[Analyzer] Error: {e}")
             import traceback
             traceback.print_exc()
+            if self._verapdf_alt_findings and not self.issues["missingAltText"]:
+                # WCAG validator failed; fall back to VeraPDF-style heuristics.
+                self.issues["missingAltText"].extend(self._verapdf_alt_findings)
             print("[Analyzer] ==========================================")
 
     def _analyze_with_pdfa_validator(self, pdf_path: str):

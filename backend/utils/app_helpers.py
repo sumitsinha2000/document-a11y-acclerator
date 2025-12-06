@@ -31,6 +31,7 @@ from backend.auto_fix_engine import AutoFixEngine
 from backend.fix_progress_tracker import create_progress_tracker, get_progress_tracker
 from backend.utils.wcag_mapping import annotate_wcag_mappings, CATEGORY_CRITERIA_MAP
 from backend.utils.criteria_summary import build_criteria_summary
+from backend.utils.compliance_scoring import derive_wcag_score
 
 load_dotenv()
 
@@ -1055,6 +1056,7 @@ def _combine_compliance_scores(*scores: Optional[float]) -> Optional[float]:
     return round(sum(numeric) / len(numeric), 2)
 
 def _ensure_scan_results_compliance(scan_results: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep summary fields in sync with WCAG validator metrics and VeraPDF advisories."""
     if not isinstance(scan_results, dict):
         return scan_results
 
@@ -1062,6 +1064,13 @@ def _ensure_scan_results_compliance(scan_results: Dict[str, Any]) -> Dict[str, A
     if not isinstance(summary, dict):
         summary = {}
         scan_results["summary"] = summary
+
+    derived_wcag = derive_wcag_score(
+        scan_results.get("results"),
+        scan_results.get("criteriaSummary"),
+    )
+    if derived_wcag is not None:
+        summary["wcagCompliance"] = derived_wcag
 
     verapdf_status = scan_results.get("verapdfStatus")
     if isinstance(verapdf_status, dict):
@@ -1109,6 +1118,9 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
     else:
         scan_results = annotate_wcag_mappings(scan_results)
 
+    # Analyzer results contain the custom WCAG validator findings. We still
+    # synthesize VeraPDF-style stats so the UI can show advisory counts, but
+    # they remain secondary to the native WCAG/PDF-UA pipeline.
     verapdf_status = build_verapdf_status(scan_results, analyzer)
     summary: Dict[str, Any] = {}
     try:
@@ -1121,6 +1133,23 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
     except Exception:
         logger.exception("calculate_summary failed")
         summary = {}
+
+    wcag_metrics = None
+    metrics_getter = getattr(analyzer, "get_wcag_validator_metrics", None)
+    if callable(metrics_getter):
+        try:
+            wcag_metrics = metrics_getter()
+        except Exception:
+            wcag_metrics = None
+
+    if isinstance(summary, dict) and isinstance(wcag_metrics, dict):
+        # WCAG validator drives the primary compliance score; VeraPDF stays advisory.
+        summary["wcagCompliance"] = wcag_metrics.get("wcagScore", summary.get("wcagCompliance"))
+        summary["pdfuaCompliance"] = wcag_metrics.get("pdfuaScore", summary.get("pdfuaCompliance"))
+        if wcag_metrics.get("wcagCompliance"):
+            summary["wcagLevels"] = wcag_metrics["wcagCompliance"]
+        if wcag_metrics.get("pdfuaCompliance"):
+            summary["pdfuaLevels"] = wcag_metrics["pdfuaCompliance"]
 
     if isinstance(summary, dict) and verapdf_status:
         summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
@@ -1137,6 +1166,16 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
         fix_suggestions = []
 
     criteria_summary = build_criteria_summary(scan_results)
+    if isinstance(summary, dict):
+        derived_wcag = derive_wcag_score(scan_results, criteria_summary)
+        if derived_wcag is not None:
+            summary["wcagCompliance"] = derived_wcag
+            combined_score = _combine_compliance_scores(
+                summary.get("wcagCompliance"),
+                summary.get("pdfuaCompliance"),
+            )
+            if combined_score is not None:
+                summary["complianceScore"] = combined_score
 
     return {
         "results": scan_results,
@@ -1737,6 +1776,7 @@ def _perform_automated_fix(
             conn.close()
 
 def build_verapdf_status(results, analyzer=None):
+    """Approximate VeraPDF compliance so UI can show advisory statistics."""
     status = {
         "isActive": False,
         "wcagCompliance": None,

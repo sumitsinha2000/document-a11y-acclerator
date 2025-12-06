@@ -4,6 +4,8 @@ from typing import Any, Dict, Tuple, List
 import pytest
 
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
+from backend.fix_suggestions import generate_fix_suggestions
+from backend.utils.criteria_summary import build_criteria_summary
 
 
 @pytest.fixture(scope="module")
@@ -38,6 +40,13 @@ def _run_full_analysis(pdf_path: Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     if not isinstance(summary, dict):
         summary = {}
+
+    metrics_getter = getattr(analyzer, "get_wcag_validator_metrics", None)
+    if callable(metrics_getter):
+        metrics = metrics_getter()
+        if isinstance(metrics, dict):
+            summary["wcagCompliance"] = metrics.get("wcagScore", summary.get("wcagCompliance"))
+            summary["pdfuaCompliance"] = metrics.get("pdfuaScore", summary.get("pdfuaCompliance"))
 
     summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
     summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
@@ -104,6 +113,11 @@ def test_clean_pdf_has_high_compliance(fixtures_dir: Path) -> None:
     assert isinstance(pdfua_compliance, (int, float)), "PDF/UA compliance score should be numeric"
 
     wcag_issues = results.get("wcagIssues") or []
+    missing_alt = results.get("missingAltText") or []
+    fixes = generate_fix_suggestions(results)
+    image_fixes = [
+        fix for fix in fixes.get("semiAutomated", []) if fix.get("category") == "images"
+    ]
 
     # This PDF is expected to be mostly compliant.
     assert not any(_issue_targets_alt_text(issue) for issue in wcag_issues)
@@ -114,6 +128,48 @@ def test_clean_pdf_has_high_compliance(fixtures_dir: Path) -> None:
     assert isinstance(total_issues, (int, float)), "totalIssues should be numeric"
 
     assert isinstance(wcag_issues, list)
+    assert not missing_alt, "Clean fixture should not expose missing alt entries"
+    assert not image_fixes, "No image fixes should be proposed when WCAG 1.1.1 passes"
+
+
+@pytest.mark.slow_pdf
+def test_clean_pdf_contrast_summary(fixtures_dir: Path) -> None:
+    """Clean fixture should only expose consolidated contrast issues and a non-zero WCAG score."""
+    pdf_path = _require_fixture(fixtures_dir, "clean_tagged.pdf")
+    results, summary = _run_full_analysis(pdf_path)
+    criteria_summary = build_criteria_summary(results)
+
+    wcag_issues = results.get("wcagIssues") or []
+    assert wcag_issues == [], "Clean PDF should not expose extra WCAG issues"
+
+    wcag_section = criteria_summary.get("wcag") or {}
+    wcag_items = {item["code"]: item for item in wcag_section.get("items", [])}
+    assert wcag_items.get("1.1.1", {}).get("status") == "supports"
+    assert wcag_items.get("1.4.3", {}).get("status") == "doesNotSupport"
+    assert wcag_items.get("1.4.6", {}).get("status") == "doesNotSupport"
+
+    contrast_entries = results.get("poorContrast") or []
+    assert len(contrast_entries) == 2, "Contrast issues should be deduplicated into two buckets"
+    info_entries = [entry for entry in contrast_entries if entry.get("severity") == "info"]
+    medium_entries = [entry for entry in contrast_entries if entry.get("severity") == "medium"]
+    assert len(info_entries) == 1
+    info_pages = set(info_entries[0].get("pages") or [])
+    assert {1, 3}.issubset(info_pages)
+    assert len(medium_entries) == 1
+    assert medium_entries[0].get("pages") == [2]
+    assert medium_entries[0].get("count", 0) > 1
+
+    fixes = generate_fix_suggestions(results)
+    manual_fixes = fixes.get("manual", [])
+    contrast_fixes = [fix for fix in manual_fixes if "contrast" in (fix.get("title") or "").lower()]
+    assert len(contrast_fixes) == 2, "Manual contrast fixes should mirror deduplicated issues"
+
+    wcag_compliance = summary.get("wcagCompliance")
+    assert isinstance(wcag_compliance, (int, float))
+    # For this clean, tagged fixture we only require that the WCAG score
+    # is non-zero and derived from the WCAG criteria, not wiped out by VeraPDF.
+    assert 50 <= wcag_compliance <= 100, "WCAG score should not be low for a mostly compliant, tagged PDF"
+    assert summary.get("complianceScore", 0) > 60
 
 
 @pytest.mark.slow_pdf
@@ -128,3 +184,12 @@ def test_missing_alt_pdf_reports_image_issues(fixtures_dir: Path) -> None:
 
     alt_issues = [issue for issue in wcag_issues if _issue_targets_alt_text(issue)]
     assert alt_issues, "WCAG 1.1.1 / alt-text issues should be reported for missing_alt.pdf"
+
+    missing_alt = results.get("missingAltText") or []
+    assert missing_alt, "missing_alt.pdf should surface missingAltText entries"
+
+    fixes = generate_fix_suggestions(results)
+    semi_automated = fixes.get("semiAutomated", [])
+    assert any(fix.get("category") == "images" for fix in semi_automated)
+
+    assert summary.get("wcagCompliance", 100) < 100, "WCAG compliance should reflect missing alt text"

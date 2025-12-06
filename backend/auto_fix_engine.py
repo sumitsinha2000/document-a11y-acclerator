@@ -111,6 +111,18 @@ class AutoFixEngine:
         except TypeError:
             summary = PDFAccessibilityAnalyzer.calculate_summary(results)
 
+        metrics_getter = getattr(analyzer, "get_wcag_validator_metrics", None)
+        if isinstance(summary, dict) and callable(metrics_getter):
+            metrics = metrics_getter()
+            if isinstance(metrics, dict):
+                # Keep auto-fix summary aligned with backend: WCAG validator drives compliance.
+                summary["wcagCompliance"] = metrics.get("wcagScore", summary.get("wcagCompliance"))
+                summary["pdfuaCompliance"] = metrics.get("pdfuaScore", summary.get("pdfuaCompliance"))
+                if metrics.get("wcagCompliance"):
+                    summary["wcagLevels"] = metrics["wcagCompliance"]
+                if metrics.get("pdfuaCompliance"):
+                    summary["pdfuaLevels"] = metrics["pdfuaCompliance"]
+
         if isinstance(summary, dict) and verapdf_status:
             summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
             summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))

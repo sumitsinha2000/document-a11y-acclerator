@@ -253,6 +253,7 @@ def generate_fix_suggestions(issues):
     
     # Semi-automated fixes (require some user input)
     if issues.get("missingAltText") and len(issues["missingAltText"]) > 0:
+        # WCAGValidator controls missingAltText so these fixes only appear when 1.1.1 fails.
         for issue in issues["missingAltText"]:
             pages = issue.get("pages", [1])
             semi_automated.append({
