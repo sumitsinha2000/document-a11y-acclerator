@@ -625,7 +625,7 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                         : "Apply auto fixes"
                   }
                 >
-                  {applyingTraditionalSemi ? "Applying..." : "Apply Auto Fixes"}
+                {applyingTraditionalSemi ? "Applying..." : "Apply Semi-automated Fixes"}
                 </button>
                 <span
                   id={tooltipId("semi-automated-tooltip")}
