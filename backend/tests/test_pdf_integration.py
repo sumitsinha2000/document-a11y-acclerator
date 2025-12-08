@@ -101,6 +101,21 @@ def _issue_targets_alt_text(issue: Dict[str, Any]) -> bool:
     return "1.1.1" in haystack or "non-text content" in haystack or "alt text" in haystack
 
 
+def _has_table_structure_issue(results: Dict[str, Any]) -> bool:
+    """Return True when the analyzer surfaced table-structure problems."""
+    table_issues = results.get("tableIssues") or []
+    if not isinstance(table_issues, list):
+        return False
+
+    for issue in table_issues:
+        description = str(issue.get("description", "")).lower()
+        code = str(issue.get("code", "")).lower()
+        category = str(issue.get("category", "")).lower()
+        if "table" in description or "table" in code or "table" in category:
+            return True
+    return False
+
+
 @pytest.mark.slow_pdf
 def test_clean_pdf_has_high_compliance(fixtures_dir: Path) -> None:
     pdf_path = _require_fixture(fixtures_dir, "clean_tagged.pdf")
@@ -186,10 +201,37 @@ def test_missing_alt_pdf_reports_image_issues(fixtures_dir: Path) -> None:
     assert alt_issues, "WCAG 1.1.1 / alt-text issues should be reported for missing_alt.pdf"
 
     missing_alt = results.get("missingAltText") or []
-    assert missing_alt, "missing_alt.pdf should surface missingAltText entries"
+    assert alt_issues or missing_alt, "missing_alt.pdf should expose some form of missing-alt reporting"
+    assert not (alt_issues and missing_alt), "WCAG 1.1.1 findings should own the missing-alt bucket exclusively"
 
     fixes = generate_fix_suggestions(results)
     semi_automated = fixes.get("semiAutomated", [])
     assert any(fix.get("category") == "images" for fix in semi_automated)
 
     assert summary.get("wcagCompliance", 100) < 100, "WCAG compliance should reflect missing alt text"
+
+
+@pytest.mark.slow_pdf
+def test_tagged_table_pdf_does_not_emit_missing_table_structure_issue(fixtures_dir: Path) -> None:
+    """Tagged documents with tables should skip redundant pdfplumber table findings."""
+    pdf_path = _require_fixture(fixtures_dir, "tables/tagged_tables.pdf")
+    results, _summary = _run_full_analysis(pdf_path)
+
+    assert not _has_table_structure_issue(results), "Tagged tables should not report table structure issues"
+
+    pdfua_issues = results.get("pdfuaIssues") or []
+    clauses = {issue.get("clause") for issue in pdfua_issues if isinstance(issue, dict)}
+    assert "ISO 14289-1:7.5" not in clauses, "PDF/UA table clause should not mirror any issues when tables are tagged"
+
+
+@pytest.mark.slow_pdf
+def test_untagged_table_pdf_emits_missing_table_structure_issue(fixtures_dir: Path) -> None:
+    """Untagged tables must trigger table-structure issues so regressions surface."""
+    pdf_path = _require_fixture(fixtures_dir, "tables/untagged_tables.pdf")
+    results, _summary = _run_full_analysis(pdf_path)
+
+    assert _has_table_structure_issue(results), "Untagged tables should emit table structure issues"
+
+    pdfua_issues = results.get("pdfuaIssues") or []
+    clauses = [issue.get("clause") for issue in pdfua_issues if isinstance(issue, dict)]
+    assert "ISO 14289-1:7.5" in clauses, "PDF/UA clause 7.5 should mirror missing table structure findings"

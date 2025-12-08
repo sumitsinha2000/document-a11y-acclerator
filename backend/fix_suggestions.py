@@ -91,7 +91,8 @@ def generate_fix_suggestions(issues):
         for issue in issues["wcagIssues"]:
             severity = issue.get("severity", "high")
             description = issue.get("description", "")
-            criterion = issue.get("criterion", "")
+            criterion_raw = issue.get("criterion", "")
+            criterion = str(criterion_raw).strip()
             
             issue_key = f"wcag-{criterion}-{description}"
             if issue_key in processed_issues:
@@ -141,6 +142,20 @@ def generate_fix_suggestions(issues):
                 })
                 estimated_time += 20
             elif criterion == "3.1.1":
+                continue
+            elif criterion == "1.1.1":
+                semi_automated.append({
+                    "id": f"wcag-alt-{criterion}",
+                    "title": "Add alternative text to images",
+                    "description": description,
+                    "action": "Review and add descriptive alt text for images",
+                    "severity": severity,
+                    "estimatedTime": 10,
+                    "category": "images",
+                    "criterion": criterion,
+                    "location": {"criterion": criterion}
+                })
+                estimated_time += 10
                 continue
             else:
                 # Default to semi-automated for other WCAG issues
