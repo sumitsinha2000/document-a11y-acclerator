@@ -175,8 +175,58 @@ class AutoFixEngine:
                 fixes['estimatedTime'] += 1
                 break
         
-        # Automated fixes for metadata and title
-        if scan_results.get('missingMetadata') or scan_results.get('metadataIssues') or scan_results.get('titleIssues'):
+        # Metadata guidance, splitting semantic fixes
+        metadata_issues = scan_results.get('missingMetadata') or []
+        metadata_misc_present = bool(scan_results.get('metadataIssues') or scan_results.get('titleIssues'))
+        metadata_title_missing = False
+        metadata_other_missing = False
+        author_fix_added = False
+        subject_fix_added = False
+
+        for issue in metadata_issues:
+            description = issue.get('description', '')
+            desc_lower = description.lower()
+            severity = issue.get('severity', 'medium')
+            recommendation = issue.get('recommendation')
+
+            if 'title' in desc_lower:
+                metadata_title_missing = True
+            elif 'author' in desc_lower or 'creator' in desc_lower:
+                if not author_fix_added:
+                    fixes['semiAutomated'].append({
+                        'action': 'Add author metadata',
+                        'title': 'Add author metadata',
+                        'description': description,
+                        'category': 'missingMetadata',
+                        'severity': severity,
+                        'estimatedTime': '2 minutes',
+                        'fixType': 'addMetadata',
+                        'fixData': {'field': 'author'},
+                        'instructions': recommendation
+                        or "Open the PDF metadata settings and provide the author name."
+                    })
+                    fixes['estimatedTime'] += 2
+                    author_fix_added = True
+            elif 'subject' in desc_lower:
+                if not subject_fix_added:
+                    fixes['semiAutomated'].append({
+                        'action': 'Add subject/description metadata',
+                        'title': 'Add subject/description metadata',
+                        'description': description,
+                        'category': 'missingMetadata',
+                        'severity': severity,
+                        'estimatedTime': '2 minutes',
+                        'fixType': 'addMetadata',
+                        'fixData': {'field': 'subject'},
+                        'instructions': recommendation
+                        or "Summarize the document content in the Subject/Description metadata fields."
+                    })
+                    fixes['estimatedTime'] += 2
+                    subject_fix_added = True
+            else:
+                metadata_other_missing = True
+
+        if metadata_title_missing or metadata_other_missing or metadata_misc_present:
             fixes['automated'].append({
                 'action': 'Add document metadata',
                 'title': 'Add document metadata and title',

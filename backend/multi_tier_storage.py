@@ -1,7 +1,6 @@
 import os
 import re
 import time
-import boto3
 import requests
 import logging
 import mimetypes
@@ -13,8 +12,16 @@ from pathlib import Path
 from typing import Iterator, Optional, cast
 from urllib.parse import quote, unquote, urlparse
 from datetime import datetime
-from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
+
+try:
+    import boto3
+    from botocore.config import Config
+    from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
+except ImportError:
+    boto3 = None
+    Config = None
+    BotoCoreError = ClientError = EndpointConnectionError = Exception
+
 from dotenv import load_dotenv
 
 load_dotenv()

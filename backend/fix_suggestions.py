@@ -241,20 +241,68 @@ def generate_fix_suggestions(issues):
                 estimated_time += 10
     
     # Automated fixes (can be applied programmatically)
-    if issues.get("missingMetadata") and len(issues["missingMetadata"]) > 0:
-        for issue in issues["missingMetadata"]:
-            automated.append({
-                "id": f"add-metadata-{issue.get('page', 1)}",
-                "title": "Add default metadata",
-                "description": issue.get("description", "Automatically add document title and basic metadata"),
-                "action": f"Add {issue.get('description', 'metadata')}",
-                "severity": issue.get("severity", "high"),
-                "estimatedTime": 1,
-                "category": "metadata",
-                "page": issue.get("page", 1),
-                "location": {"page": issue.get("page", 1)}
-            })
-        estimated_time += len(issues["missingMetadata"])
+    metadata_issues = issues.get("missingMetadata") or []
+    if metadata_issues:
+        for issue in metadata_issues:
+            description = issue.get("description", "Document metadata requires attention")
+            page = issue.get("page", 1)
+            severity = issue.get("severity", "medium")
+            recommendation = issue.get("recommendation")
+            desc_lower = description.lower()
+
+            if "title" in desc_lower:
+                automated.append({
+                    "id": f"add-metadata-title-{page}",
+                    "title": "Add default metadata",
+                    "description": description,
+                    "action": "Add document title metadata to the info dictionary",
+                    "severity": severity,
+                    "estimatedTime": 1,
+                    "category": "metadata",
+                    "page": page,
+                    "location": {"page": page}
+                })
+            elif "author" in desc_lower:
+                semi_automated.append({
+                    "id": f"add-metadata-author-{page}",
+                    "title": "Add author metadata",
+                    "description": description,
+                    "action": "Add author information via PDF metadata",
+                    "severity": severity,
+                    "estimatedTime": 2,
+                    "category": "metadata",
+                    "page": page,
+                    "location": {"page": page},
+                    "instructions": recommendation
+                        or "Open File > Properties > Description and enter the author's name."
+                })
+            elif "subject" in desc_lower:
+                semi_automated.append({
+                    "id": f"add-metadata-subject-{page}",
+                    "title": "Add subject/description metadata",
+                    "description": description,
+                    "action": "Provide a subject or description for the document",
+                    "severity": severity,
+                    "estimatedTime": 2,
+                    "category": "metadata",
+                    "page": page,
+                    "location": {"page": page},
+                    "instructions": recommendation
+                        or "Open File > Properties > Description and summarize the document."
+                })
+            else:
+                # Default to automated metadata remediation
+                automated.append({
+                    "id": f"add-metadata-{page}",
+                    "title": "Add default metadata",
+                    "description": description,
+                    "action": "Add missing metadata fields",
+                    "severity": severity,
+                    "estimatedTime": 1,
+                    "category": "metadata",
+                    "page": page,
+                    "location": {"page": page}
+                })
     
     language_issues = issues.get("missingLanguage")
     if language_issues and len(language_issues) > 0:

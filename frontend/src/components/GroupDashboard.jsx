@@ -319,8 +319,8 @@ export default function GroupDashboard({
               tabIndex={-1}
               className="text-2xl font-bold text-slate-900 dark:text-white"
             >
-              Upload documents to{" "}
-              <span className="text-indigo-600 dark:text-indigo-400">{folderLabel}</span>
+              Upload documents
+              {/* <span className="text-indigo-600 dark:text-indigo-400">{folderLabel}</span> */}
             </h2>
           </div>
         </div>
