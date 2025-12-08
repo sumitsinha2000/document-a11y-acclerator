@@ -512,35 +512,18 @@ class PDFAccessibilityAnalyzer:
 
         return issue
 
-    def _format_missing_alt_from_wcag_issue(self, wcag_issue: Dict[str, Any]) -> Dict[str, Any]:
-        """Mirror WCAG 1.1.1 findings into the same structure used by missingAltText."""
-        try:
-            page_num = int(wcag_issue.get("page"))
-        except (TypeError, ValueError):
-            page_num = 1
-        formatted = self._format_missing_alt_issue(page_num, None)
-        formatted["severity"] = wcag_issue.get("severity", formatted["severity"])
-        formatted["description"] = wcag_issue.get("description", formatted["description"])
-        formatted["recommendation"] = wcag_issue.get("remediation", formatted["recommendation"])
-        formatted["criterion"] = wcag_issue.get("criterion")
-        context = wcag_issue.get("context")
-        if context:
-            formatted["context"] = context
-        return formatted
-
     def _sync_missing_alt_from_wcag(self, validation_results: Dict[str, Any]):
         """
-        Align missingAltText with WCAG 1.1.1 output.
-        WCAGValidator is authoritative, VeraPDF-style findings remain advisory only.
+        When WCAG Validator runs successfully, keep `missingAltText` empty so WCAG 1.1.1
+        findings remain the single truth for missing alt text.
         """
         issues = validation_results.get("wcagIssues") or []
         alt_issues = [
             issue for issue in issues if str(issue.get("criterion")).strip() == "1.1.1"
         ]
         if alt_issues:
-            self.issues["missingAltText"] = [
-                self._format_missing_alt_from_wcag_issue(issue) for issue in alt_issues
-            ]
+            # Keep the legacy bucket empty when WCAG is authoritative.
+            self.issues["missingAltText"] = []
         else:
             self.issues["missingAltText"] = []
 

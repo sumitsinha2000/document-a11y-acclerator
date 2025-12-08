@@ -80,6 +80,13 @@ def generate_fix_suggestions(issues):
     
     processed_issues = set()
     
+    wcag_alt_failures = [
+        issue
+        for issue in issues.get("wcagIssues", [])
+        if str(issue.get("criterion")).strip() == "1.1.1"
+    ]
+    wcag_missing_alt_reported = len(wcag_alt_failures) > 0
+
     if issues.get("wcagIssues") and len(issues["wcagIssues"]) > 0:
         for issue in issues["wcagIssues"]:
             severity = issue.get("severity", "high")
@@ -252,7 +259,7 @@ def generate_fix_suggestions(issues):
         estimated_time += 1
     
     # Semi-automated fixes (require some user input)
-    if issues.get("missingAltText") and len(issues["missingAltText"]) > 0:
+    if not wcag_missing_alt_reported and issues.get("missingAltText") and len(issues["missingAltText"]) > 0:
         # WCAGValidator controls missingAltText so these fixes only appear when 1.1.1 fails.
         for issue in issues["missingAltText"]:
             pages = issue.get("pages", [1])
