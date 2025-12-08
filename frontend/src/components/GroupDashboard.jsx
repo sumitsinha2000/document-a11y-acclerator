@@ -526,9 +526,14 @@ export default function GroupDashboard({
       return
     }
 
+    const { folderId, groupId } = deriveUploadContext(selectedNode, nodeData)
     const cacheKey = getCacheKey(selectedNode)
     cacheRef.current.delete(cacheKey)
     await handleNodeSelect(selectedNode)
+
+    if (folderId && groupId) {
+      notifyFolderStatusUpdate(folderId, groupId)
+    }
   }
 
   const handleBeginFolderScan = async () => {
