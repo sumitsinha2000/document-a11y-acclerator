@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import axios from "axios"
 import FixSuggestions from "./FixSuggestions"
 import SidebarNav from "./SidebarNav"
@@ -62,6 +62,7 @@ export default function ReportViewer({
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isScanningFile, setIsScanningFile] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [isContrastPanelOpen, setIsContrastPanelOpen] = useState(false)
 
   const { showSuccess, showError, showWarning, showInfo } = useNotification()
 
@@ -304,6 +305,43 @@ export default function ReportViewer({
       setAiLoading(false)
     }
   }
+
+  const contrastSamples = useMemo(() => {
+    const issues = reportData?.results?.poorContrast
+    if (!Array.isArray(issues)) {
+      return []
+    }
+
+    const seenTexts = new Set()
+    const samples = []
+
+    for (const issue of issues) {
+      if (!issue || typeof issue !== "object") {
+        continue
+      }
+      const snippet = typeof issue.textSample === "string" ? issue.textSample.trim() : ""
+      if (!snippet || seenTexts.has(snippet)) {
+        continue
+      }
+      seenTexts.add(snippet)
+
+      const pages = Array.isArray(issue.pages) ? issue.pages.filter((page) => page !== null && page !== undefined) : []
+      const pageLabel = pages.length > 0 ? pages.join(", ") : issue.page || null
+      const ratioValue = Number(issue.contrastRatio)
+
+      samples.push({
+        text: snippet,
+        pageLabel,
+        ratio: Number.isFinite(ratioValue) ? ratioValue.toFixed(1) : null,
+      })
+
+      if (samples.length >= 3) {
+        break
+      }
+    }
+
+    return samples
+  }, [reportData?.results?.poorContrast])
 
   if (loading) {
     return (
@@ -879,6 +917,7 @@ export default function ReportViewer({
                     </div>
                   </div>
                 </div>
+
               </div>
 
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
@@ -899,6 +938,78 @@ export default function ReportViewer({
                   results={reportData.results}
                 />
               </div>
+
+              {contrastSamples.length > 0 && (
+                <section
+                  className="bg-white dark:bg-slate-800 rounded-2xl border border-amber-200/70 dark:border-amber-500/30 shadow-sm p-6"
+                  aria-labelledby="contrast-sample-title"
+                >
+                  <header className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <p id="contrast-sample-title" className="text-base font-semibold text-slate-900 dark:text-white">
+                        Sample contrast text
+                      </p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">
+                        Use these snippets to pinpoint low-contrast passages flagged in this scan.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsContrastPanelOpen((prev) => !prev)}
+                      aria-expanded={isContrastPanelOpen}
+                      aria-controls="contrast-sample-panel"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
+                    >
+                      <span>Contrast details</span>
+                      <svg
+                        className={`w-4 h-4 transition-transform ${isContrastPanelOpen ? "rotate-180" : ""}`}
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 8l4 4 4-4" />
+                      </svg>
+                    </button>
+                  </header>
+
+                  {isContrastPanelOpen && (
+                    <div
+                      id="contrast-sample-panel"
+                      role="region"
+                      aria-live="polite"
+                      className="mt-4 space-y-3"
+                    >
+                      {contrastSamples.map((sample, index) => (
+                        <div
+                          key={`${sample.text}-${sample.pageLabel || index}`}
+                          className="rounded-xl border border-amber-100 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-900/20 p-4"
+                        >
+                          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-200">
+                            {sample.pageLabel && (
+                              <span className="inline-flex items-center gap-1">
+                                <span className="text-[11px] uppercase tracking-wide text-amber-600 dark:text-amber-300">Page</span>
+                                {sample.pageLabel}
+                              </span>
+                            )}
+                            {sample.ratio && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/80 text-amber-700 border border-amber-200 dark:bg-slate-900/40 dark:text-amber-200 dark:border-amber-500/40">
+                                ~{sample.ratio}:1
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-slate-900 dark:text-slate-100 mt-2 leading-snug">
+                            &quot;{sample.text}&quot;
+                          </p>
+                        </div>
+                      ))}
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Based on extracted text; snippets are truncated to keep this summary scannable.
+                      </p>
+                    </div>
+                  )}
+                </section>
+              )}
 
               <div id="fixes" key={`fixes-${refreshKey}`}>
                 <FixSuggestions
