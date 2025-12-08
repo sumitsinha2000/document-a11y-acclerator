@@ -958,6 +958,31 @@ export default function GroupTreeSidebar({
       const normalizedFolderId = normalizeId(folderMeta?.folderId);
       const normalizedGroupId = normalizeId(folderMeta?.groupId);
 
+      const returnToFolderDashboardIfNeeded = async () => {
+        const isFileDashboardActive =
+          selectedNode?.type === "file" && normalizeId(selectedNode?.id) === normalizedFileId;
+        if (!isFileDashboardActive) {
+          return;
+        }
+        if (folderMeta && normalizedFolderId) {
+          await handleNodeClick(
+            {
+              type: "batch",
+              id: folderMeta.folderId,
+              data: {
+                batchId: folderMeta.folderId,
+                name: folderMeta.folderName || `Folder ${folderMeta.folderId}`,
+                groupId: folderMeta.groupId,
+                groupName: folderMeta.groupName,
+              },
+            },
+            { moveFocus: true }
+          );
+          return;
+        }
+        await handleNodeClick(null);
+      };
+
       if (folderMeta && normalizedFolderId) {
         const resolveFileIdentifier = (item) =>
           normalizeId(item?.scanId || item?.id || item?.fileId);
@@ -1047,9 +1072,12 @@ export default function GroupTreeSidebar({
       ) {
         await handleNodeClick(selectedNode);
       }
+
+      await returnToFolderDashboardIfNeeded();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete file:", error);
       showError(error?.response?.data?.error || "Failed to delete file");
+      await handleNodeClick(null);
     } finally {
       setDeletingFileId(null);
     }
