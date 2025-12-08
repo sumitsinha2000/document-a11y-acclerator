@@ -12,9 +12,11 @@ import PyPDF2
 import pdfplumber
 
 try:
-    from PyPDF2.generic import ContentStream
+    from PyPDF2.generic import ContentStream, TextStringObject, ByteStringObject
 except Exception:
     ContentStream = None
+    TextStringObject = None
+    ByteStringObject = None
 
 try:
     import pikepdf
@@ -645,7 +647,8 @@ class PDFAccessibilityAnalyzer:
                 ratio = self._contrast_ratio(active_color, background)
                 if ratio < contrast_threshold:
                     flagged_runs += 1
-                    self._record_low_contrast_issue(page_num, ratio)
+                    text_sample = self._extract_text_sample(operands)
+                    self._record_low_contrast_issue(page_num, ratio, text_sample)
 
         return (checked_runs, flagged_runs)
 
@@ -683,6 +686,58 @@ class PDFAccessibilityAnalyzer:
         dark = min(fg_lum, bg_lum)
         return (light + 0.05) / (dark + 0.05)
 
+    def _extract_text_sample(self, operands: List[Any]) -> Optional[str]:
+        """Return a short normalized snippet from Tj/TJ operands."""
+        if not operands:
+            return None
+
+        samples: List[str] = []
+
+        def _normalize(value: Any) -> Optional[str]:
+            if value is None:
+                return None
+            if isinstance(value, str):
+                return value
+            if TextStringObject is not None and isinstance(value, TextStringObject):
+                return str(value)
+            if ByteStringObject is not None and isinstance(value, ByteStringObject):
+                try:
+                    return bytes(value).decode("utf-8", errors="ignore")
+                except Exception:
+                    return None
+            if hasattr(value, "decode"):
+                try:
+                    return value.decode("utf-8", errors="ignore")
+                except Exception:
+                    return None
+            return None
+
+        for operand in operands:
+            values = []
+            if isinstance(operand, (list, tuple)):
+                values = list(operand)
+            else:
+                values = [operand]
+
+            for entry in values:
+                snippet = _normalize(entry)
+                if snippet:
+                    cleaned = " ".join(snippet.split())
+                    if cleaned:
+                        samples.append(cleaned)
+            if samples:
+                break
+
+        if not samples:
+            return None
+
+        joined = " ".join(samples).strip()
+        if not joined:
+            return None
+        if len(joined) > 80:
+            joined = joined[:79].rstrip() + "…"
+        return joined
+
     def _decode_operator(self, operator: Any) -> str:
         """Decode an operator token from a ContentStream operation."""
         if isinstance(operator, bytes):
@@ -692,7 +747,7 @@ class PDFAccessibilityAnalyzer:
                 return operator.decode('utf-8', errors='ignore')
         return str(operator)
 
-    def _record_low_contrast_issue(self, page_num: int, ratio: float):
+    def _record_low_contrast_issue(self, page_num: int, ratio: float, text_sample: Optional[str] = None):
         """Append a low-contrast issue, limiting the total count."""
         max_entries = 25
         if self._low_contrast_issue_count >= max_entries:
@@ -711,6 +766,8 @@ class PDFAccessibilityAnalyzer:
             "penaltyWeight": self._LOW_CONTRAST_PENALTY,
             "advisoryCriteria": ["1.4.6"],
         })
+        if text_sample:
+            self.issues["poorContrast"][-1]["textSample"] = text_sample
 
     def _ensure_manual_contrast_notice(self, reason: Optional[str] = None):
         """Ensure we log at least one manual contrast review reminder."""
