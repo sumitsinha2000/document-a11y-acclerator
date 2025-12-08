@@ -113,6 +113,13 @@ class PDFAccessibilityAnalyzer:
         else:
             self.wcag_validator_available = False
 
+    def _metadata_text(self, value: Any) -> Optional[str]:
+        """Return a clean metadata string or None if value is invalid."""
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return None
+
     def analyze(self, pdf_path: str) -> Dict[str, Any]:
         """
         Perform comprehensive accessibility analysis on a PDF.
@@ -201,24 +208,27 @@ class PDFAccessibilityAnalyzer:
                 
                 # Check metadata
                 metadata = pdf_reader.metadata
-                
-                if not metadata or not metadata.get('/Title'):
+
+                title = self._metadata_text(metadata.get('/Title')) if metadata else None
+                if not title:
                     self.issues["missingMetadata"].append({
                         "severity": "high",
                         "description": "PDF is missing document title in metadata",
                         "page": 1,
                         "recommendation": "Add document title in PDF properties using File > Properties > Description",
                     })
-                
-                if not metadata or not metadata.get('/Author'):
+
+                author = self._metadata_text(metadata.get('/Author')) if metadata else None
+                if not author:
                     self.issues["missingMetadata"].append({
                         "severity": "medium",
                         "description": "PDF is missing author information",
                         "page": 1,
                         "recommendation": "Add author name in PDF metadata for better document identification",
                     })
-                
-                if not metadata or not metadata.get('/Subject'):
+
+                subject = self._metadata_text(metadata.get('/Subject')) if metadata else None
+                if not subject:
                     self.issues["missingMetadata"].append({
                         "severity": "low",
                         "description": "PDF is missing subject/description",
