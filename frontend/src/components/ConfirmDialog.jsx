@@ -107,17 +107,17 @@ export default function ConfirmDialog({
 
         <div className="flex gap-3 mt-6">
           <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800"
+          >
+            {cancelText}
+          </button>
+          <button
             ref={confirmButtonRef}
             onClick={onConfirm}
             className={`flex-1 px-4 py-2.5 text-white rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-slate-800 ${style.confirmButton}`}
           >
             {confirmText}
-          </button>
-          <button
-            onClick={onCancel}
-            className="flex-1 px-4 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800"
-          >
-            {cancelText}
           </button>
         </div>
       </div>
