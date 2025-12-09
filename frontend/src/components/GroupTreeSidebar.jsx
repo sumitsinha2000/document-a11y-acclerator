@@ -28,6 +28,7 @@ const STATUS_BADGE_STYLES = {
 const SELECTED_STATUS_BADGE_CLASSES = "border-white bg-white/30 text-white";
 const TREE_ITEM_FOCUS_CLASSES =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
+const FOCUSABLE_ELEMENTS_SELECTOR = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
 
 const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
   {
@@ -82,6 +83,8 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
   const treeItemMetadataRef = useRef({});
   const sidebarRootRef = useRef(null);
   const folderBackButtonRef = useRef(null);
+  const projectDeleteModalRef = useRef(null);
+  const folderDeleteModalRef = useRef(null);
   const [activeTreeItemId, setActiveTreeItemId] = useState(null);
   const { confirm, showError, showSuccess } = useNotification();
   const updateDeletingFileState = (fileId, isDeleting) => {
@@ -1680,6 +1683,58 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     pendingDeleteFolder?.batch?.batchId ||
     "folder";
 
+  useEffect(() => {
+    if (!pendingDeleteGroup && !pendingDeleteFolder) {
+      return;
+    }
+    if (typeof document === "undefined") {
+      return;
+    }
+    const modalElement = pendingDeleteGroup ? projectDeleteModalRef.current : folderDeleteModalRef.current;
+    if (!modalElement) {
+      return;
+    }
+
+    const getFocusableElements = () =>
+      Array.from(modalElement.querySelectorAll(FOCUSABLE_ELEMENTS_SELECTOR)).filter(
+        (element) => !element.hasAttribute("disabled") && element.tabIndex !== -1
+      );
+
+    const focusableElements = getFocusableElements();
+    if (focusableElements.length > 0) {
+      focusableElements[0].focus();
+    } else if (typeof modalElement.focus === "function") {
+      modalElement.focus();
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key !== "Tab") {
+        return;
+      }
+      const updatedFocusable = getFocusableElements();
+      if (updatedFocusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const firstFocusable = updatedFocusable[0];
+      const lastFocusable = updatedFocusable[updatedFocusable.length - 1];
+      if (event.shiftKey) {
+        if (document.activeElement === firstFocusable || !modalElement.contains(document.activeElement)) {
+          event.preventDefault();
+          lastFocusable.focus();
+        }
+      } else if (document.activeElement === lastFocusable || !modalElement.contains(document.activeElement)) {
+        event.preventDefault();
+        firstFocusable.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [pendingDeleteGroup, pendingDeleteFolder, isProjectDeleteLoading, isFolderDeleteLoading]);
+
   if (loading) {
     return (
       <aside className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 dashboard-panel border border-gray-200 dark:border-gray-700 p-4">
@@ -2532,6 +2587,8 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
           <div
             className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-6 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
+            ref={projectDeleteModalRef}
+            tabIndex={-1}
           >
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-200">
@@ -2598,6 +2655,8 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
           <div
             className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-6 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
+            ref={folderDeleteModalRef}
+            tabIndex={-1}
           >
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-200">
