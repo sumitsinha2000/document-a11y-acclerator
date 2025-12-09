@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { resolveEntityStatus } from "../utils/statuses";
@@ -29,16 +29,19 @@ const SELECTED_STATUS_BADGE_CLASSES = "border-white bg-white/30 text-white";
 const TREE_ITEM_FOCUS_CLASSES =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
 
-export default function GroupTreeSidebar({
-  onNodeSelect,
-  selectedNode,
-  onRefresh,
-  initialGroupId,
-  latestUploadContext = null,
-  onUploadContextAcknowledged = () => {},
-  folderNavigationContext = null,
-  folderStatusUpdateSignal = null,
-}) {
+const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
+  {
+    onNodeSelect,
+    selectedNode,
+    onRefresh,
+    initialGroupId,
+    latestUploadContext = null,
+    onUploadContextAcknowledged = () => {},
+    folderNavigationContext = null,
+    folderStatusUpdateSignal = null,
+  },
+  ref,
+) {
   const [groups, setGroups] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [loading, setLoading] = useState(true);
@@ -914,6 +917,10 @@ export default function GroupTreeSidebar({
     ensureProjectView();
   };
 
+  useImperativeHandle(ref, () => ({
+    closeFolderView,
+  }), [closeFolderView]);
+
   const openFolderView = async (group, batch) => {
     const normalizedBatchId = normalizeId(batch.batchId || batch.id);
     if (!normalizedBatchId) {
@@ -1702,7 +1709,7 @@ export default function GroupTreeSidebar({
             type="button"
             onClick={closeFolderView}
             ref={folderBackButtonRef}
-            className="rounded-full bg-gray-100 p-2 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700/80 dark:bg-[#0f172a] dark:text-gray-100 dark:hover:border-gray-600 dark:hover:bg-[#1b1f34]"
             aria-label="Back to projects"
           >
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -2611,4 +2618,6 @@ export default function GroupTreeSidebar({
       )}
     </>
   );
-}
+});
+
+export default GroupTreeSidebar;
