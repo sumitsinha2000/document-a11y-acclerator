@@ -1719,31 +1719,32 @@ def _perform_automated_fix(
                     "remotePath": archive_info.get("remote_path"),
                 }
             )
-        try:
-            save_fix_history(
-                scan_id=scan_id,
-                original_filename=scan_row.get("filename"),
-                fixed_filename=result.get("fixedFile") or scan_row.get("filename"),
-                fixes_applied=fixes_applied,
-                fix_type="automated",
-                issues_before=initial_scan_payload.get("results")
-                if isinstance(initial_scan_payload, dict)
-                else {},
-                issues_after=scan_results_payload.get("results"),
-                compliance_before=initial_summary.get("complianceScore"),
-                compliance_after=summary.get("complianceScore"),
-                fix_suggestions=scan_results_payload.get("fixes"),
-                fix_metadata=fix_metadata,
-                batch_id=scan_row.get("batch_id"),
-                group_id=scan_row.get("group_id"),
-                total_issues_before=total_issues_before,
-                total_issues_after=remaining_issues,
-                high_severity_before=initial_summary.get("highSeverity"),
-                high_severity_after=summary.get("highSeverity"),
-                success_count=success_count,
-            )
-        except Exception:
-            logger.exception("[Backend] Failed to record fix history for %s", scan_id)
+        if success_count > 0:
+            try:
+                save_fix_history(
+                    scan_id=scan_id,
+                    original_filename=scan_row.get("filename"),
+                    fixed_filename=result.get("fixedFile") or scan_row.get("filename"),
+                    fixes_applied=fixes_applied,
+                    fix_type="automated",
+                    issues_before=initial_scan_payload.get("results")
+                    if isinstance(initial_scan_payload, dict)
+                    else {},
+                    issues_after=scan_results_payload.get("results"),
+                    compliance_before=initial_summary.get("complianceScore"),
+                    compliance_after=summary.get("complianceScore"),
+                    fix_suggestions=scan_results_payload.get("fixes"),
+                    fix_metadata=fix_metadata,
+                    batch_id=scan_row.get("batch_id"),
+                    group_id=scan_row.get("group_id"),
+                    total_issues_before=total_issues_before,
+                    total_issues_after=remaining_issues,
+                    high_severity_before=initial_summary.get("highSeverity"),
+                    high_severity_after=summary.get("highSeverity"),
+                    success_count=success_count,
+                )
+            except Exception:
+                logger.exception("[Backend] Failed to record fix history for %s", scan_id)
 
         conn.commit()
 
