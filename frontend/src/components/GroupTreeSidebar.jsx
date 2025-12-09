@@ -616,6 +616,20 @@ export default function GroupTreeSidebar({
     void loadTargetGroup();
   }, [initialGroupId, groups]);
 
+  useEffect(() => {
+    if (initialGroupId) {
+      return;
+    }
+    if (groups.length === 0 || selectedNode) {
+      return;
+    }
+    const firstGroup = groups[0];
+    if (!firstGroup || !normalizeId(firstGroup.id)) {
+      return;
+    }
+    void handleGroupSelection(firstGroup, { forceExpand: true });
+  }, [groups, initialGroupId, selectedNode]);
+
   const fetchGroupData = async (groupId, prefetchedBatches = null, options = {}) => {
     const { forceBatchRefresh = false } = options;
     const normalizedId = normalizeId(groupId);
@@ -685,7 +699,10 @@ export default function GroupTreeSidebar({
     }
   };
 
-  const handleGroupSelection = async (group, { moveFocus = false } = {}) => {
+  const handleGroupSelection = async (
+    group,
+    { moveFocus = false, forceExpand = false } = {}
+  ) => {
     if (!group) {
       return;
     }
@@ -694,43 +711,47 @@ export default function GroupTreeSidebar({
 
     const normalizedId = normalizeId(group.id);
     const isAlreadyExpanded = expandedGroups.has(normalizedId);
+    const shouldExpand = forceExpand || !isAlreadyExpanded;
 
     setExpandedGroups((prev) => {
-      if (isAlreadyExpanded) {
-        const next = new Set(prev);
-        next.delete(normalizedId);
-        return next;
+      if (shouldExpand) {
+        return new Set([normalizedId]);
       }
-      return new Set([normalizedId]);
+      if (!prev.has(normalizedId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(normalizedId);
+      return next;
     });
 
     setSectionStates((prev) => {
       const next = { ...prev };
-      if (isAlreadyExpanded) {
-        next[normalizedId] = {
-          batches: false,
-          files: false,
-        };
-        return next;
-      }
-      Object.keys(next).forEach((key) => {
-        if (key !== normalizedId) {
-          next[key] = {
-            batches: false,
-            files: false,
-          };
-        }
-      });
       if (!next[normalizedId]) {
         next[normalizedId] = {
           batches: false,
           files: false,
         };
       }
+      if (shouldExpand) {
+        Object.keys(next).forEach((key) => {
+          if (key !== normalizedId) {
+            next[key] = {
+              batches: false,
+              files: false,
+            };
+          }
+        });
+        return next;
+      }
+      next[normalizedId] = {
+        batches: false,
+        files: false,
+      };
       return next;
     });
 
-    const fetchPromise = !isAlreadyExpanded
+    const fetchPromise = shouldExpand
       ? fetchGroupData(group.id, groupBatches[normalizedId] || null)
       : Promise.resolve(null);
 
@@ -753,7 +774,7 @@ export default function GroupTreeSidebar({
     }
 
     if (group.name) {
-      setStatusMessage(`${group.name} ${isAlreadyExpanded ? "collapsed" : "expanded"}`);
+      setStatusMessage(`${group.name} ${shouldExpand ? "expanded" : "collapsed"}`);
     }
   };
 
