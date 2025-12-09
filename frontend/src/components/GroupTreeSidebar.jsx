@@ -78,7 +78,7 @@ export default function GroupTreeSidebar({
   const treeContainerRef = useRef(null);
   const treeItemMetadataRef = useRef({});
   const sidebarRootRef = useRef(null);
-  const firstFolderFileRef = useRef(null);
+  const folderBackButtonRef = useRef(null);
   const [activeTreeItemId, setActiveTreeItemId] = useState(null);
   const { confirm, showError, showSuccess } = useNotification();
   const treeItemsMetadata = useMemo(() => {
@@ -129,33 +129,32 @@ export default function GroupTreeSidebar({
     if (sidebarView !== "folder" || selectedNode?.type !== "batch") {
       return;
     }
-    const sidebarElement = sidebarRootRef.current;
-    if (!sidebarElement || typeof sidebarElement.focus !== "function") {
-      return;
-    }
-    sidebarElement.focus();
-  }, [sidebarView, selectedNode?.id, selectedNode?.type]);
-  useEffect(() => {
-    if (sidebarView !== "folder" || folderFilesLoading || folderFiles.length === 0) {
-      return;
-    }
     const schedule =
       typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
         ? window.requestAnimationFrame
         : (cb) => setTimeout(cb, 0);
-    const cancelSchedule =
+    const cancel =
       typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
         ? window.cancelAnimationFrame
         : (id) => clearTimeout(id);
     let frameId = null;
-    const focusFirstFile = () => {
-      firstFolderFileRef.current?.focus?.();
+    const focusTarget = () => {
+      if (folderBackButtonRef.current && typeof folderBackButtonRef.current.focus === "function") {
+        folderBackButtonRef.current.focus();
+        return;
+      }
+      const sidebarElement = sidebarRootRef.current;
+      if (sidebarElement && typeof sidebarElement.focus === "function") {
+        sidebarElement.focus();
+      }
     };
-    frameId = schedule(focusFirstFile);
+    frameId = schedule(focusTarget);
     return () => {
-      cancelSchedule(frameId);
+      if (frameId) {
+        cancel(frameId);
+      }
     };
-  }, [sidebarView, folderFilesLoading, folderFiles.length]);
+  }, [sidebarView, selectedNode?.id, selectedNode?.type]);
   const mapFolderToSidebarEntry = (folder) => {
     if (!folder) {
       return null;
@@ -1702,6 +1701,7 @@ export default function GroupTreeSidebar({
           <button
             type="button"
             onClick={closeFolderView}
+            ref={folderBackButtonRef}
             className="rounded-full bg-gray-100 p-2 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
             aria-label="Back to projects"
           >
@@ -1753,7 +1753,6 @@ export default function GroupTreeSidebar({
                 <div key={fileKey} className="relative group/file-entry">
                   <button
                     type="button"
-                    ref={index === 0 ? firstFolderFileRef : undefined}
                     className={`group w-full rounded-2xl border px-4 py-4 pr-12 text-left transition focus-visible:border-indigo-500 focus-visible:bg-indigo-600 focus-visible:text-white focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
                       selected
                         ? "border-indigo-500 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:border-indigo-500/60 dark:bg-indigo-600/90 dark:text-white"
