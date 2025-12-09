@@ -95,6 +95,7 @@ export default function GroupDashboard({
   })
   const [isUploadAreaScanning, setUploadAreaScanning] = useState(false)
   const [shouldAutoOpenFileDialog, setShouldAutoOpenFileDialog] = useState(false)
+  const [ariaLiveMessage, setAriaLiveMessage] = useState("")
 
   const isFolderSelected = selectedNode?.type === "batch"
   const groupSummary = deriveGroupSummary(nodeData)
@@ -156,6 +157,32 @@ export default function GroupDashboard({
     }
     prevUploadSectionOpenRef.current = uploadSectionOpen
   }, [uploadSectionOpen, isUploadAreaScanning])
+
+  useEffect(() => {
+    const type = nodeData?.type || selectedNode?.type
+    const name =
+      nodeData?.name ||
+      nodeData?.folderName ||
+      nodeData?.groupName ||
+      selectedNode?.data?.name ||
+      selectedNode?.data?.folderName ||
+      selectedNode?.data?.groupName ||
+      selectedNode?.data?.filename ||
+      selectedNode?.data?.fileName ||
+      "Selected view"
+
+    let message = ""
+    if (type === "batch") {
+      message = `Folder metrics dashboard now shown for ${name}`
+    } else if (type === "group") {
+      message = `Project dashboard now shown for ${name}`
+    } else if (type === "file") {
+      message = `File report now shown for ${name}`
+    } else {
+      message = "Project dashboard now shown"
+    }
+    setAriaLiveMessage((prev) => (prev === message ? prev : message))
+  }, [nodeData, selectedNode])
 
   const focusUploadPanelHeading = useCallback(() => {
     const schedule =
@@ -740,6 +767,9 @@ export default function GroupDashboard({
 
   return (
     <div className="bg-slate-50 text-slate-900 dark:bg-gradient-to-br dark:from-[#040714] dark:via-[#080f24] dark:to-[#0d1a3a] dark:text-slate-100">
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {ariaLiveMessage}
+      </div>
       <div className="w-full flex h-full flex-col gap-6 px-4 py-6 lg:flex-row lg:items-start">
         <div className="w-full lg:max-w-sm flex-shrink-0">
           <GroupTreeSidebar
