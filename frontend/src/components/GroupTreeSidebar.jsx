@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { resolveEntityStatus } from "../utils/statuses";
@@ -158,6 +158,12 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     return metadata;
   }, [groups, groupBatches]);
   treeItemMetadataRef.current = treeItemsMetadata;
+  const handleEscapeBlur = useCallback((event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.currentTarget.blur();
+    }
+  }, []);
   useEffect(() => {
     if (sidebarView !== "folder" || selectedNode?.type !== "batch") {
       return;
@@ -1921,6 +1927,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                   setNewProjectError("");
                 }
               }}
+              onKeyDown={handleEscapeBlur}
               placeholder="New project name..."
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-800/80 dark:bg-[#101735] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-500/70"
               aria-label="New project name"
@@ -2350,15 +2357,16 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                       onSubmit={(event) => handleCreateFolder(event, group)}
                       className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm flex items-center gap-3 shadow-inner shadow-slate-200 dark:border-slate-700/80 dark:bg-[#0b1327] dark:shadow-black/30"
                     >
-                      <input
-                        type="text"
-                        value={newFolderNames[normalizedGroupId] || ""}
-                        onChange={(event) => handleFolderNameChange(group.id, event.target.value)}
-                        placeholder="New folder name..."
-                        className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-slate-800 dark:bg-transparent dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/60"
-                        aria-label={`New folder for ${group.name}`}
-                        autoComplete="off"
-                      />
+                    <input
+                      type="text"
+                      value={newFolderNames[normalizedGroupId] || ""}
+                      onChange={(event) => handleFolderNameChange(group.id, event.target.value)}
+                      placeholder="New folder name..."
+                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-slate-800 dark:bg-transparent dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/60"
+                      aria-label={`New folder for ${group.name}`}
+                      autoComplete="off"
+                      onKeyDown={handleEscapeBlur}
+                    />
                     <button
                       type="submit"
                       disabled={!(newFolderNames[normalizedGroupId] || "").trim()}
