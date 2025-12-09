@@ -901,16 +901,17 @@ export default function GroupDashboard({
                     <div className="px-6 py-6 space-y-6">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <StatCard value={groupSummary?.totalIssues} label="Total Issues" />
-                        <StatCard
-                          value={groupSummary?.fixedIssues}
-                          label="Fixed Issues"
-                          valueClass="text-emerald-600 dark:text-emerald-400"
-                        />
+                       
                         <StatCard
                           value={groupSummary?.remainingIssues}
                           label="Remaining"
                           valueClass="text-amber-600 dark:text-amber-400"
                           description="Issues still pending"
+                        />
+                         <StatCard
+                          value={groupSummary?.fixedIssues}
+                          label="Fixed Issues"
+                          valueClass="text-emerald-600 dark:text-emerald-400"
                         />
                         <StatCard
                           value={groupSummary?.unprocessedFiles}
@@ -980,16 +981,16 @@ export default function GroupDashboard({
                             <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Issues</div>
                           </div>
                           <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
-                            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                              {nodeData.fixedIssues || 0}
-                            </div>
-                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Fixed</div>
-                          </div>
-                          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
                             <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
                               {nodeData.remainingIssues || 0}
                             </div>
                             <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Remaining</div>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
+                            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                              {nodeData.fixedIssues || 0}
+                            </div>
+                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Fixed</div>
                           </div>
                           <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
                             <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-300">
