@@ -125,7 +125,10 @@ class SambaNovaRemediationEngine:
             # Create prompt for AI analysis
             prompt = self._create_analysis_prompt(issue_summary)
             
-            print(f"[SambaNova] Analyzing {sum(len(v) for v in issues.values())} issues with AI...")
+            total_issue_count = sum(
+                len(v) for key, v in issues.items() if key != "issues" and isinstance(v, list)
+            )
+            print(f"[SambaNova] Analyzing {total_issue_count} issues with AI...")
             
             # Call SambaNova API
             response = self.client.chat.completions.create(
@@ -832,7 +835,9 @@ Focus on WCAG 2.1 Level AA, PDF/UA-1, and PDF/A compliance."""
         return {
             'success': True,
             'ai_analysis': ai_response,
-            'total_issues': sum(len(v) for v in original_issues.values()),
+            'total_issues': sum(
+                len(v) for key, v in original_issues.items() if key != "issues" and isinstance(v, list)
+            ),
             'issue_categories': list(original_issues.keys()),
             'recommendations': self._extract_recommendations(ai_response),
             'estimated_effort': self._extract_effort_estimate(ai_response)

@@ -101,16 +101,26 @@ const determineStatus = (issues = []) => {
 }
 
 const buildFallbackSummary = (results) => {
-  const source = Array.isArray(results?.wcagIssues) ? results.wcagIssues : []
+  const canonical = Array.isArray(results?.issues) ? results.issues : []
+  const source =
+    canonical.length > 0
+      ? canonical.filter((issue) => issue && typeof issue === "object" && issue.criterion)
+      : Array.isArray(results?.wcagIssues)
+        ? results.wcagIssues
+        : []
   if (!source.length) return null
 
   const grouped = new Map()
+  const seenIds = new Set()
   source.forEach((issue) => {
     if (!issue || typeof issue !== "object") return
     const code = issue.criterion || issue.code
     if (!code) return
     const normalized = String(code).trim()
     if (!normalized) return
+    const id = issue.issueId || null
+    if (id && seenIds.has(id)) return
+    if (id) seenIds.add(id)
     if (!grouped.has(normalized)) {
       grouped.set(normalized, [])
     }

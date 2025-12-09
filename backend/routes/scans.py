@@ -849,20 +849,27 @@ async def get_scan(scan_id: str):
             )
 
         results_dict = results if isinstance(results, dict) else {}
-        current_issue_count = sum(
+        canonical_issues = results_dict.get("issues")
+        canonical_count = len(canonical_issues) if isinstance(canonical_issues, list) else 0
+        current_issue_count = canonical_count or sum(
             len(items)
-            for items in results_dict.values()
-            if isinstance(items, list)
+            for key, items in results_dict.items()
+            if key != "issues" and isinstance(items, list)
         )
         total_issues_value = summary.get("totalIssues")
         if not isinstance(total_issues_value, (int, float)):
             total_issues_value = current_issue_count
+        if canonical_count:
+            total_issues_value = canonical_count
         remaining_issues_value = summary.get("remainingIssues")
         if not isinstance(remaining_issues_value, (int, float)):
             remaining_issues_value = summary.get("issuesRemaining")
         if not isinstance(remaining_issues_value, (int, float)):
             remaining_issues_value = current_issue_count
+        if canonical_count and not isinstance(summary.get("remainingIssues"), (int, float)):
+            remaining_issues_value = canonical_count
         summary["totalIssues"] = total_issues_value
+        summary.setdefault("totalIssuesRaw", total_issues_value)
         summary["remainingIssues"] = remaining_issues_value
         summary["issuesRemaining"] = remaining_issues_value
         response_verapdf = verapdf_status or {

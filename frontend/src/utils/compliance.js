@@ -24,6 +24,20 @@ const getIssueCount = (results, key) => {
   return Array.isArray(issues) ? issues.length : 0
 }
 
+const countCanonical = (results = {}, predicate) => {
+  const issues = Array.isArray(results?.issues) ? results.issues : []
+  if (!issues.length) return 0
+  const seen = new Set()
+  return issues.reduce((count, issue) => {
+    if (!issue || typeof issue !== "object") return count
+    const id = issue.issueId
+    if (id && seen.has(id)) return count
+    if (id) seen.add(id)
+    if (predicate(issue)) return count + 1
+    return count
+  }, 0)
+}
+
 const computeScoreFromIssues = (issueCount) => clamp(100 - issueCount * ISSUE_PENALTY)
 
 const deriveComplianceValue = (reportedValue, issueCount) => {
@@ -34,8 +48,11 @@ const deriveComplianceValue = (reportedValue, issueCount) => {
 }
 
 export const calculateComplianceSnapshot = (results = {}, verapdfStatus = {}) => {
-  const wcagIssues = getIssueCount(results, "wcagIssues")
-  const pdfuaIssues = getIssueCount(results, "pdfuaIssues")
+  const canonicalWcag = countCanonical(results, (issue) => Boolean(issue.criterion))
+  const canonicalPdfua = countCanonical(results, (issue) => Boolean(issue.clause))
+
+  const wcagIssues = canonicalWcag || getIssueCount(results, "wcagIssues")
+  const pdfuaIssues = canonicalPdfua || getIssueCount(results, "pdfuaIssues")
 
   const wcagCompliance = deriveComplianceValue(verapdfStatus?.wcagCompliance, wcagIssues)
   const pdfuaCompliance = deriveComplianceValue(verapdfStatus?.pdfuaCompliance, pdfuaIssues)
@@ -74,23 +91,26 @@ export const calculateSummaryFromResults = (results = {}, verapdfStatus = null) 
     }
   }
 
+  const canonicalIssues = Array.isArray(results?.issues) ? results.issues : null
+
   let totalIssues = 0
   let highSeverity = 0
   let mediumSeverity = 0
   let lowSeverity = 0
 
-  Object.values(results).forEach((issues) => {
-    if (!Array.isArray(issues) || issues.length === 0) {
-      return
-    }
-
+  const processIssues = (issues) => {
+    const seen = new Set()
     issues.forEach((issue) => {
-      totalIssues += 1
       if (!issue || typeof issue !== "object") {
+        totalIssues += 1
         lowSeverity += 1
         return
       }
+      const id = issue.issueId
+      if (id && seen.has(id)) return
+      if (id) seen.add(id)
 
+      totalIssues += 1
       const severity = String(issue.severity || "").toLowerCase()
       if (HIGH_SEVERITIES.has(severity)) {
         highSeverity += 1
@@ -102,7 +122,18 @@ export const calculateSummaryFromResults = (results = {}, verapdfStatus = null) 
         lowSeverity += 1
       }
     })
-  })
+  }
+
+  if (canonicalIssues) {
+    processIssues(canonicalIssues)
+  } else {
+    Object.entries(results).forEach(([key, issues]) => {
+      if (key === "issues" || !Array.isArray(issues) || issues.length === 0) {
+        return
+      }
+      processIssues(issues)
+    })
+  }
 
   if (totalIssues > 0) {
     const classified = highSeverity + mediumSeverity + lowSeverity

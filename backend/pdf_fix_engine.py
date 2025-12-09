@@ -20,6 +20,7 @@ from backend.pdf_structure_standards import (
     is_standard_type,
     validate_structure_tree
 )
+from backend.utils.metadata_helpers import ensure_pdfua_metadata_stream
 
 logger = logging.getLogger(__name__)
 
@@ -520,24 +521,30 @@ class PDFAFixEngine:
                 filename = os.path.basename(pdf.filename) if hasattr(pdf, 'filename') and pdf.filename else 'Untitled'
                 title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
             
+            metadata_changed = False
+
             # Ensure docinfo exists
             if not hasattr(pdf, 'docinfo') or pdf.docinfo is None:
                 pdf.docinfo = pdf.make_indirect(Dictionary())
+                metadata_changed = True
             
             # Set title in docinfo
             if '/Title' not in pdf.docinfo:
                 pdf.docinfo['/Title'] = title
+                metadata_changed = True
             
             # Sync with XMP metadata using proper namespaces
             with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
                 # Dublin Core namespace for title
                 if not meta.get('{http://purl.org/dc/elements/1.1/}title'):
                     meta['{http://purl.org/dc/elements/1.1/}title'] = title
+                    metadata_changed = True
                 
                 # Also try shorthand
                 try:
                     if not meta.get('dc:title'):
                         meta['dc:title'] = title
+                        metadata_changed = True
                 except Exception as e:
                     pass
                 
@@ -548,6 +555,7 @@ class PDFAFixEngine:
                         try:
                             meta['{http://purl.org/dc/elements/1.1/}creator'] = author
                             meta['dc:creator'] = author
+                            metadata_changed = True
                         except Exception as e:
                             pass
                     
@@ -556,6 +564,7 @@ class PDFAFixEngine:
                         try:
                             meta['{http://purl.org/dc/elements/1.1/}description'] = subject
                             meta['dc:description'] = subject
+                            metadata_changed = True
                         except Exception as e:
                             pass
                     
@@ -564,13 +573,24 @@ class PDFAFixEngine:
                         try:
                             meta['{http://ns.adobe.com/pdf/1.3/}Keywords'] = keywords
                             meta['pdf:Keywords'] = keywords
+                            metadata_changed = True
                         except Exception as e:
                             pass
-            
+
+            stream_added = ensure_pdfua_metadata_stream(pdf, title)
+
+            description_parts = []
+            if metadata_changed:
+                description_parts.append('Synchronized DocInfo and XMP metadata with proper namespaces')
+            else:
+                description_parts.append('Metadata already synchronized')
+            if stream_added:
+                description_parts.append('ensured catalog metadata stream')
+
             return {
                 'success': True,
                 'type': 'fixMetadataConsistency',
-                'description': 'Synchronized DocInfo and XMP metadata with proper namespaces'
+                'description': '; '.join(description_parts)
             }
             
         except Exception as e:

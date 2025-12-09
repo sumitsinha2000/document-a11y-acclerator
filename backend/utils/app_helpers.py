@@ -429,12 +429,20 @@ def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
                 scan_row.get("id"),
                 calc_error,
             )
-            total_issues = sum(
-                len(v) if isinstance(v, list) else 0 for v in results.values()
+            canonical_list = results.get("issues") if isinstance(results, dict) else None
+            canonical_count = len(canonical_list) if isinstance(canonical_list, list) else 0
+            total_issues = canonical_count or sum(
+                len(v) if isinstance(v, list) else 0
+                for key, v in results.items()
+                if key != "issues"
             )
             summary = {
                 "totalIssues": total_issues,
+                "totalIssuesRaw": total_issues,
                 "highSeverity": 0,
+                "issuesRemaining": total_issues,
+                "remainingIssues": total_issues,
+                "issuesRemainingRaw": total_issues,
                 "complianceScore": max(0, 100 - total_issues * 2),
             }
 
@@ -1792,13 +1800,33 @@ def build_verapdf_status(results, analyzer=None):
             logger.exception("analyzer.get_verapdf_status failed")
     if not isinstance(results, dict):
         return status
-    wcag_issues = len(results.get("wcagIssues", []))
-    pdfua_issues = len(results.get("pdfuaIssues", []))
-    for category in CATEGORY_CRITERIA_MAP:
-        category_issues = results.get(category)
-        if isinstance(category_issues, list):
-            wcag_issues += len(category_issues)
-    total = wcag_issues + pdfua_issues
+
+    canonical = results.get("issues")
+    if isinstance(canonical, list) and canonical:
+        seen = set()
+        wcag_issues = 0
+        pdfua_issues = 0
+        for issue in canonical:
+            if not isinstance(issue, dict):
+                continue
+            issue_id = issue.get("issueId")
+            if issue_id and issue_id in seen:
+                continue
+            if issue_id:
+                seen.add(issue_id)
+            if issue.get("criterion"):
+                wcag_issues += 1
+            if issue.get("clause"):
+                pdfua_issues += 1
+        total = wcag_issues + pdfua_issues
+    else:
+        wcag_issues = len(results.get("wcagIssues", []))
+        pdfua_issues = len(results.get("pdfuaIssues", []))
+        for category in CATEGORY_CRITERIA_MAP:
+            category_issues = results.get(category)
+            if isinstance(category_issues, list):
+                wcag_issues += len(category_issues)
+        total = wcag_issues + pdfua_issues
     status["totalVeraPDFIssues"] = total
     if total == 0:
         status["isActive"] = True

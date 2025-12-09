@@ -10,6 +10,7 @@ import re
 # from backend.pdfa_fix_engine import PDFAFixEngine  # PDF/A fix engine temporarily disabled
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
+from backend.utils.metadata_helpers import ensure_pdfua_metadata_stream
 from backend.pdf_structure_standards import (
     STANDARD_STRUCTURE_TYPES,
     COMMON_ROLEMAP_MAPPINGS,
@@ -78,9 +79,28 @@ class AutoFixEngine:
         if not isinstance(results, dict):
             return status
 
-        wcag_issues = len(results.get("wcagIssues", []))
-        pdfua_issues = len(results.get("pdfuaIssues", []))
-        total = wcag_issues + pdfua_issues
+        canonical = results.get("issues")
+        if isinstance(canonical, list) and canonical:
+            seen = set()
+            wcag_issues = 0
+            pdfua_issues = 0
+            for issue in canonical:
+                if not isinstance(issue, dict):
+                    continue
+                issue_id = issue.get("issueId")
+                if issue_id and issue_id in seen:
+                    continue
+                if issue_id:
+                    seen.add(issue_id)
+                if issue.get("criterion"):
+                    wcag_issues += 1
+                if issue.get("clause"):
+                    pdfua_issues += 1
+            total = wcag_issues + pdfua_issues
+        else:
+            wcag_issues = len(results.get("wcagIssues", []))
+            pdfua_issues = len(results.get("pdfuaIssues", []))
+            total = wcag_issues + pdfua_issues
         status["totalVeraPDFIssues"] = total
 
         if total == 0:
@@ -597,24 +617,20 @@ class AutoFixEngine:
             try:
                 filename = scan_data.get('filename', os.path.basename(pdf_path))
                 title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
-                metadata_changed = False
-                
-                if not hasattr(pdf, 'docinfo') or pdf.docinfo is None:
-                    pdf.docinfo = pdf.make_indirect(Dictionary())
-                    print("[AutoFixEngine] Created new docinfo dictionary")
-                
-                docinfo = pdf.docinfo
-                current_title = docinfo.get('/Title')
-                if not current_title:
-                    docinfo['/Title'] = title
-                    metadata_changed = True
-                    print(f"[AutoFixEngine] ✓ Set DocInfo title: {title}")
-                
-                with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
-                    if not meta.get('dc:title'):
-                        meta['dc:title'] = title
-                        metadata_changed = True
-                        print(f"[AutoFixEngine] ✓ Set XMP dc:title: {title}")
+                initial_title = ""
+                try:
+                    if hasattr(pdf, "docinfo") and pdf.docinfo and "/Title" in pdf.docinfo:
+                        initial_title = str(pdf.docinfo.get("/Title") or "").strip()
+                except Exception:
+                    initial_title = ""
+
+                had_metadata_stream = "/Metadata" in pdf.Root
+                metadata_changed = ensure_pdfua_metadata_stream(pdf, title)
+
+                if not initial_title:
+                    print(f"[AutoFixEngine] ✓ Set document title metadata: {title}")
+                if not had_metadata_stream and "/Metadata" in pdf.Root:
+                    print("[AutoFixEngine] ✓ Added catalog Metadata stream with dc:title/pdfuaid markers")
 
                 if metadata_changed:
                     fixes_applied.append({

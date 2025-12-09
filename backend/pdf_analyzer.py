@@ -45,6 +45,7 @@ except ImportError:
     print("[Analyzer] WCAG validator not available")
 
 from backend.utils.compliance_scoring import derive_wcag_score
+from backend.utils.issue_registry import IssueRegistry
 
 # PDF/A validation is intentionally disabled; the analyzer now focuses on WCAG 2.1 and PDF/UA-1.
 
@@ -75,21 +76,8 @@ class PDFAccessibilityAnalyzer:
     _LOW_CONTRAST_PENALTY = 3
 
     def __init__(self):
-        self.issues = {
-            "missingMetadata": [],
-            "untaggedContent": [],
-            "missingAltText": [],
-            "poorContrast": [],
-            "missingLanguage": [],
-            "formIssues": [],
-            "tableIssues": [],
-            "structureIssues": [],
-            "readingOrderIssues": [],
-            "wcagIssues": [],
-            "linkIssues": [],
-            "pdfuaIssues": [],
-            "pdfaIssues": [],
-        }
+        self.issue_registry = IssueRegistry()
+        self._initialize_issue_buckets()
         self._contrast_manual_note_added = False
         self._low_contrast_issue_count = 0
         self._wcag_validator_metrics: Optional[Dict[str, Any]] = None
@@ -120,12 +108,306 @@ class PDFAccessibilityAnalyzer:
         else:
             self.wcag_validator_available = False
 
+    def _initialize_issue_buckets(self) -> None:
+        """Reset analyzer issue buckets for a fresh run."""
+        self.issues = {
+            "missingMetadata": [],
+            "untaggedContent": [],
+            "missingAltText": [],
+            "poorContrast": [],
+            "missingLanguage": [],
+            "formIssues": [],
+            "tableIssues": [],
+            "structureIssues": [],
+            "readingOrderIssues": [],
+            "wcagIssues": [],
+            "linkIssues": [],
+            "pdfuaIssues": [],
+            "pdfaIssues": [],
+        }
+
     def _metadata_text(self, value: Any) -> Optional[str]:
         """Return a clean metadata string or None if value is invalid."""
         if isinstance(value, str):
             normalized = value.strip()
             return normalized or None
         return None
+
+    def _normalize_issue_pages(self, issue: Dict[str, Any]) -> List[int]:
+        """Return a normalized pages list from 'page' or 'pages' fields."""
+        pages: List[int] = []
+        if not isinstance(issue, dict):
+            return pages
+
+        candidate_pages = issue.get("pages")
+        if candidate_pages is None and issue.get("page") is not None:
+            candidate_pages = [issue.get("page")]
+
+        if isinstance(candidate_pages, (list, tuple, set)):
+            for entry in candidate_pages:
+                try:
+                    pages.append(int(entry))
+                except Exception:
+                    continue
+        elif candidate_pages is not None:
+            try:
+                pages.append(int(candidate_pages))
+            except Exception:
+                pass
+
+        return sorted(set(pages))
+
+    def _infer_metadata_field(self, description: Optional[str]) -> Optional[str]:
+        """Best-effort detection of which metadata field is missing."""
+        if not description:
+            return None
+        lowered = description.lower()
+        if "title" in lowered:
+            return "title"
+        if "author" in lowered:
+            return "author"
+        if "subject" in lowered or "description" in lowered:
+            return "subject"
+        return None
+
+    def _kind_from_wcag_criterion(self, criterion: Optional[str], description: str) -> str:
+        """Map WCAG criterion to an internal category for canonical issues."""
+        code = (criterion or "").strip()
+        desc_lower = description.lower()
+        if code == "3.1.1":
+            return "language"
+        if code in {"1.4.3", "1.4.6"}:
+            return "contrast"
+        if code == "1.1.1":
+            return "alt-text"
+        if code == "2.4.2":
+            return "metadata"
+        if code == "2.4.4":
+            return "links"
+        if code == "3.3.2":
+            return "forms"
+        if code == "1.3.2":
+            return "reading-order"
+        if code == "1.3.1":
+            if "table" in desc_lower:
+                return "table"
+            return "structure"
+        return "wcag"
+
+    def _kind_from_pdfua_clause(self, clause: Optional[str], description: str) -> str:
+        """Map PDF/UA clauses to internal categories."""
+        clause_text = (clause or "").lower()
+        desc_lower = description.lower()
+        if "7.5" in clause_text:
+            return "table"
+        if "7.1" in clause_text and ("tag" in desc_lower or "tagged" in desc_lower):
+            return "tagging"
+        if "7.18" in clause_text:
+            return "forms"
+        return "pdfua"
+
+    def _resolve_issue_kind(
+        self,
+        bucket: str,
+        issue: Dict[str, Any],
+        criterion: Optional[str],
+        clause: Optional[str],
+        description: str,
+    ) -> str:
+        """Return the canonical category for the issue."""
+        bucket_defaults = {
+            "missingLanguage": "language",
+            "missingMetadata": "metadata",
+            "missingAltText": "alt-text",
+            "poorContrast": "contrast",
+            "untaggedContent": "tagging",
+            "tableIssues": "table",
+            "formIssues": "forms",
+            "linkIssues": "links",
+            "structureIssues": "structure",
+            "readingOrderIssues": "reading-order",
+        }
+        if bucket == "wcagIssues":
+            return self._kind_from_wcag_criterion(criterion, description)
+        if bucket == "pdfuaIssues":
+            desc_lower = description.lower()
+            if "metadata stream" in desc_lower or "dc:title" in desc_lower or "metadata" in desc_lower:
+                return "metadata"
+            return self._kind_from_pdfua_clause(clause, description)
+        return bucket_defaults.get(bucket, bucket)
+
+    def _issue_extra(
+        self,
+        bucket: str,
+        issue: Dict[str, Any],
+        criterion: Optional[str],
+        clause: Optional[str],
+        description: str,
+    ) -> Optional[str]:
+        """Build an 'extra' token to keep issueIds stable but collision-free."""
+        desc_lower = description.lower()
+        if criterion == "3.1.1" or bucket == "missingLanguage":
+            if "invalid" in desc_lower:
+                return "language-invalid"
+            return "language-missing"
+
+        if bucket == "untaggedContent" or (
+            clause and "14289-1:7.1" in clause and "tag" in desc_lower
+        ):
+            return "untagged"
+
+        if (
+            bucket == "tableIssues"
+            or (criterion == "1.3.1" and "table" in desc_lower)
+            or (clause and "14289-1:7.5" in clause)
+        ):
+            label = issue.get("tableLabel") or issue.get("description")
+            pages = self._normalize_issue_pages(issue)
+            if label:
+                return label
+            if pages:
+                return f"table-{pages[0]}"
+            return "table"
+
+        if bucket == "missingMetadata" or criterion == "2.4.2":
+            field = self._infer_metadata_field(description)
+            return field or "metadata"
+
+        if bucket == "missingAltText" or criterion == "1.1.1":
+            return (
+                issue.get("context")
+                or issue.get("imageIndex")
+                or issue.get("location")
+                or description
+            )
+
+        if bucket == "poorContrast" or criterion in {"1.4.3", "1.4.6"}:
+            return issue.get("textSample") or description
+
+        if issue.get("context"):
+            return str(issue.get("context"))
+
+        return None
+
+    def _extract_issue_meta(self, issue: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Collect lightweight metadata for canonical issue references."""
+        meta_keys = (
+            "context",
+            "location",
+            "imageIndex",
+            "count",
+            "contrastRatio",
+            "textSample",
+            "advisoryCriteria",
+        )
+        meta: Dict[str, Any] = {}
+        for key in meta_keys:
+            if key in issue:
+                meta[key] = issue[key]
+        return meta or None
+
+    def _register_issue_for_bucket(self, bucket: str, issue: Dict[str, Any]) -> Dict[str, Any]:
+        """Attach an issueId and register a canonical issue for the bucket entry."""
+        if not isinstance(issue, dict):
+            return issue
+
+        criterion_defaults = {
+            "missingLanguage": "3.1.1",
+            "missingAltText": "1.1.1",
+            "poorContrast": "1.4.3",
+            "tableIssues": "1.3.1",
+            "formIssues": "3.3.2",
+            "linkIssues": "2.4.4",
+            "structureIssues": "1.3.1",
+            "readingOrderIssues": "1.3.2",
+            "missingMetadata": "2.4.2",
+        }
+        clause_defaults = {
+            "untaggedContent": "ISO 14289-1:7.1",
+            "tableIssues": "ISO 14289-1:7.5",
+        }
+
+        criterion = str(issue.get("criterion") or criterion_defaults.get(bucket) or "").strip() or None
+        clause = issue.get("clause") or clause_defaults.get(bucket)
+        description = (
+            str(issue.get("description") or issue.get("message") or bucket).strip()
+        )
+        pages = self._normalize_issue_pages(issue)
+        if pages and "pages" not in issue:
+            issue["pages"] = pages
+        severity = issue.get("severity") or "medium"
+
+        kind = self._resolve_issue_kind(bucket, issue, criterion, clause, description)
+        extra = self._issue_extra(bucket, issue, criterion, clause, description)
+        use_pages_in_id = True
+        document_level_criteria = {"3.1.1", "2.4.2"}
+        if criterion in document_level_criteria:
+            use_pages_in_id = False
+        if bucket in {"missingLanguage", "missingMetadata"}:
+            use_pages_in_id = False
+        if bucket == "untaggedContent" or (clause and "14289-1:7.1" in clause):
+            use_pages_in_id = False
+
+        canonical = self.issue_registry.register_issue(
+            kind=kind,
+            criterion=criterion,
+            clause=clause,
+            pages=pages,
+            use_pages_in_id=use_pages_in_id,
+            severity=severity,
+            description=description,
+            wcag_criteria=issue.get("wcagCriteria"),
+            pdfua_clause=clause,
+            raw_source=bucket,
+            penalty_weight=issue.get("penaltyWeight"),
+            meta=self._extract_issue_meta(issue),
+            extra=extra,
+        )
+        issue["issueId"] = canonical["issueId"]
+        return issue
+
+    def _canonicalize_and_attach_issue_ids(self) -> Dict[str, Any]:
+        """Return results with canonical issues and issueIds attached to buckets."""
+        self.issue_registry.reset()
+        results: Dict[str, Any] = {}
+        for bucket, payload in self.issues.items():
+            if not isinstance(payload, list):
+                results[bucket] = payload
+                continue
+
+            bucket_items: List[Any] = []
+            for entry in payload:
+                if isinstance(entry, dict):
+                    bucket_items.append(self._register_issue_for_bucket(bucket, entry))
+                else:
+                    bucket_items.append(entry)
+            results[bucket] = bucket_items
+
+        results["issues"] = self.issue_registry.issues
+        return results
+
+    def _collect_canonical_issues(self, results: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Collect canonical issues from registry or provided results."""
+        if hasattr(self, "issue_registry") and getattr(self, "issue_registry", None):
+            canonical = self.issue_registry.issues
+            if canonical:
+                return canonical
+
+        if isinstance(results, dict):
+            canonical_list = results.get("issues")
+            if isinstance(canonical_list, list):
+                return canonical_list
+
+        collected: List[Dict[str, Any]] = []
+        source = results if isinstance(results, dict) else self.issues
+        if isinstance(source, dict):
+            for key, items in source.items():
+                if key == "issues" or not isinstance(items, list):
+                    continue
+                for entry in items:
+                    if isinstance(entry, dict):
+                        collected.append(entry)
+        return collected
 
     def analyze(self, pdf_path: str) -> Dict[str, Any]:
         """
@@ -138,6 +420,17 @@ class PDFAccessibilityAnalyzer:
             Dictionary containing all identified accessibility issues
         """
         print(f"[Analyzer] Starting analysis of {pdf_path}")
+        self._initialize_issue_buckets()
+        self.issue_registry.reset()
+        self._contrast_manual_note_added = False
+        self._low_contrast_issue_count = 0
+        self._wcag_validator_metrics = None
+        self._verapdf_alt_findings = []
+        self._tagging_state = {
+            "is_tagged": None,
+            "has_struct_tree": None,
+            "tables_reviewed": None,
+        }
         
         try:
             if self.pdf_extract_kit and self.pdf_extract_kit.is_available():
@@ -156,9 +449,6 @@ class PDFAccessibilityAnalyzer:
             
             # PDF/A validation is disabled to keep analytics focused on WCAG 2.1 and PDF/UA checks.
             
-            total_issues = sum(len(v) for v in self.issues.values())
-            print(f"[Analyzer] Analysis complete, found {total_issues} issues")
-            
         except Exception as e:
             print(f"[Analyzer] Error during analysis: {e}")
             import traceback
@@ -171,7 +461,11 @@ class PDFAccessibilityAnalyzer:
             )
         
         self._consolidate_poor_contrast_issues()
-        return self.issues
+        results = self._canonicalize_and_attach_issue_ids()
+        self.issues = results
+        canonical_count = len(results.get("issues", [])) if isinstance(results, dict) else 0
+        print(f"[Analyzer] Analysis complete, found {canonical_count} canonical issues")
+        return results
 
     def _analyze_with_pdf_extract_kit(self, pdf_path: str):
         """Analyze PDF using PDF-Extract-Kit for advanced accessibility checks"""
@@ -906,16 +1200,14 @@ class PDFAccessibilityAnalyzer:
     def calculate_compliance_score(self) -> int:
         """Calculate overall accessibility compliance score (0-100)"""
         try:
-            total_issues = sum(len(v) for v in self.issues.values())
-            
-            if total_issues == 0:
+            canonical_issues = self._collect_canonical_issues(self.issues)
+            if not canonical_issues:
                 return 100
-            
+
             total_penalty = 0
-            for category in self.issues.values():
-                for issue in category:
-                    if isinstance(issue, dict):
-                        total_penalty += self._determine_issue_penalty(issue)
+            for issue in canonical_issues:
+                if isinstance(issue, dict):
+                    total_penalty += self._determine_issue_penalty(issue)
 
             score = 100 - total_penalty
             return max(0, min(100, score))
@@ -926,20 +1218,33 @@ class PDFAccessibilityAnalyzer:
     def get_summary(self) -> Dict[str, Any]:
         """Get summary statistics of the analysis"""
         try:
-            total_issues = sum(len(v) for v in self.issues.values())
-            high_severity = sum(
-                len([i for i in v if isinstance(i, dict) and i.get("severity") == "high"])
-                for v in self.issues.values()
+            canonical_issues = self._collect_canonical_issues(self.issues)
+            total_issues = len(canonical_issues)
+            high_severity = len(
+                [
+                    i
+                    for i in canonical_issues
+                    if isinstance(i, dict)
+                    and str(i.get("severity") or "").lower() in {"high", "critical"}
+                ]
             )
-            medium_severity = sum(
-                len([i for i in v if isinstance(i, dict) and i.get("severity") == "medium"])
-                for v in self.issues.values()
+            medium_severity = len(
+                [
+                    i
+                    for i in canonical_issues
+                    if isinstance(i, dict)
+                    and str(i.get("severity") or "").lower() == "medium"
+                ]
             )
 
             return {
                 "totalIssues": total_issues,
+                "totalIssuesRaw": total_issues,
                 "highSeverity": high_severity,
                 "mediumSeverity": medium_severity,
+                "issuesRemaining": total_issues,
+                "remainingIssues": total_issues,
+                "issuesRemainingRaw": total_issues,
                 "complianceScore": self.calculate_compliance_score(),
                 "wcagCompliance": derive_wcag_score(self.issues),
             }
@@ -966,17 +1271,38 @@ class PDFAccessibilityAnalyzer:
             Summary statistics including total issues, severity counts, and compliance score
         """
         try:
-            total_issues = sum(len(v) for v in results.values())
-            
-            high_severity = sum(
-                len([i for i in v if isinstance(i, dict) and i.get("severity") == "high"])
-                for v in results.values()
+            canonical_list = results.get("issues") if isinstance(results, dict) else None
+            canonical_issues = canonical_list if isinstance(canonical_list, list) else []
+
+            if not canonical_issues and isinstance(results, dict):
+                canonical_issues = [
+                    issue
+                    for key, value in results.items()
+                    if key != "issues"
+                    and isinstance(value, list)
+                    for issue in value
+                    if isinstance(issue, dict)
+                ]
+
+            total_issues = len(canonical_issues)
+
+            high_severity = len(
+                [
+                    i
+                    for i in canonical_issues
+                    if isinstance(i, dict)
+                    and str(i.get("severity") or "").lower() in {"high", "critical"}
+                ]
             )
-            medium_severity = sum(
-                len([i for i in v if isinstance(i, dict) and i.get("severity") == "medium"])
-                for v in results.values()
+            medium_severity = len(
+                [
+                    i
+                    for i in canonical_issues
+                    if isinstance(i, dict)
+                    and str(i.get("severity") or "").lower() == "medium"
+                ]
             )
-            low_severity = total_issues - high_severity - medium_severity
+            low_severity = max(total_issues - high_severity - medium_severity, 0)
 
             # Calculate compliance score
             if total_issues == 0:
@@ -987,8 +1313,12 @@ class PDFAccessibilityAnalyzer:
 
             summary = {
                 "totalIssues": total_issues,
+                "totalIssuesRaw": total_issues,
                 "highSeverity": high_severity,
                 "mediumSeverity": medium_severity,
+                "issuesRemaining": total_issues,
+                "remainingIssues": total_issues,
+                "issuesRemainingRaw": total_issues,
                 "complianceScore": compliance_score,
             }
 
