@@ -2455,11 +2455,13 @@ class WCAGValidator:
     def _extract_annotation_label(self, annotation: Dict[str, Any]) -> Optional[str]:
         if not isinstance(annotation, dict):
             return None
-        for key in ("contents", "title"):
-            value = annotation.get(key)
-            snippet = self._clean_text_snippet(value)
-            if snippet:
-                return snippet
+
+        # Annotation titles may be shown to users (e.g., tooltip), but /Contents entries
+        # generally are not exposed to assistive tech or the visual interface.
+        title_snippet = self._clean_text_snippet(annotation.get("title"))
+        if title_snippet:
+            return title_snippet
+
         data = annotation.get("data")
         if isinstance(data, dict):
             for key in ("/Alt", "Alt", "/ActualText", "ActualText", "/TU", "TU", "/T", "T"):

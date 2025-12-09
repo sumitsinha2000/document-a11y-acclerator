@@ -94,6 +94,11 @@ class PDFAccessibilityAnalyzer:
         self._low_contrast_issue_count = 0
         self._wcag_validator_metrics: Optional[Dict[str, Any]] = None
         self._verapdf_alt_findings: List[Dict[str, Any]] = []
+        self._tagging_state = {
+            "is_tagged": None,
+            "has_struct_tree": None,
+            "tables_reviewed": None,
+        }
         
         self.pdf_extract_kit = None
         if PDF_EXTRACT_KIT_AVAILABLE:
@@ -261,7 +266,8 @@ class PDFAccessibilityAnalyzer:
                     if isinstance(mark_info, PyPDF2.generic.IndirectObject):
                         mark_info = mark_info.get_object()
                     is_tagged = mark_info.get("/Marked", False) if isinstance(mark_info, dict) else False
-                
+                self._tagging_state["is_tagged"] = bool(is_tagged)
+
                 if not is_tagged:
                     self.issues["untaggedContent"].append({
                         "severity": "high",
@@ -279,6 +285,8 @@ class PDFAccessibilityAnalyzer:
         """Analyze PDF using pdfplumber for content analysis"""
         try:
             tables_reviewed = False
+            self._tagging_state["tables_reviewed"] = False
+            self._tagging_state["has_struct_tree"] = False
             try:
                 with open(pdf_path, 'rb') as file:
                     import PyPDF2
@@ -299,11 +307,13 @@ class PDFAccessibilityAnalyzer:
                     
                     # Check for StructTreeRoot (indicates structure tags exist)
                     has_struct_tree = catalog.get("/StructTreeRoot") if isinstance(catalog, dict) else None
+                    self._tagging_state["has_struct_tree"] = has_struct_tree is not None
                     
                     # If document is tagged and has structure tree, consider tables reviewed
                     if is_tagged and has_struct_tree:
                         tables_reviewed = True
                         print("[Analyzer] Document has structure tags - tables marked as reviewed")
+                    self._tagging_state["tables_reviewed"] = tables_reviewed
             except Exception as e:
                 print(f"[Analyzer] Could not check table review status: {e}")
             
