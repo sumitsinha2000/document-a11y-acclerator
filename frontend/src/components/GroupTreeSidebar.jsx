@@ -74,7 +74,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
   const [folderFilesLoading, setFolderFilesLoading] = useState(false);
   const [folderFilesError, setFolderFilesError] = useState(null);
   const [refreshingGroupId, setRefreshingGroupId] = useState(null);
-  const [deletingFileId, setDeletingFileId] = useState(null);
+  const [deletingFileIds, setDeletingFileIds] = useState(() => new Set());
   const [refreshingFolderCounts, setRefreshingFolderCounts] = useState({});
   const handledFolderNavigationRef = useRef(null);
   const folderStatusRefreshKeyRef = useRef(null);
@@ -84,6 +84,36 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
   const folderBackButtonRef = useRef(null);
   const [activeTreeItemId, setActiveTreeItemId] = useState(null);
   const { confirm, showError, showSuccess } = useNotification();
+  const updateDeletingFileState = (fileId, isDeleting) => {
+    const normalizedFileId = normalizeId(fileId);
+    if (!normalizedFileId) {
+      return;
+    }
+
+    setDeletingFileIds((prev) => {
+      const hasFile = prev.has(normalizedFileId);
+      if (isDeleting) {
+        if (hasFile) {
+          return prev;
+        }
+        const next = new Set(prev);
+        next.add(normalizedFileId);
+        return next;
+      }
+
+      if (!hasFile) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(normalizedFileId);
+      return next;
+    });
+  };
+
+  const isDeletingFile = (fileId) => {
+    const normalizedFileId = normalizeId(fileId);
+    return !!normalizedFileId && deletingFileIds.has(normalizedFileId);
+  };
   const treeItemsMetadata = useMemo(() => {
     const metadata = {};
     groups.forEach((group, groupIndex) => {
@@ -1005,7 +1035,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       return;
     }
 
-    setDeletingFileId(fileId);
+    updateDeletingFileState(fileId, true);
     try {
       await axios.delete(`${API_BASE_URL}/api/scan/${fileId}`);
       showSuccess(`Deleted "${fileName}"`);
@@ -1133,7 +1163,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       showError(error?.response?.data?.error || "Failed to delete file");
       await handleNodeClick(null);
     } finally {
-      setDeletingFileId(null);
+      updateDeletingFileState(fileId, false);
     }
   };
 
@@ -1753,9 +1783,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
               const statusInfo = resolveEntityStatus(file);
               const badgeColorClasses =
                 STATUS_BADGE_STYLES[statusInfo.code] || STATUS_BADGE_STYLES.uploaded;
-              const normalizedDeletingId = normalizeId(deletingFileId);
-              const normalizedFileId = normalizeId(fileId);
-              const isDeletingThisFile = normalizedDeletingId && normalizedDeletingId === normalizedFileId;
+              const isDeletingThisFile = isDeletingFile(fileId);
               return (
                 <div key={fileKey} className="relative group/file-entry">
                   <button
