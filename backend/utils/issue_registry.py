@@ -23,7 +23,12 @@ def _normalize_code(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
     text = str(value).strip().lower()
-    return text.replace(" ", "").replace("/", "").replace(":", "-")
+    return (
+        text.replace(" ", "")
+        .replace("/", "")
+        .replace(":", "-")
+        .replace(".", "-")
+    )
 
 
 def _normalize_pages(pages: Optional[Iterable[Any]]) -> List[int]:
