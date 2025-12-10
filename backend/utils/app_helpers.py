@@ -70,6 +70,11 @@ SUMMARY_PENDING_STATUSES = {"queued", "pending", "uploading", "processing"}
 NEON_DATABASE_URL = os.getenv('NEON_DATABASE_URL')
 DB_SCHEMA = os.getenv('DB_SCHEMA', 'public')
 
+def _sanitize_string(value: str) -> str:
+    """Strip characters that PostgreSQL JSON/text types reject."""
+    return value.replace("\x00", "")
+
+
 def to_json_safe(data):
     """
     Recursively convert data into JSON-safe types:
@@ -78,6 +83,7 @@ def to_json_safe(data):
     - UUID -> string
     - set -> list
     - bytes -> utf-8 string
+    - str -> sanitized text
     - Nested dicts/lists handled automatically
     """
     if isinstance(data, (datetime, date)):
@@ -88,9 +94,11 @@ def to_json_safe(data):
         return str(data)
     elif isinstance(data, bytes):
         try:
-            return data.decode("utf-8")
+            return _sanitize_string(data.decode("utf-8"))
         except Exception:
             return str(data)
+    elif isinstance(data, str):
+        return _sanitize_string(data)
     elif isinstance(data, set):
         return list(data)
     elif isinstance(data, dict):
