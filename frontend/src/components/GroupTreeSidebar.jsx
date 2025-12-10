@@ -30,6 +30,43 @@ const TREE_ITEM_FOCUS_CLASSES =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
 const FOCUSABLE_ELEMENTS_SELECTOR = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
 
+const ENTITY_NAME_MIN_LENGTH = 3;
+const ENTITY_NAME_MAX_LENGTH = 50;
+const sanitizeInputValue = (value) => {
+  return (value ?? "").replace(/[^A-Za-z0-9 ]+/g, "")
+}
+
+const validateEntityName = (value, options = {}) => {
+  const { label = "Name", minLength = ENTITY_NAME_MIN_LENGTH, maxLength = ENTITY_NAME_MAX_LENGTH } = options;
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return {
+      isValid: false,
+      trimmed: "",
+      message: `${label} is required.`,
+    };
+  }
+  if (trimmed.length < minLength) {
+    return {
+      isValid: false,
+      trimmed,
+      message: `${label} must be at least ${minLength} characters.`,
+    };
+  }
+  if (trimmed.length > maxLength) {
+    return {
+      isValid: false,
+      trimmed,
+      message: `${label} must be ${maxLength} characters or fewer.`,
+    };
+  }
+  return {
+    isValid: true,
+    trimmed,
+    message: "",
+  };
+};
+
 const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
   {
     onNodeSelect,
@@ -86,7 +123,12 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
   const projectDeleteModalRef = useRef(null);
   const folderDeleteModalRef = useRef(null);
   const [activeTreeItemId, setActiveTreeItemId] = useState(null);
-  const { confirm, showError, showSuccess } = useNotification();
+  const { confirm, showError, showSuccess, showDialog } = useNotification();
+  const projectNameValidation = validateEntityName(newProjectName, { label: "Project name" });
+  const projectCharCount = newProjectName.length;
+  const projectCharCountClass = projectNameValidation.isValid
+    ? "text-slate-500 dark:text-slate-400"
+    : "text-rose-600 dark:text-rose-400";
   const updateDeletingFileState = (fileId, isDeleting) => {
     const normalizedFileId = normalizeId(fileId);
     if (!normalizedFileId) {
@@ -998,21 +1040,36 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
   const handleCreateProject = async (event) => {
     event?.preventDefault();
 
-    const trimmedName = newProjectName.trim();
-    if (!trimmedName) {
-      setStatusMessage("Enter a project name first");
+    const validation = validateEntityName(newProjectName, { label: "Project name" });
+    if (!validation.isValid) {
+      const message = validation.message;
+      showDialog({
+        title: "Invalid project name",
+        message,
+        closeText: "Okay",
+      });
+      setNewProjectError(message);
+      setStatusMessage(message);
       return;
     }
-
+    const trimmedName = validation.trimmed;
     const normalizedName = trimmedName.toLowerCase();
     const duplicate = groups.some(
-      (group) => (group.name || "").toLowerCase() === normalizedName
+      (group) => (group.name || "").trim().toLowerCase() === normalizedName
     );
     if (duplicate) {
-      setNewProjectError(`Project "${trimmedName}" already exists`);
+      const message = `Project "${trimmedName}" already exists`;
+      showDialog({
+        title: "Duplicate project name",
+        message,
+        closeText: "Got it",
+      });
+      setNewProjectError(message);
+      setStatusMessage(message);
       return;
     }
 
+    setNewProjectError("");
     setIsCreatingProject(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/api/groups`, {
@@ -1021,14 +1078,12 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
 
       if (response?.data?.group) {
         setStatusMessage(`Project "${trimmedName}" created`);
-        setNewProjectError("");
         setNewProjectName("");
         await fetchGroups();
         return;
       }
 
       setStatusMessage("Project created");
-      setNewProjectError("");
       setNewProjectName("");
       await fetchGroups();
     } catch (error) {
@@ -1413,9 +1468,10 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
 
   const handleFolderNameChange = (groupId, value) => {
     const key = normalizeId(groupId);
+    const sanitized = sanitizeInputValue(value);
     setNewFolderNames((prev) => ({
       ...prev,
-      [key]: value,
+      [key]: sanitized,
     }));
     setFolderErrors((prev) => {
       if (!prev[key]) {
@@ -1435,11 +1491,23 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       return;
     }
     const key = normalizeId(group.id);
-    const folderName = (newFolderNames[key] || "").trim();
-    if (!folderName) {
-      setStatusMessage("Enter a folder name first");
+    const folderNameInput = newFolderNames[key] || "";
+    const folderValidation = validateEntityName(folderNameInput, { label: "Folder name" });
+    if (!folderValidation.isValid) {
+      const message = folderValidation.message;
+      showDialog({
+        title: "Invalid folder name",
+        message,
+        closeText: "Okay",
+      });
+      setFolderErrors((prev) => ({
+        ...prev,
+        [key]: message,
+      }));
+      setStatusMessage(message);
       return;
     }
+    const folderName = folderValidation.trimmed;
     const normalizedNewFolderName = folderName.toLowerCase();
     const existingFolders = groupBatches[key] || [];
     const folderExists = existingFolders.some((folder) => {
@@ -1448,6 +1516,11 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     });
     if (folderExists) {
       const message = `Folder "${folderName}" already exists`;
+      showDialog({
+        title: "Duplicate folder",
+        message,
+        closeText: "Got it",
+      });
       setFolderErrors((prev) => ({
         ...prev,
         [key]: message,
@@ -2078,7 +2151,8 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
               type="text"
               value={newProjectName}
               onChange={(event) => {
-                setNewProjectName(event.target.value);
+                const sanitized = sanitizeInputValue(event.target.value);
+                setNewProjectName(sanitized);
                 if (newProjectError) {
                   setNewProjectError("");
                 }
@@ -2089,13 +2163,14 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
               aria-label="New project name"
               autoComplete="off"
             />
-            {newProjectError && (
+            
+            {/* {newProjectError && (
               <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{newProjectError}</p>
-            )}
+            )} */}
           </div>
         <button
           type="submit"
-          disabled={!newProjectName.trim() || isCreatingProject}
+          disabled={isCreatingProject}
           className="flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:disabled:bg-slate-600"
         >
           <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -2148,6 +2223,12 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
             const isRefreshingFolders = refreshingGroupId === normalizedGroupId;
             const groupActionsTabIndex =
               activeTreeItemId === groupTreeId ? 0 : -1;
+            const folderInputValue = newFolderNames[normalizedGroupId] || "";
+            const folderNameValidation = validateEntityName(folderInputValue, { label: "Folder name" });
+            const folderCharCountClass = folderNameValidation.isValid
+              ? "text-slate-500 dark:text-slate-400"
+              : "text-rose-600 dark:text-rose-400";
+            const folderCharCount = folderInputValue.length;
 
             return (
               <div key={group.id} className="space-y-2">
@@ -2515,7 +2596,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                     >
                     <input
                       type="text"
-                      value={newFolderNames[normalizedGroupId] || ""}
+                      value={folderInputValue}
                       onChange={(event) => handleFolderNameChange(group.id, event.target.value)}
                       placeholder="New folder name..."
                       className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-slate-800 dark:bg-transparent dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/60"
@@ -2525,18 +2606,11 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                     />
                     <button
                       type="submit"
-                      disabled={!(newFolderNames[normalizedGroupId] || "").trim()}
                       className="rounded-xl bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:disabled:bg-slate-600"
                     >
                       + 
                     </button>
                   </form>
-                  {folderErrors[normalizedGroupId] && (
-                    <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
-                      {folderErrors[normalizedGroupId]}
-                    </p>
-                  )}
-
                     {false && (
                       <>
                         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-3">

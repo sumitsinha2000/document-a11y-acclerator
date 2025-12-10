@@ -1,9 +1,10 @@
 import { useNotification } from "../contexts/NotificationContext"
 import Toast from "./Toast"
 import ConfirmDialog from "./ConfirmDialog"
+import ErrorDialog from "./ErrorDialog"
 
 export default function NotificationContainer() {
-  const { toasts, confirmDialog, removeToast } = useNotification()
+  const { toasts, confirmDialog, dialog, removeToast } = useNotification()
 
   const hasToasts = toasts && toasts.length > 0
 
@@ -33,6 +34,8 @@ export default function NotificationContainer() {
 
       {/* Confirm Dialog */}
       {confirmDialog && <ConfirmDialog {...confirmDialog} />}
+      {/* Error Dialog */}
+      {dialog && <ErrorDialog {...dialog} />}
     </>
   )
 }

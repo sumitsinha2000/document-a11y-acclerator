@@ -5,6 +5,7 @@ const NotificationContext = createContext(null)
 export function NotificationProvider({ children }) {
   const [toasts, setToasts] = useState([])
   const [confirmDialog, setConfirmDialog] = useState(null)
+  const [dialog, setDialog] = useState(null)
 
   const showToast = useCallback((message, type = "info", duration = 5000) => {
     const id = Date.now() + Math.random()
@@ -36,6 +37,15 @@ export function NotificationProvider({ children }) {
     })
   }, [])
 
+  const showDialog = useCallback(({ title = "Notice", message, closeText = "OK" }) => {
+    setDialog({
+      title,
+      message,
+      closeText,
+      onClose: () => setDialog(null),
+    })
+  }, [])
+
   return (
     <NotificationContext.Provider
       value={{
@@ -45,8 +55,10 @@ export function NotificationProvider({ children }) {
         showWarning,
         showInfo,
         confirm,
+        showDialog,
         toasts,
         confirmDialog,
+        dialog,
         removeToast,
       }}
     >
