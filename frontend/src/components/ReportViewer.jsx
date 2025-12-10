@@ -729,7 +729,7 @@ export default function ReportViewer({
         )}
       </div>
 
-      <div className="pt-4 px-8 pb-8 space-y-6">
+      <div className="px-8 pb-8 space-y-6">
           {scans.length > 1 && (
             <div className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
               {scans.map((scan, index) => {

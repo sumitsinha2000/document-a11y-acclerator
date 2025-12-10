@@ -28,7 +28,11 @@ from backend.multi_tier_storage import download_remote_file, upload_file_with_fa
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
-from backend.fix_progress_tracker import create_progress_tracker, get_progress_tracker
+from backend.fix_progress_tracker import (
+    create_progress_tracker,
+    get_progress_tracker,
+    schedule_tracker_cleanup,
+)
 from backend.utils.wcag_mapping import annotate_wcag_mappings, CATEGORY_CRITERIA_MAP
 from backend.utils.criteria_summary import build_criteria_summary
 from backend.utils.compliance_scoring import derive_wcag_score
@@ -534,6 +538,29 @@ def update_group_file_count(group_id: str):
     except Exception:
         logger.exception("[Backend] Error updating group file count for %s", group_id)
 
+def _extract_canonical_issue_count(payload: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Return the deduplicated canonical issue count from a scan payload."""
+    if not isinstance(payload, dict):
+        return None
+    results = payload.get("results")
+    if not isinstance(results, dict):
+        results = payload
+    canonical = results.get("issues")
+    if not isinstance(canonical, list):
+        return None
+    seen: Set[Any] = set()
+    count = 0
+    for issue in canonical:
+        if isinstance(issue, dict):
+            issue_id = issue.get("issueId")
+            if issue_id:
+                if issue_id in seen:
+                    continue
+                seen.add(issue_id)
+        count += 1
+    return count
+
+
 def save_scan_to_db(
     scan_id: str,
     original_filename: str,
@@ -555,6 +582,8 @@ def save_scan_to_db(
     payload_dict = scan_results if isinstance(scan_results, dict) else {}
     payload_dict = _ensure_scan_results_compliance(payload_dict)
     summary = payload_dict.get("summary", {}) if isinstance(payload_dict, dict) else {}
+    canonical_count = _extract_canonical_issue_count(payload_dict)
+
     computed_total = (
         total_issues if total_issues is not None else summary.get("totalIssues", 0)
     ) or 0
@@ -568,6 +597,18 @@ def save_scan_to_db(
     )
     if computed_remaining is None:
         computed_remaining = max(computed_total - computed_fixed, 0)
+
+    if canonical_count is not None:
+        computed_remaining = canonical_count
+        if total_issues is None:
+            computed_total = max(computed_total, canonical_count)
+        if issues_fixed is None:
+            computed_fixed = max(computed_total - canonical_count, 0)
+        summary["remainingIssues"] = canonical_count
+        summary["issuesRemaining"] = canonical_count
+        summary.setdefault("totalIssues", computed_total)
+        summary.setdefault("totalIssuesRaw", canonical_count)
+        payload_dict["summary"] = summary
 
     payload_json = _serialize_scan_results(payload_dict)
     timestamp = upload_date or datetime.utcnow()
@@ -1638,6 +1679,7 @@ def _perform_automated_fix(
         if not result.get("success"):
             if tracker:
                 tracker.fail_all(result.get("error", "Automated fix failed"))
+                schedule_tracker_cleanup(scan_id)
             return 500, {
                 "success": False,
                 "error": result.get("error", "Automated fix failed"),
@@ -1661,6 +1703,7 @@ def _perform_automated_fix(
                     )
                     if tracker:
                         tracker.fail_all(str(archive_exc))
+                        schedule_tracker_cleanup(scan_id)
                     return 500, {
                         "success": False,
                         "error": str(archive_exc),
@@ -1698,6 +1741,7 @@ def _perform_automated_fix(
 
         if tracker:
             tracker.complete_all()
+            schedule_tracker_cleanup(scan_id)
 
         raw_fixes_applied = result.get("fixesApplied") or []
         filtered_fixes_applied = _filter_skipped_fixes(raw_fixes_applied)
@@ -1828,6 +1872,7 @@ def _perform_automated_fix(
             conn.rollback()
         if tracker:
             tracker.fail_all(str(exc))
+            schedule_tracker_cleanup(scan_id)
         logger.exception("[Backend] Error performing automated fix for %s", scan_id)
         return 500, {
             "success": False,

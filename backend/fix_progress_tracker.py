@@ -3,6 +3,7 @@ Fix Progress Tracker
 Tracks the progress of PDF fixes in real-time and provides step-by-step updates
 """
 
+import threading
 import time
 from typing import Dict, List, Any, Optional
 from datetime import datetime
@@ -121,20 +122,42 @@ class FixProgressTracker:
         return json.dumps(self.get_progress())
 
 
-# Global progress tracker storage
 _progress_trackers: Dict[str, FixProgressTracker] = {}
+_cleanup_timers: Dict[str, threading.Timer] = {}
+
+def _cancel_cleanup_timer(scan_id: str):
+    timer = _cleanup_timers.pop(scan_id, None)
+    if timer:
+        timer.cancel()
+
 
 def create_progress_tracker(scan_id: str, total_steps: int = 10) -> FixProgressTracker:
-    """Create a new progress tracker for a scan"""
+    """Create a new progress tracker for a scan."""
+    _cancel_cleanup_timer(scan_id)
     tracker = FixProgressTracker(scan_id, total_steps)
     _progress_trackers[scan_id] = tracker
     return tracker
 
+
 def get_progress_tracker(scan_id: str) -> Optional[FixProgressTracker]:
-    """Get an existing progress tracker"""
+    """Get an existing progress tracker."""
     return _progress_trackers.get(scan_id)
 
+
 def remove_progress_tracker(scan_id: str):
-    """Remove a progress tracker"""
+    """Remove a progress tracker."""
     if scan_id in _progress_trackers:
         del _progress_trackers[scan_id]
+    _cancel_cleanup_timer(scan_id)
+
+
+def schedule_tracker_cleanup(scan_id: str, delay: float = 5.0):
+    """Schedule removal of a tracker after a short delay."""
+    def _cleanup() -> None:
+        remove_progress_tracker(scan_id)
+
+    _cancel_cleanup_timer(scan_id)
+    timer = threading.Timer(delay, _cleanup)
+    timer.daemon = True
+    _cleanup_timers[scan_id] = timer
+    timer.start()

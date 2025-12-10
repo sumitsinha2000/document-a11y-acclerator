@@ -82,6 +82,7 @@ from backend.utils.app_helpers import (
     _parse_scan_results_json,
     create_progress_tracker,
     get_progress_tracker,
+    schedule_tracker_cleanup,
     scan_results_changed,
     resolve_uploaded_file_path,
     archive_fixed_pdf_version,
@@ -1057,6 +1058,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
         if not result.get("success"):
             if tracker:
                 tracker.fail_all(result.get("error", "Unknown error"))
+                schedule_tracker_cleanup(scan_id)
             return JSONResponse(
                 {"status": "error", "error": result.get("error", "Unknown error")},
                 status_code=500,
@@ -1064,6 +1066,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
 
         if tracker:
             tracker.complete_all()
+            schedule_tracker_cleanup(scan_id)
 
         fixes_applied = result.get("fixesApplied") or []
         if not fixes_applied and fixes:
@@ -1228,6 +1231,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
         )
         if tracker:
             tracker.fail_all(str(exc))
+            schedule_tracker_cleanup(scan_id)
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
