@@ -418,6 +418,7 @@ export default function ReportViewer({
   const scanErrorMessage = isScanError ? getScanErrorMessage(reportData) : null
   const isUploaded = scanStatus === "uploaded"
   const isCompletedScan = !isUploaded && !isScanError
+  const canExportReport = isCompletedScan
   const scanDateLabel = isUploaded ? "Uploaded on" : isScanError ? "Attempted scan on" : "Scanned on"
   const parsedReportDate = parseBackendDate(reportData.uploadDate || reportData.timestamp || reportData.created_at)
 
@@ -631,7 +632,11 @@ export default function ReportViewer({
                 <span>{isScanningFile ? "Scanning…" : "Scan file"}</span>
               </button>
             )}
-            <ExportDropdown scanId={reportData.scanId} filename={reportData.fileName || reportData.filename} />
+            <ExportDropdown
+              scanId={reportData.scanId}
+              filename={reportData.fileName || reportData.filename}
+              disabled={!canExportReport}
+            />
           </div>
           </div>
 
