@@ -1066,7 +1066,7 @@ export default function ReportViewer({
                 </section>
               )}
 
-              <div id="fixes" key={`fixes-${refreshKey}`}>
+              <div id="fixes">
                 <FixSuggestions
                   scanId={reportData.scanId}
                   fixes={reportData.fixes}
