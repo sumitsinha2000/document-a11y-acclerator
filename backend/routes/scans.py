@@ -218,6 +218,7 @@ async def scan_pdf(
     summary = formatted_results.get("summary", {}) or {}
     verapdf_status = formatted_results.get("verapdfStatus")
     fix_suggestions = formatted_results.get("fixes", [])
+    status_code = formatted_results.get("statusCode") or formatted_results.get("status")
 
     formatted_results = _ensure_scan_results_compliance(formatted_results)
 
@@ -229,6 +230,7 @@ async def scan_pdf(
             formatted_results,
             batch_id=folder_id,
             group_id=group_id,
+            status=status_code or "completed",
             file_path=storage_reference,
             total_issues=total_issues,
             issues_remaining=total_issues,
@@ -268,6 +270,9 @@ async def scan_pdf(
             "fixes": fix_suggestions,
             "timestamp": datetime.now().isoformat(),
             "verapdfStatus": verapdf_status,
+            "status": status_code,
+            "statusCode": status_code,
+            "error": formatted_results.get("error"),
         }
     )
 
@@ -439,13 +444,14 @@ async def scan_batch(
                         "issuesRemaining",
                         summary.get("remainingIssues", total_issues_file),
                     )
+                    status_code = record_payload.get("statusCode") or record_payload.get("status") or "scanned"
                     saved_id = save_scan_to_db(
                         scan_id,
                         upload.filename,
                         record_payload,
                         batch_id=batch_id,
                         group_id=group_id,
-                        status="scanned",
+                        status=status_code,
                         total_issues=total_issues_file,
                         issues_fixed=0,
                         issues_remaining=remaining_issues,
@@ -453,7 +459,7 @@ async def scan_batch(
                     )
                     successful_scans += 1
                     total_batch_issues += total_issues_file
-                    status_code = "scanned"
+                    status_code = status_code or "scanned"
                 else:
                     record_payload = build_placeholder_scan_payload(upload.filename)
                     saved_id = save_scan_to_db(
@@ -471,6 +477,8 @@ async def scan_batch(
                     status_code = "uploaded"
 
                 processed_files += 1
+                resolved_status_code = record_payload.get("statusCode") or record_payload.get("status") or status_code
+                status_label = FILE_STATUS_LABELS.get(resolved_status_code, resolved_status_code.title() if resolved_status_code else None)
                 scan_results_response.append(
                     {
                         "scanId": saved_id,
@@ -478,13 +486,14 @@ async def scan_batch(
                         "filename": upload.filename,
                         "batchId": batch_id,
                         "groupId": group_id,
-                        "status": FILE_STATUS_LABELS.get(status_code, status_code.title()),
-                        "statusCode": status_code,
+                        "status": status_label or resolved_status_code,
+                        "statusCode": resolved_status_code,
                         "summary": record_payload.get("summary", {}),
                         "results": record_payload.get("results", {}),
                         "criteriaSummary": record_payload.get("criteriaSummary", {}),
                         "fixes": record_payload.get("fixes", []),
                         "verapdfStatus": record_payload.get("verapdfStatus"),
+                        "error": record_payload.get("error"),
                         "uploadDate": datetime.utcnow().isoformat(),
                     }
                 )

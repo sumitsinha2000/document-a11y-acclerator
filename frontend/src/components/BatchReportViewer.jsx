@@ -6,28 +6,8 @@ import ReportViewer from "./ReportViewer"
 import { ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Info } from "lucide-react"
 import { useNotification } from "../contexts/NotificationContext"
 import API_BASE_URL from "../config/api"
-import { resolveSummary, calculateComplianceSnapshot } from "../utils/compliance"
-import { resolveEntityStatus } from "../utils/statuses"
-
-const normalizeScanSummary = (scan) => {
-  if (!scan || typeof scan !== "object") {
-    return scan
-  }
-
-  const enhancedStatus = calculateComplianceSnapshot(scan.results, scan.verapdfStatus)
-
-  return {
-    ...scan,
-    summary: resolveSummary({
-      summary: scan.summary,
-      results: scan.results,
-      verapdfStatus: enhancedStatus,
-    }),
-    verapdfStatus: enhancedStatus,
-  }
-}
-
-const normalizeScans = (scans) => (Array.isArray(scans) ? scans.map((scan) => normalizeScanSummary(scan)) : [])
+import { normalizeScanSummary, normalizeScans } from "../utils/compliance"
+import { getScanErrorMessage, getScanStatus } from "../utils/statuses"
 
 export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdate }) {
   const [fixing, setFixing] = useState(false)
@@ -86,7 +66,7 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
       const scanId = scan.scanId || scan.id
       if (!scanId) return false
       if (fetchedScanIdsRef.current.has(scanId)) return false
-      if (resolveEntityStatus(scan).code === "uploaded") return false
+      if (getScanStatus(scan) === "uploaded") return false
       const issues = scan.results || {}
       return !issues || Object.keys(issues).length === 0
     })
@@ -404,8 +384,8 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
   }, 0)
 
   const complianceScores = scansState.reduce((scores, scan) => {
-    const { code } = resolveEntityStatus(scan)
-    if (code === "uploaded") {
+    const code = getScanStatus(scan)
+    if (code === "uploaded" || code === "error") {
       return scores
     }
     const score = scan.summary?.complianceScore
@@ -810,8 +790,11 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                       highSeverity: 0,
                     }
                     const fixResult = fixResults?.results?.find((r) => r.scanId === (scan.scanId || scan.id))
-                    const statusInfo = resolveEntityStatus(scan)
-                    const isUploaded = statusInfo.code === "uploaded"
+                    const statusCode = getScanStatus(scan)
+                    const isUploaded = statusCode === "uploaded"
+                    const isError = statusCode === "error"
+                    const errorMessage = isError ? getScanErrorMessage(scan) : null
+                    const showMetrics = !isUploaded && !isError
                     const complianceScore =
                       typeof summary.complianceScore === "number" ? summary.complianceScore : 0
                     const totalIssues =
@@ -832,38 +815,47 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                               <div className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                                 {(scan.scanId || scan.id)?.slice(0, 30)}...
                               </div>
+                              {isError && (
+                                <p className="text-xs text-rose-600 dark:text-rose-400 mt-1">
+                                  {errorMessage || "We were unable to analyze this file."}
+                                </p>
+                              )}
                             </div>
                           </div>
                         </td>
                         <td className="px-7 py-5">
-                          {isUploaded ? (
-                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
-                          ) : (
+                          {showMetrics ? (
                             <span className="text-base font-semibold text-gray-900 dark:text-white">
                               {complianceScore}%
                             </span>
+                          ) : (
+                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
                           )}
                         </td>
                         <td className="px-7 py-5">
-                          {isUploaded ? (
-                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
-                          ) : (
+                          {showMetrics ? (
                             <span className="text-base font-medium text-gray-900 dark:text-white">
                               {totalIssues}
                             </span>
+                          ) : (
+                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
                           )}
                         </td>
                         <td className="px-7 py-5">
-                          {isUploaded ? (
-                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
-                          ) : (
+                          {showMetrics ? (
                             <span className="text-base text-red-600 dark:text-red-400 font-bold">{highSeverity}</span>
+                          ) : (
+                            <span className="text-sm italic text-gray-500 dark:text-gray-400">—</span>
                           )}
                         </td>
                         <td className="px-7 py-5">
                           {isUploaded ? (
                             <span className="inline-flex items-center px-3.5 py-2 rounded-full text-sm font-semibold bg-slate-100 text-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
                               Not Scanned
+                            </span>
+                          ) : isError ? (
+                            <span className="inline-flex items-center px-3.5 py-2 rounded-full text-sm font-semibold bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400">
+                              Scan Failed
                             </span>
                           ) : fixResult ? (
                             fixResult.success ? (
@@ -904,6 +896,20 @@ export default function BatchReportViewer({ batchId, scans, onBack, onBatchUpdat
                               >
                                 {startingScan[scanKey] ? "Starting..." : "Begin Scan"}
                               </button>
+                            ) : isError ? (
+                              <div className="flex flex-col gap-1">
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="px-5 py-2.5 text-base font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 rounded-lg cursor-not-allowed"
+                                  title="Scan failed. Please re-upload the file."
+                                >
+                                  Actions Unavailable
+                                </button>
+                                <p className="text-xs text-rose-600 dark:text-rose-400">
+                                  Scan failed. Please re-upload the file.
+                                </p>
+                              </div>
                             ) : (
                               <button
                                 onClick={() => handleFixIndividual(scanKey, scan.filename)}

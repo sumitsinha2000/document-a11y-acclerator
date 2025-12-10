@@ -7,7 +7,8 @@ import UploadArea from "./UploadArea"
 import ReportViewer from "./ReportViewer"
 import API_BASE_URL from "../config/api"
 import { parseBackendDate } from "../utils/dates"
-import { resolveEntityStatus, isScannedStatus } from "../utils/statuses"
+import { normalizeScanSummary, normalizeScans } from "../utils/compliance"
+import { getScanStatus, isScannedStatus } from "../utils/statuses"
 
 function StatCard({ value, label, valueClass = "text-slate-900 dark:text-white", description }) {
   const displayValue = value ?? 0
@@ -26,9 +27,11 @@ function StatCard({ value, label, valueClass = "text-slate-900 dark:text-white",
 
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id))
 const getCacheKey = (node) => (node ? `${node.type}:${normalizeId(node.id)}` : "")
-const SCANNABLE_STATUSES = new Set(["uploaded"])
-const getStatusCode = (value) =>
-  resolveEntityStatus(typeof value === "object" ? value : { status: value }).code
+const SCANNABLE_STATUSES = new Set(["uploaded", "unknown", "error"])
+const getStatusCode = (value) => {
+  const target = typeof value === "object" ? value : { status: value }
+  return getScanStatus(target)
+}
 const isScannableStatus = (entity) => SCANNABLE_STATUSES.has(getStatusCode(entity))
 const isRemediableStatus = (entity) => isScannedStatus(entity)
 const UPLOAD_PANEL_ID = "group-dashboard-upload-panel"
@@ -477,29 +480,32 @@ export default function GroupDashboard({
         })
       } else if (node.type === "file") {
         const response = await axios.get(`${API_BASE_URL}/api/scan/${node.id}`)
+        const normalizedScan = normalizeScanSummary(response.data || {})
 
         cacheAndUpdate({
           nodeData: {
             type: "file",
-            ...response.data,
+            ...normalizedScan,
           },
           selectedNode: {
             ...node,
             data: {
               ...(node.data || {}),
-              filename: response.data.fileName || response.data.filename || node.data?.filename,
-              fileName: response.data.fileName || response.data.filename || node.data?.fileName,
-              status: response.data.status || node.data?.status,
+              filename: normalizedScan.fileName || normalizedScan.filename || node.data?.filename,
+              fileName: normalizedScan.fileName || normalizedScan.filename || node.data?.fileName,
+              status: normalizedScan.status || node.data?.status,
             },
           },
         })
       } else if (node.type === "batch") {
         const response = await axios.get(`${API_BASE_URL}/api/batch/${node.id}`)
+        const normalizedScans = normalizeScans(response.data?.scans)
 
         cacheAndUpdate({
           nodeData: {
             type: "batch",
             ...response.data,
+            scans: normalizedScans,
           },
           selectedNode: {
             ...node,
@@ -610,9 +616,11 @@ export default function GroupDashboard({
       }
 
       const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${folderId}`)
+      const normalizedScans = normalizeScans(refreshed.data?.scans)
       const refreshedNodeData = {
         type: "batch",
         ...refreshed.data,
+        scans: normalizedScans,
       }
       setNodeData(refreshedNodeData)
       notifyFolderStatusUpdate(refreshedNodeData.batchId ?? folderId, refreshedNodeData.groupId)
@@ -694,9 +702,11 @@ export default function GroupDashboard({
 
     try {
       const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${folderId}`)
+      const normalizedScans = normalizeScans(refreshed.data?.scans)
       const refreshedNodeData = {
         type: "batch",
         ...refreshed.data,
+        scans: normalizedScans,
       }
       setNodeData(refreshedNodeData)
       notifyFolderStatusUpdate(refreshedNodeData.batchId ?? folderId, refreshedNodeData.groupId)

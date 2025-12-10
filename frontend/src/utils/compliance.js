@@ -176,7 +176,25 @@ export const resolveSummary = ({ summary, results, verapdfStatus } = {}) => {
     }
   })
 
-  merged.complianceScore = fallback.complianceScore
-
   return merged
 }
+
+export const normalizeScanSummary = (scan = {}) => {
+  if (!scan || typeof scan !== "object") {
+    return scan
+  }
+
+  const enhancedSnapshot = calculateComplianceSnapshot(scan.results, scan.verapdfStatus || {})
+
+  return {
+    ...scan,
+    verapdfStatus: enhancedSnapshot,
+    summary: resolveSummary({
+      summary: scan.summary,
+      results: scan.results,
+      verapdfStatus: enhancedSnapshot,
+    }),
+  }
+}
+
+export const normalizeScans = (scans) => (Array.isArray(scans) ? scans.map((scan) => normalizeScanSummary(scan)) : [])

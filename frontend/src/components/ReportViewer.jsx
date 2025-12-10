@@ -12,7 +12,7 @@ import API_BASE_URL, { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
 import { parseBackendDate } from "../utils/dates"
 import { resolveSummary, calculateComplianceSnapshot } from "../utils/compliance"
-import { resolveEntityStatus } from "../utils/statuses"
+import { getScanErrorMessage, getScanStatus, resolveEntityStatus } from "../utils/statuses"
 
 const STATUS_BADGE_STYLES = {
   uploaded: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200",
@@ -375,6 +375,16 @@ export default function ReportViewer({
     verapdfStatus,
   })
 
+  const wcagComplianceDisplay = isNumeric(summary.wcagCompliance)
+    ? summary.wcagCompliance
+    : verapdfStatus.wcagCompliance
+  const pdfuaComplianceDisplay = isNumeric(summary.pdfuaCompliance)
+    ? summary.pdfuaCompliance
+    : verapdfStatus.pdfuaCompliance
+  const showComplianceBadges =
+    verapdfStatus.isActive &&
+    (isNumeric(wcagComplianceDisplay) || isNumeric(pdfuaComplianceDisplay))
+
   const totalIssuesValue = isNumeric(reportData.totalIssues)
     ? reportData.totalIssues
     : isNumeric(summary.totalIssues)
@@ -394,13 +404,21 @@ export default function ReportViewer({
       : isNumeric(summary.issuesFixed)
         ? summary.issuesFixed
         : 0
+  const reportedIssuesFixed = isNumeric(reportData.issuesFixed)
+    ? reportData.issuesFixed
+    : isNumeric(summary.issuesFixed)
+      ? summary.issuesFixed
+      : 0
   const issueDelta = totalIssuesValue - remainingIssuesValue
   const hasIssueDelta = typeof issueDelta === "number" && issueDelta !== 0
+  const hasReportedIssuesFixed = reportedIssuesFixed > 0
 
-  const scanStatusInfo = resolveEntityStatus(reportData)
-  const scanStatus = scanStatusInfo.code
+  const scanStatus = getScanStatus(reportData)
+  const isScanError = scanStatus === "error"
+  const scanErrorMessage = isScanError ? getScanErrorMessage(reportData) : null
   const isUploaded = scanStatus === "uploaded"
-  const scanDateLabel = isUploaded ? "Uploaded on" : "Scanned on"
+  const isCompletedScan = !isUploaded && !isScanError
+  const scanDateLabel = isUploaded ? "Uploaded on" : isScanError ? "Attempted scan on" : "Scanned on"
   const parsedReportDate = parseBackendDate(reportData.uploadDate || reportData.timestamp || reportData.created_at)
 
   const breadcrumbItems = [{ label: "Home", onClick: onBack }, { label: "Report" }]
@@ -431,76 +449,80 @@ export default function ReportViewer({
               {scans.map((scan, index) => {
                 const statusInfo = resolveEntityStatus(scan)
                 const showSummary =
-                  scan.summary && statusInfo.code !== "uploaded" && typeof scan.summary.complianceScore === "number"
+                  scan.summary &&
+                  statusInfo.code !== "uploaded" &&
+                  statusInfo.code !== "error" &&
+                  typeof scan.summary.complianceScore === "number"
 
                 return (
-                <button
-                  key={index}
-                  onClick={() => setSelectedFileIndex(index)}
-                  className={`w-full text-left px-3 py-3 rounded-lg mb-2 transition-all ${
-                    selectedFileIndex === index
-                      ? "bg-violet-50 dark:bg-violet-900/20 border-2 border-violet-500"
-                      : "bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
-                    <svg
-                      className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
-                        selectedFileIndex === index
-                          ? "text-violet-600 dark:text-violet-400"
-                          : "text-slate-400 dark:text-slate-500"
-                      }`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                      />
-                    </svg>
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={`text-sm font-medium truncate ${
+                  <button
+                    key={index}
+                    onClick={() => setSelectedFileIndex(index)}
+                    className={`w-full text-left px-3 py-3 rounded-lg mb-2 transition-all ${
+                      selectedFileIndex === index
+                        ? "bg-violet-50 dark:bg-violet-900/20 border-2 border-violet-500"
+                        : "bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <svg
+                        className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
                           selectedFileIndex === index
-                            ? "text-violet-900 dark:text-violet-100"
-                            : "text-slate-700 dark:text-slate-300"
+                            ? "text-violet-600 dark:text-violet-400"
+                            : "text-slate-400 dark:text-slate-500"
                         }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
                       >
-                        {scan.fileName || scan.filename}
-                      </p>
-                      {showSummary && (
-                        <div className="flex items-center gap-2 mt-1">
-                          <span
-                            className={`text-xs font-semibold ${
-                              scan.summary.complianceScore >= 70
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : "text-rose-600 dark:text-rose-400"
-                            }`}
-                          >
-                            {scan.summary.complianceScore}%
-                          </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
-                            {scan.summary.totalIssues} issues
-                          </span>
-                        </div>
-                      )}
-                      {/* Status badge */}
-                      {statusInfo.label && (
-                        <span
-                          className={`inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full ${
-                            STATUS_BADGE_STYLES[statusInfo.code] || STATUS_BADGE_STYLES.default
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className={`text-sm font-medium truncate ${
+                            selectedFileIndex === index
+                              ? "text-violet-900 dark:text-violet-100"
+                              : "text-slate-700 dark:text-slate-300"
                           }`}
                         >
-                          {statusInfo.label}
-                        </span>
-                      )}
+                          {scan.fileName || scan.filename}
+                        </p>
+                        {showSummary && (
+                          <div className="flex items-center gap-2 mt-1">
+                            <span
+                              className={`text-xs font-semibold ${
+                                scan.summary.complianceScore >= 70
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-rose-600 dark:text-rose-400"
+                              }`}
+                            >
+                              {scan.summary.complianceScore}%
+                            </span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400">
+                              {scan.summary.totalIssues} issues
+                            </span>
+                          </div>
+                        )}
+                        {/* Status badge */}
+                        {statusInfo.label && (
+                          <span
+                            className={`inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full ${
+                              STATUS_BADGE_STYLES[statusInfo.code] || STATUS_BADGE_STYLES.default
+                            }`}
+                          >
+                            {statusInfo.label}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </button>
-              )})}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -708,38 +730,58 @@ export default function ReportViewer({
               {scans.map((scan, index) => {
                 const statusInfo = resolveEntityStatus(scan)
                 const showCompliance =
-                  scan.summary && statusInfo.code !== "uploaded" && typeof scan.summary.complianceScore === "number"
+                  scan.summary &&
+                  statusInfo.code !== "uploaded" &&
+                  statusInfo.code !== "error" &&
+                  typeof scan.summary.complianceScore === "number"
 
                 return (
-                <button
-                  key={index}
-                  ref={(el) => (tabRefs.current[index] = el)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 font-medium ${
-                    selectedFileIndex === index
-                      ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-lg"
-                      : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
-                  }`}
-                  onClick={() => setSelectedFileIndex(index)}
-                >
-                  <span>📄</span>
-                  <span>{scan.fileName || scan.filename}</span>
-                  {showCompliance && (
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                        scan.summary.complianceScore >= 70
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                          : "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
-                      }`}
-                    >
-                      {scan.summary.complianceScore}%
-                    </span>
-                  )}
-                </button>
-              )})}
+                  <button
+                    key={index}
+                    ref={(el) => (tabRefs.current[index] = el)}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 font-medium ${
+                      selectedFileIndex === index
+                        ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-lg"
+                        : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                    }`}
+                    onClick={() => setSelectedFileIndex(index)}
+                  >
+                    <span>📄</span>
+                    <span>{scan.fileName || scan.filename}</span>
+                    {showCompliance && (
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                          scan.summary.complianceScore >= 70
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                            : "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                        }`}
+                      >
+                        {scan.summary.complianceScore}%
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
 
-          {!isUploaded ? (
+          {isScanError && (
+            <div
+              className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700 dark:border-rose-800/60 dark:bg-rose-900/20 dark:text-rose-300"
+              role="status"
+              aria-live="polite"
+            >
+              <span aria-hidden="true">⚠️</span>
+              <div>
+                <p className="font-semibold">Scan failed</p>
+                <p className="text-sm mt-1">
+                  {scanErrorMessage || "We were unable to analyze this file."}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {isCompletedScan ? (
             <>
               <div id="overview" key={`overview-${refreshKey}`}>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -771,9 +813,9 @@ export default function ReportViewer({
                       </div>
                     </div>
 
-                    {verapdfStatus.isActive && (
+                    {showComplianceBadges && (
                       <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
-                        {typeof verapdfStatus.wcagCompliance === "number" && (
+                        {isNumeric(wcagComplianceDisplay) && (
                           <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
                             <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                               <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
@@ -784,11 +826,11 @@ export default function ReportViewer({
                               />
                             </svg>
                             <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
-                              WCAG {verapdfStatus.wcagCompliance}%
+                              WCAG {wcagComplianceDisplay}%
                             </span>
                           </div>
                         )}
-                        {typeof verapdfStatus.pdfuaCompliance === "number" && (
+                        {isNumeric(pdfuaComplianceDisplay) && (
                           <div className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-full border border-purple-200 dark:border-purple-800">
                             <svg
                               className="w-4 h-4 text-purple-600 dark:text-purple-400"
@@ -803,7 +845,7 @@ export default function ReportViewer({
                               />
                             </svg>
                             <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
-                              PDF/UA {verapdfStatus.pdfuaCompliance}%
+                              PDF/UA {pdfuaComplianceDisplay}%
                             </span>
                           </div>
                         )}
@@ -829,15 +871,23 @@ export default function ReportViewer({
                           <div className="mt-2 flex items-center gap-1 text-xs font-semibold">
                             {issueDelta > 0 ? (
                               <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                                <span aria-hidden className="text-base leading-none">↓</span>
+                                <span aria-hidden="true" className="text-base leading-none">↓</span>
                                 <span>{issueDelta} resolved</span>
                               </span>
                             ) : (
                               <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                                <span aria-hidden className="text-base leading-none">↑</span>
+                                <span aria-hidden="true" className="text-base leading-none">↑</span>
                                 <span>{Math.abs(issueDelta)} new</span>
                               </span>
                             )}
+                          </div>
+                        )}
+                        {!hasIssueDelta && hasReportedIssuesFixed && (
+                          <div className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            <span aria-hidden="true" className="text-base leading-none">↓</span>
+                            <span>
+                              {reportedIssuesFixed} issue{reportedIssuesFixed === 1 ? "" : "s"} fixed since last scan
+                            </span>
                           </div>
                         )}
                       </div>
@@ -1020,7 +1070,7 @@ export default function ReportViewer({
                 />
               </div>
             </>
-          ) : (
+          ) : isUploaded ? (
             <div
               id="overview"
               className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-8"
@@ -1029,6 +1079,16 @@ export default function ReportViewer({
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 Start the scan from the folder dashboard or from the scan button above in this dashboard to generate
                 accessibility results.
+              </p>
+            </div>
+          ) : (
+            <div
+              id="overview"
+              className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-rose-200 dark:border-rose-800/60 p-8"
+            >
+              <h2 className="text-2xl font-bold text-rose-700 dark:text-rose-300 mb-2">Scan failed</h2>
+              <p className="text-sm text-rose-700/90 dark:text-rose-200">
+                {scanErrorMessage || "We were unable to analyze this file."}
               </p>
             </div>
           )}

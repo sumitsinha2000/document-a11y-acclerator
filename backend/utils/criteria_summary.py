@@ -120,12 +120,22 @@ def _collect_all_wcag_sources(results: Dict[str, Any]) -> List[Dict[str, Any]]:
             if not isinstance(issue, dict):
                 continue
             criterion = issue.get("criterion")
-            if not criterion:
-                continue
-            prepared = _copy_issue(issue)
-            prepared["criterion"] = criterion
-            _append_language_note(prepared)
-            collected.append(prepared)
+            if criterion:
+                prepared = _copy_issue(issue)
+                prepared["criterion"] = criterion
+                _append_language_note(prepared)
+                collected.append(prepared)
+
+            advisory = issue.get("advisoryCriteria")
+            if isinstance(advisory, (list, tuple)):
+                for code in advisory:
+                    normalized_code = str(code).strip()
+                    if not normalized_code or normalized_code == criterion:
+                        continue
+                    prepared = _copy_issue(issue)
+                    prepared["criterion"] = normalized_code
+                    _append_language_note(prepared)
+                    collected.append(prepared)
         return collected
 
     direct_issues = results.get("wcagIssues")
@@ -234,6 +244,7 @@ def _copy_issue(issue: Dict[str, Any]) -> Dict[str, Any]:
         "specification",
         "context",
         "title",
+        "advisoryCriteria",
     }
     copied = {key: issue[key] for key in allowed_keys if key in issue}
     copied.setdefault("severity", issue.get("severity", "medium"))

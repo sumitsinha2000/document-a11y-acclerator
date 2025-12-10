@@ -97,6 +97,30 @@ def _assert_clean_failure(
     assert str(pdf_path) not in message, "Error message should not leak file paths"
 
 
+def _assert_failed_analysis_shape(payload: Dict[str, Any]) -> None:
+    """Ensure failed scans expose analysisErrors without fabricated compliance."""
+    results = payload.get("results") or {}
+    errors = results.get("analysisErrors")
+    assert isinstance(errors, list) and errors, "analysisErrors should contain user-facing entries"
+    for entry in errors:
+        assert isinstance(entry, dict), "Each analysis error should be an object"
+        assert entry.get("message"), "Each analysis error must include a message"
+
+    assert not results.get("issues"), "Failed analyses should not report canonical issues"
+    assert not results.get("poorContrast"), "Failed analyses should not fabricate contrast issues"
+
+    summary = payload.get("summary") or {}
+    assert summary.get("status") == FAILURE_STATUS
+    assert summary.get("statusCode") == FAILURE_STATUS
+    assert not summary.get("complianceScore"), "Compliance score should not be populated for failures"
+    assert not summary.get("wcagCompliance"), "WCAG compliance should not be populated for failures"
+    assert not summary.get("pdfuaCompliance"), "PDF/UA compliance should not be populated for failures"
+
+    error_message = payload.get("error")
+    assert error_message == errors[0].get("message"), "Top-level error should mirror analysisErrors entry"
+    assert not payload.get("fixes"), "Failed analyses should not include fix suggestions"
+
+
 def test_encrypted_pdf_returns_failed_status_not_stacktrace(
     client, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -104,6 +128,7 @@ def test_encrypted_pdf_returns_failed_status_not_stacktrace(
     pdf_path = _require_fixture("encrypted_no_password.pdf")
     payload = _invoke_scan(client, pdf_path, monkeypatch, tmp_path)
     _assert_clean_failure(payload, pdf_path)
+    _assert_failed_analysis_shape(payload)
 
 
 def test_corrupted_pdf_returns_failed_status(
@@ -113,3 +138,4 @@ def test_corrupted_pdf_returns_failed_status(
     pdf_path = _require_fixture("truncated.pdf")
     payload = _invoke_scan(client, pdf_path, monkeypatch, tmp_path)
     _assert_clean_failure(payload, pdf_path)
+    _assert_failed_analysis_shape(payload)

@@ -37,15 +37,82 @@ export const getStatusDisplay = (codeOrLabel, fallback = "Uploaded") => {
   return FILE_STATUS_LABELS[code] || fallback
 }
 
-export const resolveEntityStatus = (entity, fallback = "uploaded") => {
-  if (!entity) {
-    const code = normalizeStatusCode(fallback)
-    return { code, label: FILE_STATUS_LABELS[code] || FILE_STATUS_LABELS.uploaded }
+export const hasAnalysisError = (scan) => {
+  if (!scan || typeof scan !== "object") {
+    return false
   }
-  const code = normalizeStatusCode(entity.statusCode || entity.status || fallback)
+  const hasTopLevelError = Boolean(scan.error || scan.summary?.error)
+  if (hasTopLevelError) {
+    return true
+  }
+  const analysisErrors = scan.results?.analysisErrors
+  return Array.isArray(analysisErrors) && analysisErrors.length > 0
+}
+
+export const getScanStatus = (entity, fallback = "uploaded") => {
+  if (!entity || typeof entity !== "object") {
+    return normalizeStatusCode(fallback)
+  }
+
+  const summaryStatus = entity.summary?.statusCode || entity.summary?.status
+  const rawStatus = entity.statusCode || entity.status || summaryStatus || fallback
+  const normalized = normalizeStatusCode(rawStatus, fallback)
+
+  if (hasAnalysisError(entity)) {
+    return "error"
+  }
+
+  return normalized
+}
+
+const coerceErrorMessage = (value) => {
+  if (!value) {
+    return null
+  }
+  if (typeof value === "string") {
+    return value
+  }
+  if (typeof value?.message === "string") {
+    return value.message
+  }
+  if (typeof value?.error === "string") {
+    return value.error
+  }
+  return null
+}
+
+export const getScanErrorMessage = (scan, fallbackMessage = "We were unable to analyze this file.") => {
+  if (!scan || typeof scan !== "object") {
+    return fallbackMessage
+  }
+
+  const analysisErrors = scan.results?.analysisErrors
+  if (hasAnalysisError(scan)) {
+    const message =
+      coerceErrorMessage(scan.error) ||
+      coerceErrorMessage(scan.summary?.error) ||
+      (Array.isArray(analysisErrors)
+        ? analysisErrors.reduce((found, entry) => found || coerceErrorMessage(entry), null)
+        : null)
+    if (message) {
+      return message
+    }
+  }
+
+  return fallbackMessage
+}
+
+export const resolveEntityStatus = (entity, fallback = "uploaded") => {
+  const code = getScanStatus(entity, fallback)
+  const fallbackCode = normalizeStatusCode(fallback)
   return {
     code,
-    label: FILE_STATUS_LABELS[code] || entity.status || FILE_STATUS_LABELS.uploaded,
+    label:
+      FILE_STATUS_LABELS[code] ||
+      (typeof entity?.status === "string" ? entity.status : null) ||
+      (typeof entity?.statusCode === "string" ? entity.statusCode : null) ||
+      FILE_STATUS_LABELS[fallbackCode] ||
+      FILE_STATUS_LABELS.uploaded,
   }
 }
 

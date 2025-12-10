@@ -1073,6 +1073,14 @@ def _ensure_scan_results_compliance(scan_results: Dict[str, Any]) -> Dict[str, A
         summary = {}
         scan_results["summary"] = summary
 
+    results = scan_results.get("results")
+    if isinstance(results, dict) and results.get("analysisErrors"):
+        for key in ("complianceScore", "wcagCompliance", "pdfuaCompliance"):
+            summary.pop(key, None)
+        summary.setdefault("status", "error")
+        summary.setdefault("statusCode", "error")
+        return scan_results
+
     derived_wcag = derive_wcag_score(
         scan_results.get("results"),
         scan_results.get("criteriaSummary"),
@@ -1184,14 +1192,54 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
             )
             if combined_score is not None:
                 summary["complianceScore"] = combined_score
+    try:
+        analysis_messages = list(getattr(analyzer, "_analysis_errors", []) or [])
+    except Exception:
+        analysis_messages = []
 
-    return {
+    analysis_error_objects = [
+        {"message": msg.strip()}
+        for msg in analysis_messages
+        if isinstance(msg, str) and msg.strip()
+    ]
+    has_analysis_errors = bool(analysis_error_objects)
+    if has_analysis_errors:
+        summary = {
+            "status": "error",
+            "statusCode": "error",
+            "totalIssues": 0,
+            "highSeverity": 0,
+            "mediumSeverity": 0,
+            "lowSeverity": 0,
+        }
+        scan_results = {"analysisErrors": analysis_error_objects}
+        verapdf_status = None
+        fix_suggestions = []
+        criteria_summary = {}
+
+    error_message = analysis_error_objects[0]["message"] if has_analysis_errors else None
+    status_code = "error" if has_analysis_errors else None
+    if error_message and isinstance(summary, dict):
+        summary.setdefault("status", status_code)
+        summary.setdefault("statusCode", status_code)
+        summary.setdefault("error", error_message)
+
+    payload = {
         "results": scan_results,
         "summary": summary if isinstance(summary, dict) else {},
         "verapdfStatus": verapdf_status,
         "fixes": fix_suggestions,
         "criteriaSummary": criteria_summary,
     }
+    if status_code:
+        payload["status"] = status_code
+        payload["statusCode"] = status_code
+    if error_message:
+        payload["error"] = error_message
+        if isinstance(scan_results, dict):
+            scan_results.setdefault("analysisErrors", analysis_error_objects)
+
+    return payload
 
 def _fetch_scan_record(scan_id: str) -> Optional[Dict[str, Any]]:
     """

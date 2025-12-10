@@ -1,5 +1,5 @@
 import { parseBackendDate } from "../utils/dates"
-import { resolveEntityStatus } from "../utils/statuses"
+import { getScanErrorMessage, resolveEntityStatus } from "../utils/statuses"
 
 export default function ScanHistory({ scans, onSelectScan, onBack }) {
   if (scans.length === 0) {
@@ -50,8 +50,15 @@ export default function ScanHistory({ scans, onSelectScan, onBack }) {
           {scans.map((scan) => {
             const scanDate = parseBackendDate(scan.uploadDate || scan.timestamp || scan.created_at)
             const statusInfo = resolveEntityStatus(scan)
+            const isError = statusInfo.code === "error"
+            const errorMessage = isError ? getScanErrorMessage(scan) : null
+            const containerClasses = isError
+              ? "bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-100 dark:hover:bg-rose-900/30"
+              : "bg-gray-50 dark:bg-gray-700 border border-transparent hover:bg-gray-100 dark:hover:bg-gray-600"
             const statusClass =
-              statusInfo.code === "fixed"
+              isError
+                ? "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200"
+                : statusInfo.code === "fixed"
                 ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
                 : statusInfo.code === "partially_fixed"
                   ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
@@ -59,13 +66,14 @@ export default function ScanHistory({ scans, onSelectScan, onBack }) {
                     ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
                     : statusInfo.code === "uploaded"
                       ? "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200"
-                      : scan.status === "failed"
-                        ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                        : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                      : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            const statusLabel = isError ? "Scan failed" : statusInfo.label || scan.status
+            const showComplianceScore =
+              typeof scan.complianceScore === "number" && Number.isFinite(scan.complianceScore) && !isError
             return (
               <div
                 key={scan.id}
-                className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer transition-colors"
+                className={`flex items-center justify-between p-4 rounded-lg cursor-pointer transition-colors ${containerClasses}`}
                 onClick={() => onSelectScan(scan)}
               >
                 <div className="flex-1">
@@ -75,16 +83,19 @@ export default function ScanHistory({ scans, onSelectScan, onBack }) {
                       ? `${scanDate.toLocaleDateString()} at ${scanDate.toLocaleTimeString()}`
                       : "Date unavailable"}
                   </p>
+                  {isError && errorMessage && (
+                    <p className="text-xs text-rose-700 dark:text-rose-300 mt-1">{errorMessage}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
-                  {scan.complianceScore !== undefined && (
+                  {showComplianceScore && (
                     <div className="text-right mr-4">
                       <div className="text-lg font-bold text-gray-900 dark:text-white">{scan.complianceScore}%</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">Score</div>
                     </div>
                   )}
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusClass}`}>
-                    {statusInfo.label || scan.status}
+                    {statusLabel}
                   </span>
                 </div>
               </div>

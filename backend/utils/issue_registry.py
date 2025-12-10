@@ -22,7 +22,7 @@ def _slug(value: str) -> str:
 def _normalize_code(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
-    text = str(value).strip()
+    text = str(value).strip().lower()
     return text.replace(" ", "").replace("/", "").replace(":", "-")
 
 

@@ -80,6 +80,8 @@ class PDFAccessibilityAnalyzer:
         self._initialize_issue_buckets()
         self._contrast_manual_note_added = False
         self._low_contrast_issue_count = 0
+        self._analysis_errors: List[str] = []
+        self._analysis_error_details: List[Dict[str, Any]] = []
         self._wcag_validator_metrics: Optional[Dict[str, Any]] = None
         self._verapdf_alt_findings: List[Dict[str, Any]] = []
         self._tagging_state = {
@@ -363,6 +365,15 @@ class PDFAccessibilityAnalyzer:
             meta=self._extract_issue_meta(issue),
             extra=extra,
         )
+        advisory_codes = issue.get("advisoryCriteria")
+        if isinstance(advisory_codes, (list, tuple)):
+            canonical.setdefault("advisoryCriteria", [])
+            for code in advisory_codes:
+                normalized_code = str(code).strip()
+                if not normalized_code:
+                    continue
+                if normalized_code not in canonical["advisoryCriteria"]:
+                    canonical["advisoryCriteria"].append(normalized_code)
         issue["issueId"] = canonical["issueId"]
         return issue
 
@@ -424,6 +435,8 @@ class PDFAccessibilityAnalyzer:
         self.issue_registry.reset()
         self._contrast_manual_note_added = False
         self._low_contrast_issue_count = 0
+        self._analysis_errors = []
+        self._analysis_error_details = []
         self._wcag_validator_metrics = None
         self._verapdf_alt_findings = []
         self._tagging_state = {
@@ -500,12 +513,21 @@ class PDFAccessibilityAnalyzer:
             print(f"[Analyzer] Error in PDF-Extract-Kit analysis: {e}")
             import traceback
             traceback.print_exc()
+            self._record_analysis_error(e, fatal=False)
 
     def _analyze_with_pypdf2(self, pdf_path: str):
         """Analyze PDF using PyPDF2 for metadata and structure"""
         try:
             with open(pdf_path, 'rb') as file:
                 pdf_reader = PyPDF2.PdfReader(file)
+
+                if getattr(pdf_reader, "is_encrypted", False):
+                    if not self._try_decrypt_reader(pdf_reader):
+                        self._record_analysis_error(
+                            RuntimeError("PDF is password protected"),
+                            fatal=True,
+                        )
+                        return
                 
                 # Check metadata
                 metadata = pdf_reader.metadata
@@ -574,9 +596,27 @@ class PDFAccessibilityAnalyzer:
                 
         except Exception as e:
             print(f"[Analyzer] Error in PyPDF2 analysis: {e}")
+            self._record_analysis_error(e, fatal=True)
+
+    def _try_decrypt_reader(self, reader: PyPDF2.PdfReader) -> bool:
+        """Attempt to decrypt the PDF with empty passwords."""
+        passwords = ("", b"")
+        for candidate in passwords:
+            try:
+                result = reader.decrypt(candidate)
+            except Exception:
+                continue
+            if isinstance(result, str):
+                if result:
+                    return True
+            elif result:
+                return True
+        return False
 
     def _analyze_with_pdfplumber(self, pdf_path: str):
         """Analyze PDF using pdfplumber for content analysis"""
+        if self._analysis_errors:
+            return
         try:
             tables_reviewed = False
             self._tagging_state["tables_reviewed"] = False
@@ -695,6 +735,7 @@ class PDFAccessibilityAnalyzer:
                 
         except Exception as e:
             print(f"[Analyzer] Error in pdfplumber analysis: {e}")
+            self._record_analysis_error(e)
 
     def _collect_missing_alt_text_issues(
         self,
@@ -894,6 +935,8 @@ class PDFAccessibilityAnalyzer:
         Perform a lightweight contrast analysis by inspecting text color commands.
         Assumes a white background and only looks at rg/RG + Tj/TJ sequences.
         """
+        if self._analysis_errors:
+            return
         if ContentStream is None:
             self._ensure_manual_contrast_notice("PyPDF2 ContentStream helper unavailable")
             return
@@ -911,6 +954,7 @@ class PDFAccessibilityAnalyzer:
         except Exception as exc:
             print(f"[Analyzer] Contrast analysis unavailable: {exc}")
             self._ensure_manual_contrast_notice("Contrast parsing failed")
+            self._record_analysis_error(exc, fatal=False)
 
     def _scan_page_for_low_contrast(self, page, reader, page_num: int) -> Tuple[int, int]:
         """Scan a single page for text runs drawn with insufficient contrast."""
@@ -1141,6 +1185,70 @@ class PDFAccessibilityAnalyzer:
 
         self.issues["poorContrast"] = ordered
 
+    def _record_analysis_error(self, error: Exception, fatal: Optional[bool] = None) -> None:
+        """Capture analyzer errors for user-facing status propagation."""
+        friendly_message, inferred_fatal, raw_message = self._classify_analysis_error(error)
+        is_fatal = inferred_fatal if fatal is None else fatal
+        entry = {
+            "message": friendly_message,
+            "rawMessage": raw_message,
+            "fatal": bool(is_fatal),
+            "errorType": error.__class__.__name__,
+        }
+        self._analysis_error_details.append(entry)
+
+        log_level = logging.ERROR if is_fatal else logging.WARNING
+        log_label = "Fatal" if is_fatal else "Non-fatal"
+        log_context = raw_message or repr(error)
+        logger.log(
+            log_level,
+            "[Analyzer] %s analysis error captured: %s",
+            log_label,
+            log_context,
+        )
+
+        if is_fatal and friendly_message not in self._analysis_errors:
+            self._analysis_errors.append(friendly_message)
+
+    def _classify_analysis_error(self, error: Exception) -> Tuple[str, bool, str]:
+        """Return a friendly error message, fatality flag, and raw message."""
+        try:
+            raw_message = str(error).strip()
+        except Exception:
+            raw_message = ""
+        normalized = raw_message.lower()
+
+        encrypted_tokens = ("encrypt", "password", "decrypt", "security")
+        truncated_tokens = (
+            "truncat",
+            "corrupt",
+            "broken",
+            "damaged",
+            "malform",
+            "end-of-file",
+            "eof marker",
+            "startxref",
+            "xref",
+            "not a pdf",
+            "unable to get",
+            "stream length",
+            "unexpected end",
+        )
+
+        if any(token in normalized for token in encrypted_tokens):
+            return (
+                "We were unable to analyze this file because it is password protected.",
+                True,
+                raw_message,
+            )
+        if any(token in normalized for token in truncated_tokens):
+            return (
+                "We were unable to analyze this file because it appears to be truncated or corrupted.",
+                True,
+                raw_message,
+            )
+        return ("We were unable to analyze this file.", False, raw_message)
+
     def _use_simulated_analysis(
         self,
         context: Optional[str] = None,
@@ -1345,6 +1453,8 @@ class PDFAccessibilityAnalyzer:
         Analyze PDF using built-in WCAG 2.1 and PDF/UA-1 validator.
         WCAG 1.1.1 output controls missingAltText and primary compliance scores.
         """
+        if self._analysis_errors:
+            return
         try:
             self._wcag_validator_metrics = None
             print("[Analyzer] ========== WCAG VALIDATOR ANALYSIS ==========")
@@ -1405,6 +1515,7 @@ class PDFAccessibilityAnalyzer:
             print(f"[Analyzer] Error: {e}")
             import traceback
             traceback.print_exc()
+            self._record_analysis_error(e, fatal=False)
             if self._verapdf_alt_findings and not self.issues["missingAltText"]:
                 # WCAG validator failed; fall back to VeraPDF-style heuristics.
                 self.issues["missingAltText"].extend(self._verapdf_alt_findings)
