@@ -1201,7 +1201,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     updateDeletingFileState(fileId, true);
     try {
       await axios.delete(`${API_BASE_URL}/api/scan/${fileId}`);
-      showSuccess(`Deleted "${fileName}"`);
+      showSuccess(`Deleted file "${fileName}"`);
       setStatusMessage(`${fileName} deleted`);
 
       const folderMeta = activeFolderView;
@@ -1720,7 +1720,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       removeGroupById(pendingDeleteGroup.id, pendingDeleteGroup?.name);
       void ensureDashboardReflectsGroupDeletion(pendingDeleteGroup.id);
       setStatusMessage(`${projectName} deleted`);
-      showSuccess(`Deleted "${projectName}"`);
+      showSuccess(`Deleted project "${projectName}"`);
       setPendingDeleteGroup(null);
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete group:", error);
@@ -1805,7 +1805,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       );
 
       setStatusMessage(`${batchName} deleted`);
-      showSuccess(`Deleted "${batchName}"`);
+      showSuccess(`Deleted folder "${batchName}"`);
       void ensureDashboardReflectsFolderDeletion(groupId, batchId);
       setPendingDeleteFolder(null);
     } catch (error) {
