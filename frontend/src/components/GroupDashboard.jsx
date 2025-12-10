@@ -7,7 +7,8 @@ import UploadArea from "./UploadArea"
 import ReportViewer from "./ReportViewer"
 import API_BASE_URL from "../config/api"
 import { parseBackendDate } from "../utils/dates"
-import { resolveEntityStatus, isScannedStatus } from "../utils/statuses"
+import { normalizeScanSummary, normalizeScans } from "../utils/compliance"
+import { getScanStatus, isScannedStatus } from "../utils/statuses"
 
 function StatCard({ value, label, valueClass = "text-slate-900 dark:text-white", description }) {
   const displayValue = value ?? 0
@@ -26,9 +27,11 @@ function StatCard({ value, label, valueClass = "text-slate-900 dark:text-white",
 
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id))
 const getCacheKey = (node) => (node ? `${node.type}:${normalizeId(node.id)}` : "")
-const SCANNABLE_STATUSES = new Set(["uploaded"])
-const getStatusCode = (value) =>
-  resolveEntityStatus(typeof value === "object" ? value : { status: value }).code
+const SCANNABLE_STATUSES = new Set(["uploaded", "unknown", "error"])
+const getStatusCode = (value) => {
+  const target = typeof value === "object" ? value : { status: value }
+  return getScanStatus(target)
+}
 const isScannableStatus = (entity) => SCANNABLE_STATUSES.has(getStatusCode(entity))
 const isRemediableStatus = (entity) => isScannedStatus(entity)
 const UPLOAD_PANEL_ID = "group-dashboard-upload-panel"
@@ -95,6 +98,7 @@ export default function GroupDashboard({
   })
   const [isUploadAreaScanning, setUploadAreaScanning] = useState(false)
   const [shouldAutoOpenFileDialog, setShouldAutoOpenFileDialog] = useState(false)
+  const [ariaLiveMessage, setAriaLiveMessage] = useState("")
 
   const isFolderSelected = selectedNode?.type === "batch"
   const groupSummary = deriveGroupSummary(nodeData)
@@ -103,6 +107,7 @@ export default function GroupDashboard({
   const cacheRef = useRef(new Map())
   const uploadAreaRef = useRef(null)
   const prevUploadSectionOpenRef = useRef(uploadSectionOpen)
+  const sidebarRef = useRef(null)
 
   const notifyFolderStatusUpdate = useCallback(
     (folderIdOverride, groupIdOverride) => {
@@ -156,6 +161,32 @@ export default function GroupDashboard({
     }
     prevUploadSectionOpenRef.current = uploadSectionOpen
   }, [uploadSectionOpen, isUploadAreaScanning])
+
+  useEffect(() => {
+    const type = nodeData?.type || selectedNode?.type
+    const name =
+      nodeData?.name ||
+      nodeData?.folderName ||
+      nodeData?.groupName ||
+      selectedNode?.data?.name ||
+      selectedNode?.data?.folderName ||
+      selectedNode?.data?.groupName ||
+      selectedNode?.data?.filename ||
+      selectedNode?.data?.fileName ||
+      "Selected view"
+
+    let message = ""
+    if (type === "batch") {
+      message = `Folder metrics dashboard now shown for ${name}`
+    } else if (type === "group") {
+      message = `Project dashboard now shown for ${name}`
+    } else if (type === "file") {
+      message = `File report now shown for ${name}`
+    } else {
+      message = "Project dashboard now shown"
+    }
+    setAriaLiveMessage((prev) => (prev === message ? prev : message))
+  }, [nodeData, selectedNode])
 
   const focusUploadPanelHeading = useCallback(() => {
     const schedule =
@@ -319,8 +350,8 @@ export default function GroupDashboard({
               tabIndex={-1}
               className="text-2xl font-bold text-slate-900 dark:text-white"
             >
-              Upload documents to{" "}
-              <span className="text-indigo-600 dark:text-indigo-400">{folderLabel}</span>
+              Upload documents
+              {/* <span className="text-indigo-600 dark:text-indigo-400">{folderLabel}</span> */}
             </h2>
           </div>
         </div>
@@ -449,29 +480,32 @@ export default function GroupDashboard({
         })
       } else if (node.type === "file") {
         const response = await axios.get(`${API_BASE_URL}/api/scan/${node.id}`)
+        const normalizedScan = normalizeScanSummary(response.data || {})
 
         cacheAndUpdate({
           nodeData: {
             type: "file",
-            ...response.data,
+            ...normalizedScan,
           },
           selectedNode: {
             ...node,
             data: {
               ...(node.data || {}),
-              filename: response.data.fileName || response.data.filename || node.data?.filename,
-              fileName: response.data.fileName || response.data.filename || node.data?.fileName,
-              status: response.data.status || node.data?.status,
+              filename: normalizedScan.fileName || normalizedScan.filename || node.data?.filename,
+              fileName: normalizedScan.fileName || normalizedScan.filename || node.data?.fileName,
+              status: normalizedScan.status || node.data?.status,
             },
           },
         })
       } else if (node.type === "batch") {
         const response = await axios.get(`${API_BASE_URL}/api/batch/${node.id}`)
+        const normalizedScans = normalizeScans(response.data?.scans)
 
         cacheAndUpdate({
           nodeData: {
             type: "batch",
             ...response.data,
+            scans: normalizedScans,
           },
           selectedNode: {
             ...node,
@@ -526,9 +560,14 @@ export default function GroupDashboard({
       return
     }
 
+    const { folderId, groupId } = deriveUploadContext(selectedNode, nodeData)
     const cacheKey = getCacheKey(selectedNode)
     cacheRef.current.delete(cacheKey)
     await handleNodeSelect(selectedNode)
+
+    if (folderId && groupId) {
+      notifyFolderStatusUpdate(folderId, groupId)
+    }
   }
 
   const handleBeginFolderScan = async () => {
@@ -577,9 +616,11 @@ export default function GroupDashboard({
       }
 
       const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${folderId}`)
+      const normalizedScans = normalizeScans(refreshed.data?.scans)
       const refreshedNodeData = {
         type: "batch",
         ...refreshed.data,
+        scans: normalizedScans,
       }
       setNodeData(refreshedNodeData)
       notifyFolderStatusUpdate(refreshedNodeData.batchId ?? folderId, refreshedNodeData.groupId)
@@ -661,9 +702,11 @@ export default function GroupDashboard({
 
     try {
       const refreshed = await axios.get(`${API_BASE_URL}/api/batch/${folderId}`)
+      const normalizedScans = normalizeScans(refreshed.data?.scans)
       const refreshedNodeData = {
         type: "batch",
         ...refreshed.data,
+        scans: normalizedScans,
       }
       setNodeData(refreshedNodeData)
       notifyFolderStatusUpdate(refreshedNodeData.batchId ?? folderId, refreshedNodeData.groupId)
@@ -682,6 +725,38 @@ export default function GroupDashboard({
     }
     onUploadRequest()
     setShouldAutoOpenFileDialog(true)
+  }
+
+  const handleBackToProjectDashboard = () => {
+    sidebarRef.current?.closeFolderView?.()
+    const resolvedGroupId =
+      nodeData?.groupId ??
+      nodeData?.group_id ??
+      selectedNode?.data?.groupId ??
+      selectedNode?.data?.group_id ??
+      uploadContext.groupId ??
+      null
+
+    if (!resolvedGroupId) {
+      showError("Unable to determine the project to return to.")
+      return
+    }
+
+    const resolvedGroupName =
+      nodeData?.groupName ??
+      nodeData?.group_name ??
+      selectedNode?.data?.groupName ??
+      selectedNode?.data?.group_name ??
+      uploadContext.groupName ??
+      ""
+
+    void handleNodeSelect({
+      type: "group",
+      id: resolvedGroupId,
+      data: {
+        ...(resolvedGroupName ? { name: resolvedGroupName } : {}),
+      },
+    })
   }
 
   if (initialLoading) {
@@ -735,18 +810,22 @@ export default function GroupDashboard({
 
   return (
     <div className="bg-slate-50 text-slate-900 dark:bg-gradient-to-br dark:from-[#040714] dark:via-[#080f24] dark:to-[#0d1a3a] dark:text-slate-100">
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {ariaLiveMessage}
+      </div>
       <div className="w-full flex h-full flex-col gap-6 px-4 py-6 lg:flex-row lg:items-start">
-        <div className="w-full lg:max-w-sm flex-shrink-0">
-          <GroupTreeSidebar
-            onNodeSelect={handleNodeSelect}
-            selectedNode={selectedNode}
-            onRefresh={loadInitialData}
-            initialGroupId={initialGroupId}
-            latestUploadContext={latestUploadContext}
-            onUploadContextAcknowledged={onUploadContextAcknowledged}
-            folderNavigationContext={folderNavigationContext}
-            folderStatusUpdateSignal={folderStatusSignal}
-          />
+          <div className="w-full lg:max-w-sm flex-shrink-0">
+            <GroupTreeSidebar
+              ref={sidebarRef}
+              onNodeSelect={handleNodeSelect}
+              selectedNode={selectedNode}
+              onRefresh={loadInitialData}
+              initialGroupId={initialGroupId}
+              latestUploadContext={latestUploadContext}
+              onUploadContextAcknowledged={onUploadContextAcknowledged}
+              folderNavigationContext={folderNavigationContext}
+              folderStatusUpdateSignal={folderStatusSignal}
+            />
         </div>
 
         <div className="flex-1 lg:min-w-0">
@@ -784,39 +863,51 @@ export default function GroupDashboard({
                       )}
                     </div>
                     <p className="text-sm text-slate-500 mt-1 dark:text-slate-300">
-                      {selectedNode
-                        ? `Viewing ${
-                            selectedNode.type === "group"
-                              ? "project"
-                              : selectedNode.type === "batch"
-                                ? "folder"
-                                : "file"
-                          } details`
-                        : "Select a project to start exploring accessibility insights."}
-                    </p>
-                  </div>
-                  {shouldShowDashboardActions && (
-                      <div className="flex-shrink-0 flex items-center gap-2">
+                    {selectedNode
+                      ? `Viewing ${
+                          selectedNode.type === "group"
+                            ? "project"
+                            : selectedNode.type === "batch"
+                              ? "folder"
+                              : "file"
+                        } details`
+                      : "Select a project to start exploring accessibility insights."}
+                  </p>
+                </div>
+              </div>
+              {selectedNode?.type === "batch" && (
+                <div className="px-6 pb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <button
+                      type="button"
+                      onClick={handleBackToProjectDashboard}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:border-slate-600 dark:hover:bg-slate-900"
+                    >
+                      <svg
+                        className="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                      </svg>
+                      Back to project dashboard
+                    </button>
+                    {shouldShowDashboardActions && (
+                      <div className="flex flex-wrap items-center gap-2">
                         {nodeData?.type === "batch" && (
                           <>
-                            {/* {folderBatchId && (
+                            {folderBatchId && folderReadyToScan && (
                               <button
                                 type="button"
-                                onClick={() => onSelectBatch(folderBatchId)}
-                                className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 transition hover:border-slate-300 hover:bg-indigo-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-indigo-500/30 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:border-indigo-400 dark:hover:bg-indigo-800/60"
+                                onClick={handleBeginFolderScan}
+                                disabled={startingFolderScan || !folderReadyToScan}
+                                aria-disabled={startingFolderScan || !folderReadyToScan}
+                                aria-busy={startingFolderScan}
+                                className="inline-flex items-center justify-center rounded-lg border border-transparent bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
                               >
-                                View Full Report
-                              </button>
-                            )} */}
-                        {folderBatchId && folderReadyToScan && (
-                          <button
-                            type="button"
-                            onClick={handleBeginFolderScan}
-                            disabled={startingFolderScan || !folderReadyToScan}
-                            aria-disabled={startingFolderScan || !folderReadyToScan}
-                            aria-busy={startingFolderScan}
-                            className="inline-flex items-center justify-center rounded-lg border border-transparent bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
                                 {scanFolderLabel}
                               </button>
                             )}
@@ -875,9 +966,10 @@ export default function GroupDashboard({
                           </button>
                         )}
                       </div>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
@@ -896,16 +988,17 @@ export default function GroupDashboard({
                     <div className="px-6 py-6 space-y-6">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <StatCard value={groupSummary?.totalIssues} label="Total Issues" />
-                        <StatCard
-                          value={groupSummary?.fixedIssues}
-                          label="Fixed Issues"
-                          valueClass="text-emerald-600 dark:text-emerald-400"
-                        />
+                       
                         <StatCard
                           value={groupSummary?.remainingIssues}
                           label="Remaining"
                           valueClass="text-amber-600 dark:text-amber-400"
                           description="Issues still pending"
+                        />
+                         <StatCard
+                          value={groupSummary?.fixedIssues}
+                          label="Fixed Issues"
+                          valueClass="text-emerald-600 dark:text-emerald-400"
                         />
                         <StatCard
                           value={groupSummary?.unprocessedFiles}
@@ -928,6 +1021,7 @@ export default function GroupDashboard({
                         statusCounts={nodeData.status_counts}
                         totalFiles={nodeData.file_count}
                         totalIssues={nodeData.total_issues}
+                        remainingIssues={groupSummary?.remainingIssues}
                       />
                     </div>
                   )}
@@ -975,16 +1069,16 @@ export default function GroupDashboard({
                             <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Total Issues</div>
                           </div>
                           <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
-                            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                              {nodeData.fixedIssues || 0}
-                            </div>
-                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Fixed</div>
-                          </div>
-                          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
                             <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
                               {nodeData.remainingIssues || 0}
                             </div>
                             <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Remaining</div>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
+                            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                              {nodeData.fixedIssues || 0}
+                            </div>
+                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Fixed</div>
                           </div>
                           <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0c162c]">
                             <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-300">
@@ -1027,6 +1121,7 @@ export default function GroupDashboard({
       </div>
     </div>
   </div>
+</div>
 </div>
   )
 }

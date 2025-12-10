@@ -10,6 +10,7 @@ import re
 # from backend.pdfa_fix_engine import PDFAFixEngine  # PDF/A fix engine temporarily disabled
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
+from backend.utils.metadata_helpers import ensure_pdfua_metadata_stream
 from backend.pdf_structure_standards import (
     STANDARD_STRUCTURE_TYPES,
     COMMON_ROLEMAP_MAPPINGS,
@@ -78,9 +79,28 @@ class AutoFixEngine:
         if not isinstance(results, dict):
             return status
 
-        wcag_issues = len(results.get("wcagIssues", []))
-        pdfua_issues = len(results.get("pdfuaIssues", []))
-        total = wcag_issues + pdfua_issues
+        canonical = results.get("issues")
+        if isinstance(canonical, list) and canonical:
+            seen = set()
+            wcag_issues = 0
+            pdfua_issues = 0
+            for issue in canonical:
+                if not isinstance(issue, dict):
+                    continue
+                issue_id = issue.get("issueId")
+                if issue_id and issue_id in seen:
+                    continue
+                if issue_id:
+                    seen.add(issue_id)
+                if issue.get("criterion"):
+                    wcag_issues += 1
+                if issue.get("clause"):
+                    pdfua_issues += 1
+            total = wcag_issues + pdfua_issues
+        else:
+            wcag_issues = len(results.get("wcagIssues", []))
+            pdfua_issues = len(results.get("pdfuaIssues", []))
+            total = wcag_issues + pdfua_issues
         status["totalVeraPDFIssues"] = total
 
         if total == 0:
@@ -110,6 +130,18 @@ class AutoFixEngine:
             summary = analyzer.calculate_summary(results, verapdf_status)
         except TypeError:
             summary = PDFAccessibilityAnalyzer.calculate_summary(results)
+
+        metrics_getter = getattr(analyzer, "get_wcag_validator_metrics", None)
+        if isinstance(summary, dict) and callable(metrics_getter):
+            metrics = metrics_getter()
+            if isinstance(metrics, dict):
+                # Keep auto-fix summary aligned with backend: WCAG validator drives compliance.
+                summary["wcagCompliance"] = metrics.get("wcagScore", summary.get("wcagCompliance"))
+                summary["pdfuaCompliance"] = metrics.get("pdfuaScore", summary.get("pdfuaCompliance"))
+                if metrics.get("wcagCompliance"):
+                    summary["wcagLevels"] = metrics["wcagCompliance"]
+                if metrics.get("pdfuaCompliance"):
+                    summary["pdfuaLevels"] = metrics["pdfuaCompliance"]
 
         if isinstance(summary, dict) and verapdf_status:
             summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
@@ -163,8 +195,58 @@ class AutoFixEngine:
                 fixes['estimatedTime'] += 1
                 break
         
-        # Automated fixes for metadata and title
-        if scan_results.get('missingMetadata') or scan_results.get('metadataIssues') or scan_results.get('titleIssues'):
+        # Metadata guidance, splitting semantic fixes
+        metadata_issues = scan_results.get('missingMetadata') or []
+        metadata_misc_present = bool(scan_results.get('metadataIssues') or scan_results.get('titleIssues'))
+        metadata_title_missing = False
+        metadata_other_missing = False
+        author_fix_added = False
+        subject_fix_added = False
+
+        for issue in metadata_issues:
+            description = issue.get('description', '')
+            desc_lower = description.lower()
+            severity = issue.get('severity', 'medium')
+            recommendation = issue.get('recommendation')
+
+            if 'title' in desc_lower:
+                metadata_title_missing = True
+            elif 'author' in desc_lower or 'creator' in desc_lower:
+                if not author_fix_added:
+                    fixes['semiAutomated'].append({
+                        'action': 'Add author metadata',
+                        'title': 'Add author metadata',
+                        'description': description,
+                        'category': 'missingMetadata',
+                        'severity': severity,
+                        'estimatedTime': '2 minutes',
+                        'fixType': 'addMetadata',
+                        'fixData': {'field': 'author'},
+                        'instructions': recommendation
+                        or "Open the PDF metadata settings and provide the author name."
+                    })
+                    fixes['estimatedTime'] += 2
+                    author_fix_added = True
+            elif 'subject' in desc_lower:
+                if not subject_fix_added:
+                    fixes['semiAutomated'].append({
+                        'action': 'Add subject/description metadata',
+                        'title': 'Add subject/description metadata',
+                        'description': description,
+                        'category': 'missingMetadata',
+                        'severity': severity,
+                        'estimatedTime': '2 minutes',
+                        'fixType': 'addMetadata',
+                        'fixData': {'field': 'subject'},
+                        'instructions': recommendation
+                        or "Summarize the document content in the Subject/Description metadata fields."
+                    })
+                    fixes['estimatedTime'] += 2
+                    subject_fix_added = True
+            else:
+                metadata_other_missing = True
+
+        if metadata_title_missing or metadata_other_missing or metadata_misc_present:
             fixes['automated'].append({
                 'action': 'Add document metadata',
                 'title': 'Add document metadata and title',
@@ -422,6 +504,7 @@ class AutoFixEngine:
         temp_path = None
         upload_dir = Path("uploads")
         resolved_path = None
+        scan_data = scan_data or {}
         if scan_data:
             resolved_path = scan_data.get("resolved_file_path")
         if resolved_path:
@@ -501,17 +584,22 @@ class AutoFixEngine:
                 tracker.start_step(step_id)
             
             try:
-                # Always set language to ensure compliance
-                pdf.Root.Lang = 'en-US'
-                print("[AutoFixEngine] ✓ Set document language (en-US)")
-                
-                fixes_applied.append({
-                    'type': 'addLanguage',
-                    'description': 'Set document language (en-US)',
-                    'success': True
-                })
-                if tracker:
-                    tracker.complete_step(step_id, "Set language: en-US")
+                existing_lang = pdf.Root.get('/Lang')
+                if not existing_lang:
+                    pdf.Root['/Lang'] = 'en-US'
+                    print("[AutoFixEngine] ✓ Set document language (en-US)")
+                    
+                    fixes_applied.append({
+                        'type': 'addLanguage',
+                        'description': 'Set document language (en-US)',
+                        'success': True
+                    })
+                    if tracker:
+                        tracker.complete_step(step_id, "Set language: en-US")
+                else:
+                    print("[AutoFixEngine] → Document already defines a language; skipping fix")
+                    if tracker:
+                        tracker.skip_step(step_id, "Document already defines a language")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error adding language: {e}")
                 if tracker:
@@ -529,34 +617,39 @@ class AutoFixEngine:
             try:
                 filename = scan_data.get('filename', os.path.basename(pdf_path))
                 title = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
-                
-                # Ensure docinfo exists
-                if not hasattr(pdf, 'docinfo') or pdf.docinfo is None:
-                    pdf.docinfo = pdf.make_indirect(Dictionary())
-                    print("[AutoFixEngine] Created new docinfo dictionary")
-                
-                # Always set title to ensure compliance
-                pdf.docinfo['/Title'] = title
-                print(f"[AutoFixEngine] ✓ Set DocInfo title: {title}")
-                
-                # Always set XMP metadata to ensure compliance
-                with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
-                    meta['dc:title'] = title
-                    print(f"[AutoFixEngine] ✓ Set XMP dc:title: {title}")
-                
-                fixes_applied.append({
-                    'type': 'addTitle',
-                    'description': f'Set document title and metadata: {title}',
-                    'success': True
-                })
-                fixes_applied.append({
-                    'type': 'pdfuaNotice',
-                    'description': 'PDF/UA identifier not asserted - manual tagging and validation required.',
-                    'success': False,
-                    'warning': True
-                })
-                if tracker:
-                    tracker.complete_step(step_id, f"Set title: {title}")
+                initial_title = ""
+                try:
+                    if hasattr(pdf, "docinfo") and pdf.docinfo and "/Title" in pdf.docinfo:
+                        initial_title = str(pdf.docinfo.get("/Title") or "").strip()
+                except Exception:
+                    initial_title = ""
+
+                had_metadata_stream = "/Metadata" in pdf.Root
+                metadata_changed = ensure_pdfua_metadata_stream(pdf, title)
+
+                if not initial_title:
+                    print(f"[AutoFixEngine] ✓ Set document title metadata: {title}")
+                if not had_metadata_stream and "/Metadata" in pdf.Root:
+                    print("[AutoFixEngine] ✓ Added catalog Metadata stream with dc:title/pdfuaid markers")
+
+                if metadata_changed:
+                    fixes_applied.append({
+                        'type': 'addTitle',
+                        'description': f'Set document title and metadata: {title}',
+                        'success': True
+                    })
+                    fixes_applied.append({
+                        'type': 'pdfuaNotice',
+                        'description': 'PDF/UA identifier not asserted - manual tagging and validation required.',
+                        'success': False,
+                        'warning': True
+                    })
+                    if tracker:
+                        tracker.complete_step(step_id, f"Set title: {title}")
+                else:
+                    print("[AutoFixEngine] → Title metadata already present; skipping fix")
+                    if tracker:
+                        tracker.skip_step(step_id, "Title metadata already present")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error adding title/metadata: {e}")
                 if tracker:
@@ -624,23 +717,34 @@ class AutoFixEngine:
                 tracker.start_step(step_id)
             
             try:
-                if not hasattr(pdf.Root, 'ViewerPreferences'):
+                viewer_prefs = getattr(pdf.Root, 'ViewerPreferences', None)
+                preferences_changed = False
+
+                if viewer_prefs is None:
                     pdf.Root.ViewerPreferences = pdf.make_indirect(Dictionary(
                         DisplayDocTitle=True
                     ))
+                    preferences_changed = True
                     print("[AutoFixEngine] ✓ Created ViewerPreferences")
                 else:
-                    # Always set to ensure compliance
-                    pdf.Root.ViewerPreferences['/DisplayDocTitle'] = True
-                    print("[AutoFixEngine] ✓ Updated ViewerPreferences")
-                
-                fixes_applied.append({
-                    'type': 'fixViewerPreferences',
-                    'description': 'Set ViewerPreferences to display document title',
-                    'success': True
-                })
-                if tracker:
-                    tracker.complete_step(step_id, "ViewerPreferences configured")
+                    display_doc_title = viewer_prefs.get('/DisplayDocTitle')
+                    if not display_doc_title:
+                        viewer_prefs['/DisplayDocTitle'] = True
+                        preferences_changed = True
+                        print("[AutoFixEngine] ✓ Enabled DisplayDocTitle")
+
+                if preferences_changed:
+                    fixes_applied.append({
+                        'type': 'fixViewerPreferences',
+                        'description': 'Set ViewerPreferences to display document title',
+                        'success': True
+                    })
+                    if tracker:
+                        tracker.complete_step(step_id, "ViewerPreferences configured")
+                else:
+                    print("[AutoFixEngine] → ViewerPreferences already configured; skipping fix")
+                    if tracker:
+                        tracker.skip_step(step_id, "ViewerPreferences already configured")
             except Exception as e:
                 print(f"[AutoFixEngine] ✗ Error setting ViewerPreferences: {e}")
                 if tracker:

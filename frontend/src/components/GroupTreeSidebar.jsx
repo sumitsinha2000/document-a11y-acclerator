@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { resolveEntityStatus } from "../utils/statuses";
 import { useNotification } from "../contexts/NotificationContext";
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id));
+const buildTreeItemId = (type, identifier) => `${type}-${normalizeId(identifier)}`;
 const FILE_STATUS_STYLES = {
   uploaded: "bg-gray-100 text-gray-700",
   scanned: "bg-blue-100 text-blue-800",
@@ -27,17 +28,58 @@ const STATUS_BADGE_STYLES = {
 const SELECTED_STATUS_BADGE_CLASSES = "border-white bg-white/30 text-white";
 const TREE_ITEM_FOCUS_CLASSES =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
+const FOCUSABLE_ELEMENTS_SELECTOR = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
 
-export default function GroupTreeSidebar({
-  onNodeSelect,
-  selectedNode,
-  onRefresh,
-  initialGroupId,
-  latestUploadContext = null,
-  onUploadContextAcknowledged = () => {},
-  folderNavigationContext = null,
-  folderStatusUpdateSignal = null,
-}) {
+const ENTITY_NAME_MIN_LENGTH = 3;
+const ENTITY_NAME_MAX_LENGTH = 50;
+const sanitizeInputValue = (value) => {
+  return (value ?? "").replace(/[^A-Za-z0-9 ]+/g, "")
+}
+
+const validateEntityName = (value, options = {}) => {
+  const { label = "Name", minLength = ENTITY_NAME_MIN_LENGTH, maxLength = ENTITY_NAME_MAX_LENGTH } = options;
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return {
+      isValid: false,
+      trimmed: "",
+      message: `${label} is required.`,
+    };
+  }
+  if (trimmed.length < minLength) {
+    return {
+      isValid: false,
+      trimmed,
+      message: `${label} must be at least ${minLength} characters.`,
+    };
+  }
+  if (trimmed.length > maxLength) {
+    return {
+      isValid: false,
+      trimmed,
+      message: `${label} must be ${maxLength} characters or fewer.`,
+    };
+  }
+  return {
+    isValid: true,
+    trimmed,
+    message: "",
+  };
+};
+
+const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
+  {
+    onNodeSelect,
+    selectedNode,
+    onRefresh,
+    initialGroupId,
+    latestUploadContext = null,
+    onUploadContextAcknowledged = () => {},
+    folderNavigationContext = null,
+    folderStatusUpdateSignal = null,
+  },
+  ref,
+) {
   const [groups, setGroups] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [loading, setLoading] = useState(true);
@@ -61,18 +103,142 @@ export default function GroupTreeSidebar({
   const [editingBatchGroupId, setEditingBatchGroupId] = useState(null);
   const [editingBatchName, setEditingBatchName] = useState("");
   const [deletingBatchId, setDeletingBatchId] = useState(null);
+  const [pendingDeleteFolder, setPendingDeleteFolder] = useState(null);
+  const [isFolderDeleteLoading, setIsFolderDeleteLoading] = useState(false);
+  const [folderDeleteError, setFolderDeleteError] = useState("");
   const [sidebarView, setSidebarView] = useState("projects");
   const [activeFolderView, setActiveFolderView] = useState(null);
   const [folderFiles, setFolderFiles] = useState([]);
   const [folderFilesLoading, setFolderFilesLoading] = useState(false);
   const [folderFilesError, setFolderFilesError] = useState(null);
   const [refreshingGroupId, setRefreshingGroupId] = useState(null);
-  const [deletingFileId, setDeletingFileId] = useState(null);
+  const [deletingFileIds, setDeletingFileIds] = useState(() => new Set());
   const [refreshingFolderCounts, setRefreshingFolderCounts] = useState({});
   const handledFolderNavigationRef = useRef(null);
   const folderStatusRefreshKeyRef = useRef(null);
   const treeContainerRef = useRef(null);
-  const { confirm, showError, showSuccess } = useNotification();
+  const treeItemMetadataRef = useRef({});
+  const sidebarRootRef = useRef(null);
+  const folderBackButtonRef = useRef(null);
+  const projectDeleteModalRef = useRef(null);
+  const folderDeleteModalRef = useRef(null);
+  const [activeTreeItemId, setActiveTreeItemId] = useState(null);
+  const { confirm, showError, showSuccess, showDialog } = useNotification();
+  const projectNameValidation = validateEntityName(newProjectName, { label: "Project name" });
+  const projectCharCount = newProjectName.length;
+  const projectCharCountClass = projectNameValidation.isValid
+    ? "text-slate-500 dark:text-slate-400"
+    : "text-rose-600 dark:text-rose-400";
+  const updateDeletingFileState = (fileId, isDeleting) => {
+    const normalizedFileId = normalizeId(fileId);
+    if (!normalizedFileId) {
+      return;
+    }
+
+    setDeletingFileIds((prev) => {
+      const hasFile = prev.has(normalizedFileId);
+      if (isDeleting) {
+        if (hasFile) {
+          return prev;
+        }
+        const next = new Set(prev);
+        next.add(normalizedFileId);
+        return next;
+      }
+
+      if (!hasFile) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(normalizedFileId);
+      return next;
+    });
+  };
+
+  const isDeletingFile = (fileId) => {
+    const normalizedFileId = normalizeId(fileId);
+    return !!normalizedFileId && deletingFileIds.has(normalizedFileId);
+  };
+  const treeItemsMetadata = useMemo(() => {
+    const metadata = {};
+    groups.forEach((group, groupIndex) => {
+      const normalizedGroupId = normalizeId(group.id);
+      if (!normalizedGroupId) {
+        return;
+      }
+      const treeId = buildTreeItemId("group", group.id);
+      const groupEntry = {
+        type: "group",
+        group,
+        normalizedGroupId,
+        treeId,
+        groupIndex,
+        childTreeIds: [],
+      };
+      metadata[treeId] = groupEntry;
+      const batches = groupBatches[normalizedGroupId] || [];
+      batches.forEach((batch, batchIndex) => {
+        const batchIdentifier = batch.batchId ?? batch.id;
+        const normalizedBatchId = normalizeId(batchIdentifier);
+        if (!normalizedBatchId) {
+          return;
+        }
+        const folderTreeId = buildTreeItemId("folder", batchIdentifier);
+        groupEntry.childTreeIds.push(folderTreeId);
+        metadata[folderTreeId] = {
+          type: "folder",
+          batch: {
+            ...batch,
+            batchId: batchIdentifier,
+          },
+          group,
+          normalizedBatchId,
+          treeId: folderTreeId,
+          parentTreeId: treeId,
+          batchIndex,
+          groupIndex,
+        };
+      });
+    });
+    return metadata;
+  }, [groups, groupBatches]);
+  treeItemMetadataRef.current = treeItemsMetadata;
+  const handleEscapeBlur = useCallback((event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.currentTarget.blur();
+    }
+  }, []);
+  useEffect(() => {
+    if (sidebarView !== "folder" || selectedNode?.type !== "batch") {
+      return;
+    }
+    const schedule =
+      typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame
+        : (cb) => setTimeout(cb, 0);
+    const cancel =
+      typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
+        ? window.cancelAnimationFrame
+        : (id) => clearTimeout(id);
+    let frameId = null;
+    const focusTarget = () => {
+      if (folderBackButtonRef.current && typeof folderBackButtonRef.current.focus === "function") {
+        folderBackButtonRef.current.focus();
+        return;
+      }
+      const sidebarElement = sidebarRootRef.current;
+      if (sidebarElement && typeof sidebarElement.focus === "function") {
+        sidebarElement.focus();
+      }
+    };
+    frameId = schedule(focusTarget);
+    return () => {
+      if (frameId) {
+        cancel(frameId);
+      }
+    };
+  }, [sidebarView, selectedNode?.id, selectedNode?.type]);
   const mapFolderToSidebarEntry = (folder) => {
     if (!folder) {
       return null;
@@ -213,6 +379,30 @@ export default function GroupTreeSidebar({
     item.scrollIntoView({ block: "nearest" });
   };
 
+  const handleTreeFocusCapture = (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const treeItem = target.closest("[data-doca-tree-item]");
+    if (treeItem?.dataset?.treeId) {
+      setActiveTreeItemId(treeItem.dataset.treeId);
+      return;
+    }
+
+    const actionsRegion = target.closest("[data-tree-actions-for]");
+    if (actionsRegion?.dataset?.treeActionsFor) {
+      setActiveTreeItemId(actionsRegion.dataset.treeActionsFor);
+    }
+  };
+
+  const handleTreeBlurCapture = (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      setActiveTreeItemId(null);
+    }
+  };
+
   const handleTreeKeyDown = (event) => {
     if (
       event.defaultPrevented ||
@@ -222,7 +412,7 @@ export default function GroupTreeSidebar({
     ) {
       return;
     }
-    const navigationKeys = ["ArrowDown", "ArrowUp", "Home", "End"];
+    const navigationKeys = ["ArrowDown", "ArrowUp", "Home", "End", "ArrowLeft", "ArrowRight"];
     if (!navigationKeys.includes(event.key)) {
       return;
     }
@@ -237,6 +427,15 @@ export default function GroupTreeSidebar({
       typeof document !== "undefined" ? document.activeElement : null;
     const currentIndex = items.indexOf(activeElement);
     let targetIndex = 0;
+    const treeItemElement =
+      activeElement instanceof Element
+        ? activeElement.closest("[data-doca-tree-item]")
+        : null;
+    const treeItemId = treeItemElement?.dataset?.treeId || null;
+    const treeMetadata =
+      treeItemId && treeItemMetadataRef.current
+        ? treeItemMetadataRef.current[treeItemId]
+        : null;
 
     switch (event.key) {
       case "ArrowDown":
@@ -257,6 +456,57 @@ export default function GroupTreeSidebar({
       case "End":
         targetIndex = items.length - 1;
         break;
+      case "ArrowRight":
+        if (!treeMetadata) {
+          return;
+        }
+        if (treeMetadata.type === "group") {
+          if (!expandedGroups.has(treeMetadata.normalizedGroupId)) {
+            void handleGroupSelection(treeMetadata.group);
+            return;
+          }
+          const firstChildId = treeMetadata.childTreeIds?.[0];
+          if (firstChildId) {
+            const childElement = items.find(
+              (item) => item.dataset.treeId === firstChildId
+            );
+            if (childElement) {
+              focusTreeItem(childElement);
+            }
+          }
+        } else if (treeMetadata.type === "folder") {
+          void handleFolderButtonClick(treeMetadata.group, treeMetadata.batch);
+        }
+        return;
+      case "ArrowLeft":
+        if (!treeMetadata) {
+          return;
+        }
+        if (treeMetadata.type === "group") {
+          if (expandedGroups.has(treeMetadata.normalizedGroupId)) {
+            setExpandedGroups((prev) => {
+              if (!prev.has(treeMetadata.normalizedGroupId)) {
+                return prev;
+              }
+              const next = new Set(prev);
+              next.delete(treeMetadata.normalizedGroupId);
+              return next;
+            });
+          }
+          return;
+        }
+        if (treeMetadata.type === "folder") {
+          const parentId = treeMetadata.parentTreeId;
+          if (parentId) {
+            const parentElement = items.find(
+              (item) => item.dataset.treeId === parentId
+            );
+            if (parentElement) {
+              focusTreeItem(parentElement);
+            }
+          }
+        }
+        return;
       default:
         return;
     }
@@ -482,6 +732,20 @@ export default function GroupTreeSidebar({
     void loadTargetGroup();
   }, [initialGroupId, groups]);
 
+  useEffect(() => {
+    if (initialGroupId) {
+      return;
+    }
+    if (groups.length === 0 || selectedNode) {
+      return;
+    }
+    const firstGroup = groups[0];
+    if (!firstGroup || !normalizeId(firstGroup.id)) {
+      return;
+    }
+    void handleGroupSelection(firstGroup, { forceExpand: true });
+  }, [groups, initialGroupId, selectedNode]);
+
   const fetchGroupData = async (groupId, prefetchedBatches = null, options = {}) => {
     const { forceBatchRefresh = false } = options;
     const normalizedId = normalizeId(groupId);
@@ -551,7 +815,10 @@ export default function GroupTreeSidebar({
     }
   };
 
-  const handleGroupSelection = async (group, { moveFocus = false } = {}) => {
+  const handleGroupSelection = async (
+    group,
+    { moveFocus = false, forceExpand = false } = {}
+  ) => {
     if (!group) {
       return;
     }
@@ -560,43 +827,47 @@ export default function GroupTreeSidebar({
 
     const normalizedId = normalizeId(group.id);
     const isAlreadyExpanded = expandedGroups.has(normalizedId);
+    const shouldExpand = forceExpand || !isAlreadyExpanded;
 
     setExpandedGroups((prev) => {
-      if (isAlreadyExpanded) {
-        const next = new Set(prev);
-        next.delete(normalizedId);
-        return next;
+      if (shouldExpand) {
+        return new Set([normalizedId]);
       }
-      return new Set([normalizedId]);
+      if (!prev.has(normalizedId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(normalizedId);
+      return next;
     });
 
     setSectionStates((prev) => {
       const next = { ...prev };
-      if (isAlreadyExpanded) {
-        next[normalizedId] = {
-          batches: false,
-          files: false,
-        };
-        return next;
-      }
-      Object.keys(next).forEach((key) => {
-        if (key !== normalizedId) {
-          next[key] = {
-            batches: false,
-            files: false,
-          };
-        }
-      });
       if (!next[normalizedId]) {
         next[normalizedId] = {
           batches: false,
           files: false,
         };
       }
+      if (shouldExpand) {
+        Object.keys(next).forEach((key) => {
+          if (key !== normalizedId) {
+            next[key] = {
+              batches: false,
+              files: false,
+            };
+          }
+        });
+        return next;
+      }
+      next[normalizedId] = {
+        batches: false,
+        files: false,
+      };
       return next;
     });
 
-    const fetchPromise = !isAlreadyExpanded
+    const fetchPromise = shouldExpand
       ? fetchGroupData(group.id, groupBatches[normalizedId] || null)
       : Promise.resolve(null);
 
@@ -619,7 +890,7 @@ export default function GroupTreeSidebar({
     }
 
     if (group.name) {
-      setStatusMessage(`${group.name} ${isAlreadyExpanded ? "collapsed" : "expanded"}`);
+      setStatusMessage(`${group.name} ${shouldExpand ? "expanded" : "collapsed"}`);
     }
   };
 
@@ -647,6 +918,105 @@ export default function GroupTreeSidebar({
     }
   };
 
+  const getSelectedNodeGroupId = () => {
+    if (!selectedNode) {
+      return "";
+    }
+    if (selectedNode.type === "group") {
+      return normalizeId(selectedNode.id);
+    }
+    return normalizeId(
+      selectedNode.data?.groupId ??
+        selectedNode.data?.group_id ??
+        ""
+    );
+  };
+
+  const getSelectedNodeBatchId = () => {
+    if (!selectedNode) {
+      return "";
+    }
+    if (selectedNode.type === "batch") {
+      return normalizeId(selectedNode.id);
+    }
+    if (selectedNode.type === "file") {
+      return normalizeId(
+        selectedNode.data?.batchId ??
+          selectedNode.data?.batch_id ??
+          selectedNode.data?.folderId ??
+          selectedNode.data?.folder_id ??
+          ""
+      );
+    }
+    return "";
+  };
+
+  const refreshDashboardGroupView = (groupId) => {
+    if (!onNodeSelect) {
+      return;
+    }
+    const normalizedGroupId = normalizeId(groupId);
+    if (!normalizedGroupId) {
+      return;
+    }
+    const targetGroup = groups.find((group) => normalizeId(group.id) === normalizedGroupId);
+    if (!targetGroup) {
+      return;
+    }
+    void handleNodeClick({
+      type: "group",
+      id: targetGroup.id,
+      data: targetGroup,
+    });
+  };
+
+  const ensureDashboardReflectsGroupDeletion = (groupId) => {
+    if (!onNodeSelect || !groupId) {
+      return;
+    }
+    const normalizedGroupId = normalizeId(groupId);
+    if (!normalizedGroupId) {
+      return;
+    }
+    const belongsToGroup = getSelectedNodeGroupId() === normalizedGroupId;
+    if (belongsToGroup) {
+      void onNodeSelect(null);
+    }
+  };
+
+  const ensureDashboardReflectsFolderDeletion = (groupId, folderId) => {
+    if (!onNodeSelect || !groupId || !folderId) {
+      return;
+    }
+    const normalizedGroupId = normalizeId(groupId);
+    const normalizedFolderId = normalizeId(folderId);
+    if (!normalizedGroupId || !normalizedFolderId) {
+      return;
+    }
+    const targetGroup = groups.find((group) => normalizeId(group.id) === normalizedGroupId);
+    const selectedBatchId = getSelectedNodeBatchId();
+    const isBatchSelected =
+      selectedNode?.type === "batch" && selectedBatchId === normalizedFolderId;
+    const isFileSelected =
+      selectedNode?.type === "file" && selectedBatchId === normalizedFolderId;
+    const isGroupSelected =
+      selectedNode?.type === "group" && normalizeId(selectedNode.id) === normalizedGroupId;
+    const refreshOrClear = () => {
+      if (targetGroup) {
+        void refreshDashboardGroupView(normalizedGroupId);
+        return;
+      }
+      void onNodeSelect(null);
+    };
+    if (isBatchSelected || isFileSelected) {
+      refreshOrClear();
+      return;
+    }
+    if (isGroupSelected) {
+      refreshOrClear();
+    }
+  };
+
   const toggleSection = (groupId, section, groupName, label) => {
     const normalizedId = normalizeId(groupId);
     setSectionStates((prev) => {
@@ -670,21 +1040,36 @@ export default function GroupTreeSidebar({
   const handleCreateProject = async (event) => {
     event?.preventDefault();
 
-    const trimmedName = newProjectName.trim();
-    if (!trimmedName) {
-      setStatusMessage("Enter a project name first");
+    const validation = validateEntityName(newProjectName, { label: "Project name" });
+    if (!validation.isValid) {
+      const message = validation.message;
+      showDialog({
+        title: "Invalid project name",
+        message,
+        closeText: "Okay",
+      });
+      setNewProjectError(message);
+      setStatusMessage(message);
       return;
     }
-
+    const trimmedName = validation.trimmed;
     const normalizedName = trimmedName.toLowerCase();
     const duplicate = groups.some(
-      (group) => (group.name || "").toLowerCase() === normalizedName
+      (group) => (group.name || "").trim().toLowerCase() === normalizedName
     );
     if (duplicate) {
-      setNewProjectError(`Project "${trimmedName}" already exists`);
+      const message = `Project "${trimmedName}" already exists`;
+      showDialog({
+        title: "Duplicate project name",
+        message,
+        closeText: "Got it",
+      });
+      setNewProjectError(message);
+      setStatusMessage(message);
       return;
     }
 
+    setNewProjectError("");
     setIsCreatingProject(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/api/groups`, {
@@ -693,14 +1078,12 @@ export default function GroupTreeSidebar({
 
       if (response?.data?.group) {
         setStatusMessage(`Project "${trimmedName}" created`);
-        setNewProjectError("");
         setNewProjectName("");
         await fetchGroups();
         return;
       }
 
       setStatusMessage("Project created");
-      setNewProjectError("");
       setNewProjectName("");
       await fetchGroups();
     } catch (error) {
@@ -726,6 +1109,10 @@ export default function GroupTreeSidebar({
   const closeFolderView = () => {
     ensureProjectView();
   };
+
+  useImperativeHandle(ref, () => ({
+    closeFolderView,
+  }), [closeFolderView]);
 
   const openFolderView = async (group, batch) => {
     const normalizedBatchId = normalizeId(batch.batchId || batch.id);
@@ -781,14 +1168,11 @@ export default function GroupTreeSidebar({
       batchId,
     };
     void openFolderView(group, batchData);
-    void handleNodeClick(
-      {
-        type: "batch",
-        id: batchId,
-        data: batchData,
-      },
-      { moveFocus: true }
-    );
+    void handleNodeClick({
+      type: "batch",
+      id: batchId,
+      data: batchData,
+    });
   };
 
   const handleDeleteFile = async (file, event) => {
@@ -814,15 +1198,37 @@ export default function GroupTreeSidebar({
       return;
     }
 
-    setDeletingFileId(fileId);
+    updateDeletingFileState(fileId, true);
     try {
       await axios.delete(`${API_BASE_URL}/api/scan/${fileId}`);
-      showSuccess(`Deleted "${fileName}"`);
+      showSuccess(`Deleted file "${fileName}"`);
       setStatusMessage(`${fileName} deleted`);
 
       const folderMeta = activeFolderView;
       const normalizedFolderId = normalizeId(folderMeta?.folderId);
       const normalizedGroupId = normalizeId(folderMeta?.groupId);
+
+      const returnToFolderDashboardIfNeeded = async () => {
+        const isFileDashboardActive =
+          selectedNode?.type === "file" && normalizeId(selectedNode?.id) === normalizedFileId;
+        if (!isFileDashboardActive) {
+          return;
+        }
+        if (folderMeta && normalizedFolderId) {
+          await handleNodeClick({
+            type: "batch",
+            id: folderMeta.folderId,
+            data: {
+              batchId: folderMeta.folderId,
+              name: folderMeta.folderName || `Folder ${folderMeta.folderId}`,
+              groupId: folderMeta.groupId,
+              groupName: folderMeta.groupName,
+            },
+          });
+          return;
+        }
+        await handleNodeClick(null);
+      };
 
       if (folderMeta && normalizedFolderId) {
         const resolveFileIdentifier = (item) =>
@@ -913,11 +1319,14 @@ export default function GroupTreeSidebar({
       ) {
         await handleNodeClick(selectedNode);
       }
+
+      await returnToFolderDashboardIfNeeded();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete file:", error);
       showError(error?.response?.data?.error || "Failed to delete file");
+      await handleNodeClick(null);
     } finally {
-      setDeletingFileId(null);
+      updateDeletingFileState(fileId, false);
     }
   };
 
@@ -951,19 +1360,16 @@ export default function GroupTreeSidebar({
         id: uploadContext.folderId,
         name: folderName || activeFolderView.folderName,
       });
-      await handleNodeClick(
-        {
-          type: "batch",
-          id: uploadContext.folderId,
-          data: {
-            batchId: uploadContext.folderId,
-            name: folderName || activeFolderView.folderName,
-            groupId: targetGroup.id,
-            groupName: targetGroup.name,
-          },
+      await handleNodeClick({
+        type: "batch",
+        id: uploadContext.folderId,
+        data: {
+          batchId: uploadContext.folderId,
+          name: folderName || activeFolderView.folderName,
+          groupId: targetGroup.id,
+          groupName: targetGroup.name,
         },
-        { moveFocus: true }
-      );
+      });
     };
 
     void refreshFolderData();
@@ -1062,9 +1468,10 @@ export default function GroupTreeSidebar({
 
   const handleFolderNameChange = (groupId, value) => {
     const key = normalizeId(groupId);
+    const sanitized = sanitizeInputValue(value);
     setNewFolderNames((prev) => ({
       ...prev,
-      [key]: value,
+      [key]: sanitized,
     }));
     setFolderErrors((prev) => {
       if (!prev[key]) {
@@ -1084,11 +1491,23 @@ export default function GroupTreeSidebar({
       return;
     }
     const key = normalizeId(group.id);
-    const folderName = (newFolderNames[key] || "").trim();
-    if (!folderName) {
-      setStatusMessage("Enter a folder name first");
+    const folderNameInput = newFolderNames[key] || "";
+    const folderValidation = validateEntityName(folderNameInput, { label: "Folder name" });
+    if (!folderValidation.isValid) {
+      const message = folderValidation.message;
+      showDialog({
+        title: "Invalid folder name",
+        message,
+        closeText: "Okay",
+      });
+      setFolderErrors((prev) => ({
+        ...prev,
+        [key]: message,
+      }));
+      setStatusMessage(message);
       return;
     }
+    const folderName = folderValidation.trimmed;
     const normalizedNewFolderName = folderName.toLowerCase();
     const existingFolders = groupBatches[key] || [];
     const folderExists = existingFolders.some((folder) => {
@@ -1097,6 +1516,11 @@ export default function GroupTreeSidebar({
     });
     if (folderExists) {
       const message = `Folder "${folderName}" already exists`;
+      showDialog({
+        title: "Duplicate folder",
+        message,
+        closeText: "Got it",
+      });
       setFolderErrors((prev) => ({
         ...prev,
         [key]: message,
@@ -1294,8 +1718,9 @@ export default function GroupTreeSidebar({
     try {
       await axios.delete(`${API_BASE_URL}/api/groups/${pendingDeleteGroup.id}`);
       removeGroupById(pendingDeleteGroup.id, pendingDeleteGroup?.name);
+      void ensureDashboardReflectsGroupDeletion(pendingDeleteGroup.id);
       setStatusMessage(`${projectName} deleted`);
-      showSuccess(`Deleted "${projectName}"`);
+      showSuccess(`Deleted project "${projectName}"`);
       setPendingDeleteGroup(null);
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete group:", error);
@@ -1314,34 +1739,59 @@ export default function GroupTreeSidebar({
     }
   };
 
-  const handleFolderDelete = async (batch, groupId) => {
-    const batchName = batch?.name || "Folder";
-    const confirmed = await confirm({
-      title: "Delete folder",
-      message: `Deleting "${batchName}" will permanently remove all files inside this folder. This action cannot be undone.`,
-      confirmText: "Delete folder",
-      cancelText: "Cancel",
-      type: "danger",
+  const handleFolderDelete = (batch, groupId) => {
+    setPendingDeleteFolder({
+      batch,
+      groupId,
     });
+    setFolderDeleteError("");
+  };
 
-    if (!confirmed) {
+  const closeFolderDeleteModal = () => {
+    if (isFolderDeleteLoading) {
+      return;
+    }
+    setPendingDeleteFolder(null);
+    setFolderDeleteError("");
+  };
+
+  const confirmFolderDeletion = async () => {
+    if (!pendingDeleteFolder) {
       return;
     }
 
+    const { batch, groupId } = pendingDeleteFolder;
+    const batchId = batch?.batchId || batch?.id;
+    const batchName = batch?.name || batch?.folderName || "Folder";
     const normalizedGroupId = normalizeId(groupId);
-    const normalizedBatchId = normalizeId(batch.batchId);
-    const existingList = groupBatches[normalizedGroupId] || [];
+    const normalizedBatchId = normalizeId(batchId);
 
-    setDeletingBatchId(batch.batchId);
+    if (!batchId || !normalizedGroupId) {
+      const message = "Unable to delete folder. Missing identifiers.";
+      setFolderDeleteError(message);
+      showError(message);
+      return;
+    }
+
+    setFolderDeleteError("");
+    setIsFolderDeleteLoading(true);
+    setDeletingBatchId(batchId);
+
     try {
-      await axios.delete(`${API_BASE_URL}/api/folders/${batch.batchId}`);
-      const updatedList = existingList.filter(
-        (existingBatch) => normalizeId(existingBatch.batchId) !== normalizedBatchId
-      );
-      setGroupBatches((prev) => ({
-        ...prev,
-        [normalizedGroupId]: updatedList,
-      }));
+      await axios.delete(`${API_BASE_URL}/api/folders/${batchId}`);
+
+      let updatedList = [];
+      setGroupBatches((prev) => {
+        const prevList = prev[normalizedGroupId] || [];
+        updatedList = prevList.filter(
+          (existingBatch) => normalizeId(existingBatch.batchId) !== normalizedBatchId
+        );
+        return {
+          ...prev,
+          [normalizedGroupId]: updatedList,
+        };
+      });
+
       setGroups((prev) =>
         prev.map((group) =>
           normalizeId(group.id) === normalizedGroupId
@@ -1353,12 +1803,25 @@ export default function GroupTreeSidebar({
             : group
         )
       );
+
       setStatusMessage(`${batchName} deleted`);
+      showSuccess(`Deleted folder "${batchName}"`);
+      void ensureDashboardReflectsFolderDeletion(groupId, batchId);
+      setPendingDeleteFolder(null);
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete folder:", error);
-      setStatusMessage(error?.response?.data?.error || "Failed to delete folder");
+      const message = error?.response?.data?.error || "Failed to delete folder";
+      setFolderDeleteError(message);
+      setStatusMessage(message);
+      showError(message);
     } finally {
-      setDeletingBatchId(null);
+      setIsFolderDeleteLoading(false);
+      setDeletingBatchId((current) => {
+        if (!current) {
+          return null;
+        }
+        return normalizeId(current) === normalizedBatchId ? null : current;
+      });
     }
   };
 
@@ -1388,6 +1851,63 @@ export default function GroupTreeSidebar({
   };
 
   const deleteModalProjectName = pendingDeleteGroup?.name || "project";
+  const deleteModalFolderName =
+    pendingDeleteFolder?.batch?.name ||
+    pendingDeleteFolder?.batch?.folderName ||
+    pendingDeleteFolder?.batch?.batchId ||
+    "folder";
+
+  useEffect(() => {
+    if (!pendingDeleteGroup && !pendingDeleteFolder) {
+      return;
+    }
+    if (typeof document === "undefined") {
+      return;
+    }
+    const modalElement = pendingDeleteGroup ? projectDeleteModalRef.current : folderDeleteModalRef.current;
+    if (!modalElement) {
+      return;
+    }
+
+    const getFocusableElements = () =>
+      Array.from(modalElement.querySelectorAll(FOCUSABLE_ELEMENTS_SELECTOR)).filter(
+        (element) => !element.hasAttribute("disabled") && element.tabIndex !== -1
+      );
+
+    const focusableElements = getFocusableElements();
+    if (focusableElements.length > 0) {
+      focusableElements[0].focus();
+    } else if (typeof modalElement.focus === "function") {
+      modalElement.focus();
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key !== "Tab") {
+        return;
+      }
+      const updatedFocusable = getFocusableElements();
+      if (updatedFocusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const firstFocusable = updatedFocusable[0];
+      const lastFocusable = updatedFocusable[updatedFocusable.length - 1];
+      if (event.shiftKey) {
+        if (document.activeElement === firstFocusable || !modalElement.contains(document.activeElement)) {
+          event.preventDefault();
+          lastFocusable.focus();
+        }
+      } else if (document.activeElement === lastFocusable || !modalElement.contains(document.activeElement)) {
+        event.preventDefault();
+        firstFocusable.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [pendingDeleteGroup, pendingDeleteFolder, isProjectDeleteLoading, isFolderDeleteLoading]);
 
   if (loading) {
     return (
@@ -1442,12 +1962,19 @@ export default function GroupTreeSidebar({
       selectedNode?.type === "file" && normalizeId(selectedNode?.id) === normalizeId(fileId);
 
     return (
-      <aside className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 dashboard-panel border border-gray-200 dark:border-gray-700 p-4 flex flex-col space-y-4">
+      <aside
+        ref={sidebarRootRef}
+        tabIndex={-1}
+        role="navigation"
+        aria-label="Folder navigation"
+        className="w-full max-w-sm flex-shrink-0 bg-white dark:bg-gray-800 dashboard-panel border border-gray-200 dark:border-gray-700 p-4 flex flex-col space-y-4"
+      >
         <div className="flex items-center gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
           <button
             type="button"
             onClick={closeFolderView}
-            className="rounded-full bg-gray-100 p-2 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+            ref={folderBackButtonRef}
+            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700/80 dark:bg-[#0f172a] dark:text-gray-100 dark:hover:border-gray-600 dark:hover:bg-[#1b1f34]"
             aria-label="Back to projects"
           >
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -1491,9 +2018,7 @@ export default function GroupTreeSidebar({
               const statusInfo = resolveEntityStatus(file);
               const badgeColorClasses =
                 STATUS_BADGE_STYLES[statusInfo.code] || STATUS_BADGE_STYLES.uploaded;
-              const normalizedDeletingId = normalizeId(deletingFileId);
-              const normalizedFileId = normalizeId(fileId);
-              const isDeletingThisFile = normalizedDeletingId && normalizedDeletingId === normalizedFileId;
+              const isDeletingThisFile = isDeletingFile(fileId);
               return (
                 <div key={fileKey} className="relative group/file-entry">
                   <button
@@ -1591,9 +2116,12 @@ export default function GroupTreeSidebar({
   return (
     <>
       <aside
-      className="w-full max-w-sm flex-shrink-0 dashboard-panel border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl shadow-slate-200/60 flex flex-col space-y-6 overflow-hidden dark:border-slate-800 dark:bg-[#0b152d]/95 dark:text-slate-100 dark:shadow-[0_40px_100px_-50px_rgba(2,6,23,0.9)]"
-      aria-label="Group navigation"
-    >
+        ref={sidebarRootRef}
+        tabIndex={-1}
+        role="navigation"
+        className="w-full max-w-sm flex-shrink-0 dashboard-panel border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl shadow-slate-200/60 flex flex-col space-y-6 overflow-hidden dark:border-slate-800 dark:bg-[#0b152d]/95 dark:text-slate-100 dark:shadow-[0_40px_100px_-50px_rgba(2,6,23,0.9)]"
+        aria-label="Group navigation"
+      >
       <div className="flex items-center justify-between">
         <div>
           {/* <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">Projects</p> */}
@@ -1623,23 +2151,26 @@ export default function GroupTreeSidebar({
               type="text"
               value={newProjectName}
               onChange={(event) => {
-                setNewProjectName(event.target.value);
+                const sanitized = sanitizeInputValue(event.target.value);
+                setNewProjectName(sanitized);
                 if (newProjectError) {
                   setNewProjectError("");
                 }
               }}
+              onKeyDown={handleEscapeBlur}
               placeholder="New project name..."
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-800/80 dark:bg-[#101735] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-500/70"
               aria-label="New project name"
               autoComplete="off"
             />
-            {newProjectError && (
+            
+            {/* {newProjectError && (
               <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{newProjectError}</p>
-            )}
+            )} */}
           </div>
         <button
           type="submit"
-          disabled={!newProjectName.trim() || isCreatingProject}
+          disabled={isCreatingProject}
           className="flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:disabled:bg-slate-600"
         >
           <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -1659,14 +2190,17 @@ export default function GroupTreeSidebar({
         role="tree"
         aria-label="Project navigation tree"
         onKeyDown={handleTreeKeyDown}
+        onFocusCapture={handleTreeFocusCapture}
+        onBlurCapture={handleTreeBlurCapture}
       >
         {groups.length === 0 ? (
           <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
-            <p>No groups yet. Create one to get started!</p>
+            <p>No projects yet. Create one to get started!</p>
           </div>
         ) : (
           groups.map((group, groupIndex) => {
             const normalizedGroupId = normalizeId(group.id);
+            const groupTreeId = buildTreeItemId("group", group.id);
             const panelId = `group-${normalizedGroupId}-panel`;
             const isExpanded = expandedGroups.has(normalizedGroupId);
             const files = groupFiles[normalizedGroupId] || [];
@@ -1687,6 +2221,14 @@ export default function GroupTreeSidebar({
             const isGroupDeleting =
               deletingGroupId && normalizeId(deletingGroupId) === normalizedGroupId;
             const isRefreshingFolders = refreshingGroupId === normalizedGroupId;
+            const groupActionsTabIndex =
+              activeTreeItemId === groupTreeId ? 0 : -1;
+            const folderInputValue = newFolderNames[normalizedGroupId] || "";
+            const folderNameValidation = validateEntityName(folderInputValue, { label: "Folder name" });
+            const folderCharCountClass = folderNameValidation.isValid
+              ? "text-slate-500 dark:text-slate-400"
+              : "text-rose-600 dark:text-rose-400";
+            const folderCharCount = folderInputValue.length;
 
             return (
               <div key={group.id} className="space-y-2">
@@ -1730,6 +2272,9 @@ export default function GroupTreeSidebar({
                       <button
                         type="button"
                         data-doca-tree-item="true"
+                        data-tree-id={groupTreeId}
+                        data-tree-type="group"
+                        data-tree-level={1}
                         role="treeitem"
                         aria-level={1}
                         aria-setsize={groups.length}
@@ -1751,8 +2296,9 @@ export default function GroupTreeSidebar({
                             isExpanded ? "rotate-90 text-indigo-400" : "text-slate-400"
                           }`}
                           aria-hidden="true"
+                          tabIndex={-1}
                         >
-                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" tabIndex={-1}>
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                           </svg>
                         </span>
@@ -1760,8 +2306,9 @@ export default function GroupTreeSidebar({
                           className={`w-5 h-5 flex-shrink-0 ${
                             isSelected ? "text-white" : "text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200"
                           }`}
+                          tabIndex={-1}
                         >
-                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" tabIndex={-1}>
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -1778,12 +2325,16 @@ export default function GroupTreeSidebar({
                           </h3>
                         </div>
                       </button>
-                      <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100">
+                      <div
+                        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100"
+                        data-tree-actions-for={groupTreeId}
+                      >
                         <button
                           type="button"
                           onClick={() => startGroupEdit(group)}
                           className="pointer-events-auto rounded-lg border border-indigo-100 bg-indigo-50 p-1 text-indigo-600 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-200 dark:hover:bg-indigo-500/20 dark:hover:text-white"
                           title="Edit project"
+                          tabIndex={groupActionsTabIndex}
                         >
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path
@@ -1801,6 +2352,7 @@ export default function GroupTreeSidebar({
                           aria-busy={isGroupDeleting || undefined}
                           className="pointer-events-auto rounded-lg border border-rose-100 bg-rose-50 p-1 text-rose-600 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20 dark:hover:text-white"
                           title={isGroupDeleting ? "Deleting project..." : "Delete project"}
+                          tabIndex={groupActionsTabIndex}
                         >
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path
@@ -1861,7 +2413,8 @@ export default function GroupTreeSidebar({
                             aria-label={`Folders for ${group.name}`}
                           >
                         {batches.map((batch, batchIndex) => {
-                            const normalizedBatchId = normalizeId(batch.batchId);
+                            const folderIdentifier = batch.batchId ?? batch.id;
+                            const normalizedBatchId = normalizeId(folderIdentifier);
                             const isBatchSelected =
                               selectedNode?.type === "batch" &&
                               normalizeId(selectedNode?.id) === normalizedBatchId;
@@ -1872,6 +2425,9 @@ export default function GroupTreeSidebar({
                             const isFolderRefreshing = Boolean(
                               refreshingFolderCounts[normalizedBatchId]
                             );
+                            const folderTreeId = buildTreeItemId("folder", folderIdentifier);
+                            const folderActionsTabIndex =
+                              activeTreeItemId === folderTreeId ? 0 : -1;
 
                             return (
                               <li key={batch.batchId} className="relative group/folder">
@@ -1914,13 +2470,17 @@ export default function GroupTreeSidebar({
                                   <button
                                     type="button"
                                     data-doca-tree-item="true"
+                                    data-tree-id={folderTreeId}
+                                    data-tree-parent={groupTreeId}
+                                    data-tree-type="folder"
+                                    data-tree-level={2}
                                     role="treeitem"
                                     aria-level={2}
                                     aria-setsize={batches.length}
                                     aria-posinset={batchIndex + 1}
                                     className={`group w-full text-left rounded-2xl border transition flex items-center gap-3 p-2.5 shadow-sm ${
                                       isBatchSelected
-                                        ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 dark:bg-indigo-600/90"
+                                        ? "border-indigo-500 bg-white text-slate-900 shadow-[0_0_0_3px_rgba(99,102,241,0.35)] dark:bg-[#0f172a] dark:text-white"
                                         : "border-slate-200 bg-white text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 dark:bg-[#101a32] dark:text-slate-100 dark:hover:border-indigo-500/40 dark:hover:bg-[#162446]"
                                     } ${TREE_ITEM_FOCUS_CLASSES}`}
                                       onClick={() => handleFolderButtonClick(group, batch)}
@@ -1928,8 +2488,9 @@ export default function GroupTreeSidebar({
                                     >
                                   <span
                                     className={`flex-shrink-0 rounded-lg p-1.5 ${isBatchSelected ? "bg-indigo-100 text-indigo-700 dark:bg-white/20 dark:text-white" : "bg-slate-100 text-indigo-500 dark:bg-slate-800/70 dark:text-indigo-200"}`}
+                                    tabIndex={-1}
                                   >
-                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" tabIndex={-1}>
                                     <path
                                       strokeLinecap="round"
                                       strokeLinejoin="round"
@@ -1941,17 +2502,17 @@ export default function GroupTreeSidebar({
                                       <span className="flex-1 min-w-0">
                                         <span
                                         className={`block truncate text-lg font-medium ${
-                                          isBatchSelected ? "text-white" : "text-slate-800 dark:text-current"
-                                        } group-focus-within:text-white dark:group-focus-within:text-white`}
+                                          isBatchSelected ? "text-slate-900 dark:text-white" : "text-slate-800 dark:text-current"
+                                        } group-focus-within:text-slate-900 dark:group-focus-within:text-white`}
                                       >
                                           {batch.name || `Batch ${batch.batchId}`}
                                         </span>
                                         <span
                                           className={`text-sm ${
                                             isBatchSelected
-                                              ? "text-indigo-100 dark:text-white/90"
+                                              ? "text-slate-500 dark:text-slate-200"
                                               : "text-slate-500 dark:text-slate-400"
-                                          } group-focus-within:text-indigo-100 dark:group-focus-within:text-white/90`}
+                                          }`}
                                         >
                                           <span className="inline-flex items-center gap-1">
                                             {isFolderRefreshing && (
@@ -1980,12 +2541,16 @@ export default function GroupTreeSidebar({
                                         </span>
                                       </span>
                                 </button>
-                                    <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 transition-opacity group-hover/folder:opacity-100 group-focus-within/folder:opacity-100">
+                                    <div
+                                      className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 transition-opacity group-hover/folder:opacity-100 group-focus-within/folder:opacity-100"
+                                      data-tree-actions-for={folderTreeId}
+                                    >
                                       <button
                                         type="button"
                                         onClick={() => startBatchEdit(batch, group.id)}
                                         className="pointer-events-auto rounded-lg border border-indigo-100 bg-indigo-50 p-1 text-indigo-600 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-200 dark:hover:bg-indigo-500/20 dark:hover:text-white"
                                         title="Edit folder"
+                                        tabIndex={folderActionsTabIndex}
                                       >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                           <path
@@ -2003,6 +2568,7 @@ export default function GroupTreeSidebar({
                                         aria-busy={isBatchDeleting || undefined}
                                         className="pointer-events-auto rounded-lg border border-rose-100 bg-rose-50 p-1 text-rose-600 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20 dark:hover:text-white"
                                         title={isBatchDeleting ? "Deleting folder..." : "Delete folder"}
+                                        tabIndex={folderActionsTabIndex}
                                       >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                           <path
@@ -2028,29 +2594,23 @@ export default function GroupTreeSidebar({
                       onSubmit={(event) => handleCreateFolder(event, group)}
                       className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm flex items-center gap-3 shadow-inner shadow-slate-200 dark:border-slate-700/80 dark:bg-[#0b1327] dark:shadow-black/30"
                     >
-                      <input
-                        type="text"
-                        value={newFolderNames[normalizedGroupId] || ""}
-                        onChange={(event) => handleFolderNameChange(group.id, event.target.value)}
-                        placeholder="New folder name..."
-                        className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-slate-800 dark:bg-transparent dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/60"
-                        aria-label={`New folder for ${group.name}`}
-                        autoComplete="off"
-                      />
+                    <input
+                      type="text"
+                      value={folderInputValue}
+                      onChange={(event) => handleFolderNameChange(group.id, event.target.value)}
+                      placeholder="New folder name..."
+                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-slate-800 dark:bg-transparent dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/60"
+                      aria-label={`New folder for ${group.name}`}
+                      autoComplete="off"
+                      onKeyDown={handleEscapeBlur}
+                    />
                     <button
                       type="submit"
-                      disabled={!(newFolderNames[normalizedGroupId] || "").trim()}
                       className="rounded-xl bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:disabled:bg-slate-600"
                     >
                       + 
                     </button>
                   </form>
-                  {folderErrors[normalizedGroupId] && (
-                    <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
-                      {folderErrors[normalizedGroupId]}
-                    </p>
-                  )}
-
                     {false && (
                       <>
                         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-3">
@@ -2202,6 +2762,8 @@ export default function GroupTreeSidebar({
           <div
             className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-6 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
+            ref={projectDeleteModalRef}
+            tabIndex={-1}
           >
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-200">
@@ -2256,6 +2818,76 @@ export default function GroupTreeSidebar({
           </div>
         </div>
       )}
+      {pendingDeleteFolder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-folder-title"
+          aria-describedby="delete-folder-description"
+          onClick={closeFolderDeleteModal}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            ref={folderDeleteModalRef}
+            tabIndex={-1}
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-200">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 id="delete-folder-title" className="text-lg font-semibold text-slate-900 dark:text-white">
+                  Delete folder
+                </h3>
+                <p
+                  id="delete-folder-description"
+                  className="mt-1 text-sm text-slate-600 dark:text-slate-400"
+                >{`Deleting "${deleteModalFolderName}" will permanently remove all files inside this folder. This action cannot be undone.`}</p>
+                {folderDeleteError && (
+                  <p className="mt-3 text-sm text-rose-600 dark:text-rose-400">{folderDeleteError}</p>
+                )}
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeFolderDeleteModal}
+                disabled={isFolderDeleteLoading}
+                className="px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-medium hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmFolderDeletion}
+                disabled={isFolderDeleteLoading}
+                aria-busy={isFolderDeleteLoading || undefined}
+                className="px-4 py-2.5 rounded-lg bg-rose-600 text-white font-semibold shadow-sm hover:bg-rose-500 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center min-w-[11rem]"
+              >
+                {isFolderDeleteLoading ? (
+                  <span className="flex items-center gap-2 text-sm">
+                    <span className="h-4 w-4 rounded-full border-2 border-white/60 border-t-transparent animate-spin" />
+                    {`Deleting ${deleteModalFolderName}...`}
+                  </span>
+                ) : (
+                  "Delete folder"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
-}
+});
+
+export default GroupTreeSidebar;

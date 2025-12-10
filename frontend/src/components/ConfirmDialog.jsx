@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react"
 
+const FOCUSABLE_ELEMENTS_SELECTOR = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"
+
 export default function ConfirmDialog({
   title,
   message,
@@ -10,23 +12,62 @@ export default function ConfirmDialog({
   type = "warning",
 }) {
   const confirmButtonRef = useRef(null)
+  const dialogRef = useRef(null)
 
   useEffect(() => {
-    // Focus the confirm button when dialog opens
-    confirmButtonRef.current?.focus()
+    if (typeof document === "undefined") {
+      return undefined
+    }
+    const getFocusableElements = () => {
+      const element = dialogRef.current
+      if (!element) {
+        return []
+      }
+      return Array.from(element.querySelectorAll(FOCUSABLE_ELEMENTS_SELECTOR)).filter(
+        (node) => !node.hasAttribute("disabled") && node.tabIndex !== -1 && !node.hidden
+      )
+    }
 
-    // Prevent body scroll when dialog is open
+    const handleDocumentKeyDown = (event) => {
+      if (event.key === "Escape") {
+        onCancel()
+        return
+      }
+      if (event.key !== "Tab") {
+        return
+      }
+      const elements = getFocusableElements()
+      if (elements.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const firstFocusable = elements[0]
+      const lastFocusable = elements[elements.length - 1]
+      if (event.shiftKey) {
+        if (
+          document.activeElement === firstFocusable ||
+          !dialogRef.current?.contains(document.activeElement)
+        ) {
+          event.preventDefault()
+          lastFocusable.focus()
+        }
+      } else if (
+        document.activeElement === lastFocusable ||
+        !dialogRef.current?.contains(document.activeElement)
+      ) {
+        event.preventDefault()
+        firstFocusable.focus()
+      }
+    }
+
+    confirmButtonRef.current?.focus()
     document.body.style.overflow = "hidden"
+    document.addEventListener("keydown", handleDocumentKeyDown)
     return () => {
       document.body.style.overflow = "unset"
+      document.removeEventListener("keydown", handleDocumentKeyDown)
     }
-  }, [])
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Escape") {
-      onCancel()
-    }
-  }
+  }, [onCancel])
 
   const typeStyles = {
     warning: {
@@ -81,13 +122,13 @@ export default function ConfirmDialog({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
       onClick={onCancel}
-      onKeyDown={handleKeyDown}
       role="dialog"
       aria-modal="true"
       aria-labelledby="dialog-title"
       aria-describedby="dialog-description"
     >
       <div
+        ref={dialogRef}
         className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-md w-full p-6 animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
@@ -107,17 +148,17 @@ export default function ConfirmDialog({
 
         <div className="flex gap-3 mt-6">
           <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800"
+          >
+            {cancelText}
+          </button>
+          <button
             ref={confirmButtonRef}
             onClick={onConfirm}
             className={`flex-1 px-4 py-2.5 text-white rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-slate-800 ${style.confirmButton}`}
           >
             {confirmText}
-          </button>
-          <button
-            onClick={onCancel}
-            className="flex-1 px-4 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800"
-          >
-            {cancelText}
           </button>
         </div>
       </div>

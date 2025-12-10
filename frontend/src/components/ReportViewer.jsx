@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import axios from "axios"
 import FixSuggestions from "./FixSuggestions"
 import SidebarNav from "./SidebarNav"
@@ -12,7 +12,7 @@ import API_BASE_URL, { API_ENDPOINTS } from "../config/api"
 import { useNotification } from "../contexts/NotificationContext"
 import { parseBackendDate } from "../utils/dates"
 import { resolveSummary, calculateComplianceSnapshot } from "../utils/compliance"
-import { resolveEntityStatus } from "../utils/statuses"
+import { getScanErrorMessage, getScanStatus, resolveEntityStatus } from "../utils/statuses"
 
 const STATUS_BADGE_STYLES = {
   uploaded: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200",
@@ -22,6 +22,8 @@ const STATUS_BADGE_STYLES = {
   error: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
   default: "bg-gray-100 text-gray-700 dark:bg-gray-800/60 dark:text-gray-200",
 }
+
+const isNumeric = (value) => typeof value === "number" && Number.isFinite(value)
 
 const filterDefinedFields = (payload) => {
   if (!payload || typeof payload !== "object") {
@@ -60,6 +62,7 @@ export default function ReportViewer({
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isScanningFile, setIsScanningFile] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [isContrastPanelOpen, setIsContrastPanelOpen] = useState(false)
 
   const { showSuccess, showError, showWarning, showInfo } = useNotification()
 
@@ -303,6 +306,43 @@ export default function ReportViewer({
     }
   }
 
+  const contrastSamples = useMemo(() => {
+    const issues = reportData?.results?.poorContrast
+    if (!Array.isArray(issues)) {
+      return []
+    }
+
+    const seenTexts = new Set()
+    const samples = []
+
+    for (const issue of issues) {
+      if (!issue || typeof issue !== "object") {
+        continue
+      }
+      const snippet = typeof issue.textSample === "string" ? issue.textSample.trim() : ""
+      if (!snippet || seenTexts.has(snippet)) {
+        continue
+      }
+      seenTexts.add(snippet)
+
+      const pages = Array.isArray(issue.pages) ? issue.pages.filter((page) => page !== null && page !== undefined) : []
+      const pageLabel = pages.length > 0 ? pages.join(", ") : issue.page || null
+      const ratioValue = Number(issue.contrastRatio)
+
+      samples.push({
+        text: snippet,
+        pageLabel,
+        ratio: Number.isFinite(ratioValue) ? ratioValue.toFixed(1) : null,
+      })
+
+      if (samples.length >= 3) {
+        break
+      }
+    }
+
+    return samples
+  }, [reportData?.results?.poorContrast])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
@@ -335,10 +375,51 @@ export default function ReportViewer({
     verapdfStatus,
   })
 
-  const scanStatusInfo = resolveEntityStatus(reportData)
-  const scanStatus = scanStatusInfo.code
+  const wcagComplianceDisplay = isNumeric(summary.wcagCompliance)
+    ? summary.wcagCompliance
+    : verapdfStatus.wcagCompliance
+  const pdfuaComplianceDisplay = isNumeric(summary.pdfuaCompliance)
+    ? summary.pdfuaCompliance
+    : verapdfStatus.pdfuaCompliance
+  const showComplianceBadges =
+    verapdfStatus.isActive &&
+    (isNumeric(wcagComplianceDisplay) || isNumeric(pdfuaComplianceDisplay))
+
+  const totalIssuesValue = isNumeric(reportData.totalIssues)
+    ? reportData.totalIssues
+    : isNumeric(summary.totalIssues)
+      ? summary.totalIssues
+      : 0
+  const remainingIssuesValue = isNumeric(reportData.remainingIssues)
+    ? reportData.remainingIssues
+    : isNumeric(summary.remainingIssues)
+      ? summary.remainingIssues
+      : isNumeric(summary.issuesRemaining)
+        ? summary.issuesRemaining
+        : 0
+  const fixesAppliedCount = isNumeric(reportData.appliedFixes?.successCount)
+    ? reportData.appliedFixes.successCount
+    : isNumeric(reportData.issuesFixed)
+      ? reportData.issuesFixed
+      : isNumeric(summary.issuesFixed)
+        ? summary.issuesFixed
+        : 0
+  const reportedIssuesFixed = isNumeric(reportData.issuesFixed)
+    ? reportData.issuesFixed
+    : isNumeric(summary.issuesFixed)
+      ? summary.issuesFixed
+      : 0
+  const issueDelta = totalIssuesValue - remainingIssuesValue
+  const hasIssueDelta = typeof issueDelta === "number" && issueDelta !== 0
+  const hasReportedIssuesFixed = reportedIssuesFixed > 0
+
+  const scanStatus = getScanStatus(reportData)
+  const isScanError = scanStatus === "error"
+  const scanErrorMessage = isScanError ? getScanErrorMessage(reportData) : null
   const isUploaded = scanStatus === "uploaded"
-  const scanDateLabel = isUploaded ? "Uploaded on" : "Scanned on"
+  const isCompletedScan = !isUploaded && !isScanError
+  const canExportReport = isCompletedScan
+  const scanDateLabel = isUploaded ? "Uploaded on" : isScanError ? "Attempted scan on" : "Scanned on"
   const parsedReportDate = parseBackendDate(reportData.uploadDate || reportData.timestamp || reportData.created_at)
 
   const breadcrumbItems = [{ label: "Home", onClick: onBack }, { label: "Report" }]
@@ -369,76 +450,80 @@ export default function ReportViewer({
               {scans.map((scan, index) => {
                 const statusInfo = resolveEntityStatus(scan)
                 const showSummary =
-                  scan.summary && statusInfo.code !== "uploaded" && typeof scan.summary.complianceScore === "number"
+                  scan.summary &&
+                  statusInfo.code !== "uploaded" &&
+                  statusInfo.code !== "error" &&
+                  typeof scan.summary.complianceScore === "number"
 
                 return (
-                <button
-                  key={index}
-                  onClick={() => setSelectedFileIndex(index)}
-                  className={`w-full text-left px-3 py-3 rounded-lg mb-2 transition-all ${
-                    selectedFileIndex === index
-                      ? "bg-violet-50 dark:bg-violet-900/20 border-2 border-violet-500"
-                      : "bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
-                    <svg
-                      className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
-                        selectedFileIndex === index
-                          ? "text-violet-600 dark:text-violet-400"
-                          : "text-slate-400 dark:text-slate-500"
-                      }`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                      />
-                    </svg>
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={`text-sm font-medium truncate ${
+                  <button
+                    key={index}
+                    onClick={() => setSelectedFileIndex(index)}
+                    className={`w-full text-left px-3 py-3 rounded-lg mb-2 transition-all ${
+                      selectedFileIndex === index
+                        ? "bg-violet-50 dark:bg-violet-900/20 border-2 border-violet-500"
+                        : "bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <svg
+                        className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
                           selectedFileIndex === index
-                            ? "text-violet-900 dark:text-violet-100"
-                            : "text-slate-700 dark:text-slate-300"
+                            ? "text-violet-600 dark:text-violet-400"
+                            : "text-slate-400 dark:text-slate-500"
                         }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
                       >
-                        {scan.fileName || scan.filename}
-                      </p>
-                      {showSummary && (
-                        <div className="flex items-center gap-2 mt-1">
-                          <span
-                            className={`text-xs font-semibold ${
-                              scan.summary.complianceScore >= 70
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : "text-rose-600 dark:text-rose-400"
-                            }`}
-                          >
-                            {scan.summary.complianceScore}%
-                          </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
-                            {scan.summary.totalIssues} issues
-                          </span>
-                        </div>
-                      )}
-                      {/* Status badge */}
-                      {statusInfo.label && (
-                        <span
-                          className={`inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full ${
-                            STATUS_BADGE_STYLES[statusInfo.code] || STATUS_BADGE_STYLES.default
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className={`text-sm font-medium truncate ${
+                            selectedFileIndex === index
+                              ? "text-violet-900 dark:text-violet-100"
+                              : "text-slate-700 dark:text-slate-300"
                           }`}
                         >
-                          {statusInfo.label}
-                        </span>
-                      )}
+                          {scan.fileName || scan.filename}
+                        </p>
+                        {showSummary && (
+                          <div className="flex items-center gap-2 mt-1">
+                            <span
+                              className={`text-xs font-semibold ${
+                                scan.summary.complianceScore >= 70
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-rose-600 dark:text-rose-400"
+                              }`}
+                            >
+                              {scan.summary.complianceScore}%
+                            </span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400">
+                              {scan.summary.totalIssues} issues
+                            </span>
+                          </div>
+                        )}
+                        {/* Status badge */}
+                        {statusInfo.label && (
+                          <span
+                            className={`inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full ${
+                              STATUS_BADGE_STYLES[statusInfo.code] || STATUS_BADGE_STYLES.default
+                            }`}
+                          >
+                            {statusInfo.label}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </button>
-              )})}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -491,17 +576,39 @@ export default function ReportViewer({
           <div className="flex items-center gap-2 ml-auto">
             <button
               onClick={() => handleRefresh()}
-              className="px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-1 font-semibold text-sm border border-slate-200 dark:border-slate-600"
+              disabled={isRefreshing}
+              aria-busy={isRefreshing}
+              className={`px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg transition-colors flex items-center gap-1 font-semibold text-sm border border-slate-200 dark:border-slate-600 ${
+                isRefreshing ? "cursor-wait opacity-80" : ""
+              }`}
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-              <span>Refresh</span>
+              {isRefreshing ? (
+                <svg
+                  className="w-4 h-4 animate-spin text-slate-500 dark:text-slate-200"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="3" stroke="currentColor" />
+                  <path
+                    className="opacity-75"
+                    d="M4 12a8 8 0 018-8"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    stroke="currentColor"
+                  />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+              )}
+              <span>{isRefreshing ? "Refreshing…" : "Refresh"}</span>
             </button>
             {isUploaded && (
               <button
@@ -525,7 +632,11 @@ export default function ReportViewer({
                 <span>{isScanningFile ? "Scanning…" : "Scan file"}</span>
               </button>
             )}
-            <ExportDropdown scanId={reportData.scanId} filename={reportData.fileName || reportData.filename} />
+            <ExportDropdown
+              scanId={reportData.scanId}
+              filename={reportData.fileName || reportData.filename}
+              disabled={!canExportReport}
+            />
           </div>
           </div>
 
@@ -618,47 +729,67 @@ export default function ReportViewer({
         )}
       </div>
 
-      <div className="pt-4 px-8 pb-8 space-y-6">
+      <div className="px-8 pb-8 space-y-6">
           {scans.length > 1 && (
             <div className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
               {scans.map((scan, index) => {
                 const statusInfo = resolveEntityStatus(scan)
                 const showCompliance =
-                  scan.summary && statusInfo.code !== "uploaded" && typeof scan.summary.complianceScore === "number"
+                  scan.summary &&
+                  statusInfo.code !== "uploaded" &&
+                  statusInfo.code !== "error" &&
+                  typeof scan.summary.complianceScore === "number"
 
                 return (
-                <button
-                  key={index}
-                  ref={(el) => (tabRefs.current[index] = el)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 font-medium ${
-                    selectedFileIndex === index
-                      ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-lg"
-                      : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
-                  }`}
-                  onClick={() => setSelectedFileIndex(index)}
-                >
-                  <span>📄</span>
-                  <span>{scan.fileName || scan.filename}</span>
-                  {showCompliance && (
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                        scan.summary.complianceScore >= 70
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                          : "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
-                      }`}
-                    >
-                      {scan.summary.complianceScore}%
-                    </span>
-                  )}
-                </button>
-              )})}
+                  <button
+                    key={index}
+                    ref={(el) => (tabRefs.current[index] = el)}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 font-medium ${
+                      selectedFileIndex === index
+                        ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-lg"
+                        : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                    }`}
+                    onClick={() => setSelectedFileIndex(index)}
+                  >
+                    <span>📄</span>
+                    <span>{scan.fileName || scan.filename}</span>
+                    {showCompliance && (
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                          scan.summary.complianceScore >= 70
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                            : "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                        }`}
+                      >
+                        {scan.summary.complianceScore}%
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
 
-          {!isUploaded ? (
+          {isScanError && (
+            <div
+              className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700 dark:border-rose-800/60 dark:bg-rose-900/20 dark:text-rose-300"
+              role="status"
+              aria-live="polite"
+            >
+              <span aria-hidden="true">⚠️</span>
+              <div>
+                <p className="font-semibold">Scan failed</p>
+                <p className="text-sm mt-1">
+                  {scanErrorMessage || "We were unable to analyze this file."}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {isCompletedScan ? (
             <>
               <div id="overview" key={`overview-${refreshKey}`}>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
                     <div className="flex items-center justify-between mb-4">
                       <div>
@@ -687,9 +818,9 @@ export default function ReportViewer({
                       </div>
                     </div>
 
-                    {verapdfStatus.isActive && (
+                    {showComplianceBadges && (
                       <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
-                        {typeof verapdfStatus.wcagCompliance === "number" && (
+                        {isNumeric(wcagComplianceDisplay) && (
                           <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
                             <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                               <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
@@ -700,11 +831,11 @@ export default function ReportViewer({
                               />
                             </svg>
                             <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
-                              WCAG {verapdfStatus.wcagCompliance}%
+                              WCAG {wcagComplianceDisplay}%
                             </span>
                           </div>
                         )}
-                        {typeof verapdfStatus.pdfuaCompliance === "number" && (
+                        {isNumeric(pdfuaComplianceDisplay) && (
                           <div className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-full border border-purple-200 dark:border-purple-800">
                             <svg
                               className="w-4 h-4 text-purple-600 dark:text-purple-400"
@@ -719,7 +850,7 @@ export default function ReportViewer({
                               />
                             </svg>
                             <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
-                              PDF/UA {verapdfStatus.pdfuaCompliance}%
+                              PDF/UA {pdfuaComplianceDisplay}%
                             </span>
                           </div>
                         )}
@@ -730,14 +861,44 @@ export default function ReportViewer({
                   <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Total Issues</p>
+                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">
+                          {issueDelta === 0 ? "Issues" : "Remaining Issues"}
+                        </p>
                         <div className="flex items-baseline">
-                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.totalIssues}</p>
+                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{remainingIssuesValue}</p>
                         </div>
+                        {hasIssueDelta && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            Issues still reported on the latest scan
+                          </p>
+                        )}
+                        {hasIssueDelta && (
+                          <div className="mt-2 flex items-center gap-1 text-xs font-semibold">
+                            {issueDelta > 0 ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                <span aria-hidden="true" className="text-base leading-none">↓</span>
+                                <span>{issueDelta} resolved</span>
+                              </span>
+                            ) : (
+                              <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                                <span aria-hidden="true" className="text-base leading-none">↑</span>
+                                <span>{Math.abs(issueDelta)} new</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {!hasIssueDelta && hasReportedIssuesFixed && (
+                          <div className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            <span aria-hidden="true" className="text-base leading-none">↓</span>
+                            <span>
+                              {reportedIssuesFixed} issue{reportedIssuesFixed === 1 ? "" : "s"} fixed since last scan
+                            </span>
+                          </div>
+                        )}
                       </div>
-                      <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
+                      <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/10 rounded-full flex items-center justify-center">
                         <svg
-                          className="w-8 h-8 text-amber-600 dark:text-amber-400"
+                          className="w-8 h-8 text-amber-500 dark:text-amber-300"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -748,6 +909,36 @@ export default function ReportViewer({
                             strokeLinejoin="round"
                             strokeWidth={2}
                             d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                          />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Fixes Applied</p>
+                        <div className="flex items-baseline">
+                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{fixesAppliedCount}</p>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          Fixes recorded for this scan
+                        </p>
+                      </div>
+                      <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center">
+                        <svg
+                          className="w-8 h-8 text-emerald-600 dark:text-emerald-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
                           />
                         </svg>
                       </div>
@@ -781,6 +972,7 @@ export default function ReportViewer({
                     </div>
                   </div>
                 </div>
+
               </div>
 
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
@@ -802,7 +994,79 @@ export default function ReportViewer({
                 />
               </div>
 
-              <div id="fixes" key={`fixes-${refreshKey}`}>
+              {contrastSamples.length > 0 && (
+                <section
+                  className="bg-white dark:bg-slate-800 rounded-2xl border border-amber-200/70 dark:border-amber-500/30 shadow-sm p-6"
+                  aria-labelledby="contrast-sample-title"
+                >
+                  <header className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <p id="contrast-sample-title" className="text-base font-semibold text-slate-900 dark:text-white">
+                        Sample contrast text
+                      </p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">
+                        Use these snippets to pinpoint low-contrast passages flagged in this scan.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsContrastPanelOpen((prev) => !prev)}
+                      aria-expanded={isContrastPanelOpen}
+                      aria-controls="contrast-sample-panel"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
+                    >
+                      <span>Contrast details</span>
+                      <svg
+                        className={`w-4 h-4 transition-transform ${isContrastPanelOpen ? "rotate-180" : ""}`}
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 8l4 4 4-4" />
+                      </svg>
+                    </button>
+                  </header>
+
+                  {isContrastPanelOpen && (
+                    <div
+                      id="contrast-sample-panel"
+                      role="region"
+                      aria-live="polite"
+                      className="mt-4 space-y-3"
+                    >
+                      {contrastSamples.map((sample, index) => (
+                        <div
+                          key={`${sample.text}-${sample.pageLabel || index}`}
+                          className="rounded-xl border border-amber-100 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-900/20 p-4"
+                        >
+                          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-200">
+                            {sample.pageLabel && (
+                              <span className="inline-flex items-center gap-1">
+                                <span className="text-[11px] uppercase tracking-wide text-amber-600 dark:text-amber-300">Page</span>
+                                {sample.pageLabel}
+                              </span>
+                            )}
+                            {sample.ratio && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/80 text-amber-700 border border-amber-200 dark:bg-slate-900/40 dark:text-amber-200 dark:border-amber-500/40">
+                                ~{sample.ratio}:1
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-slate-900 dark:text-slate-100 mt-2 leading-snug">
+                            &quot;{sample.text}&quot;
+                          </p>
+                        </div>
+                      ))}
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Based on extracted text; snippets are truncated to keep this summary scannable.
+                      </p>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <div id="fixes">
                 <FixSuggestions
                   scanId={reportData.scanId}
                   fixes={reportData.fixes}
@@ -811,7 +1075,7 @@ export default function ReportViewer({
                 />
               </div>
             </>
-          ) : (
+          ) : isUploaded ? (
             <div
               id="overview"
               className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-8"
@@ -820,6 +1084,16 @@ export default function ReportViewer({
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 Start the scan from the folder dashboard or from the scan button above in this dashboard to generate
                 accessibility results.
+              </p>
+            </div>
+          ) : (
+            <div
+              id="overview"
+              className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-rose-200 dark:border-rose-800/60 p-8"
+            >
+              <h2 className="text-2xl font-bold text-rose-700 dark:text-rose-300 mb-2">Scan failed</h2>
+              <p className="text-sm text-rose-700/90 dark:text-rose-200">
+                {scanErrorMessage || "We were unable to analyze this file."}
               </p>
             </div>
           )}

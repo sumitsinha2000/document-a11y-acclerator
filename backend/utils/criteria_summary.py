@@ -114,6 +114,30 @@ def _build_wcag_criteria(results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def _collect_all_wcag_sources(results: Dict[str, Any]) -> List[Dict[str, Any]]:
     collected: List[Dict[str, Any]] = []
+    canonical = results.get("issues")
+    if isinstance(canonical, list) and canonical:
+        for issue in canonical:
+            if not isinstance(issue, dict):
+                continue
+            criterion = issue.get("criterion")
+            if criterion:
+                prepared = _copy_issue(issue)
+                prepared["criterion"] = criterion
+                _append_language_note(prepared)
+                collected.append(prepared)
+
+            advisory = issue.get("advisoryCriteria")
+            if isinstance(advisory, (list, tuple)):
+                for code in advisory:
+                    normalized_code = str(code).strip()
+                    if not normalized_code or normalized_code == criterion:
+                        continue
+                    prepared = _copy_issue(issue)
+                    prepared["criterion"] = normalized_code
+                    _append_language_note(prepared)
+                    collected.append(prepared)
+        return collected
+
     direct_issues = results.get("wcagIssues")
     if isinstance(direct_issues, list):
         for issue in direct_issues:
@@ -137,7 +161,18 @@ def _collect_all_wcag_sources(results: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _build_pdfua_criteria(results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    pdfua_issues = _collect_unique_issues(results.get("pdfuaIssues"), key_field="clause")
+    canonical = results.get("issues")
+    if isinstance(canonical, list) and canonical:
+        filtered = [
+            _copy_issue(issue)
+            for issue in canonical
+            if isinstance(issue, dict) and issue.get("clause")
+        ]
+        for issue in filtered:
+            issue["clause"] = issue.get("clause")
+        pdfua_issues = _collect_unique_issues(filtered, key_field="clause")
+    else:
+        pdfua_issues = _collect_unique_issues(results.get("pdfuaIssues"), key_field="clause")
     grouped = _group_issues_by_code(pdfua_issues, code_key="clause")
     if not grouped and not pdfua_issues:
         return None
@@ -174,6 +209,7 @@ def _collect_unique_issues(issues: Optional[Iterable[Any]], key_field: str) -> L
         pages = issue.get("pages") if isinstance(issue.get("pages"), list) else None
         page_tuple = tuple(pages) if pages else tuple()
         key = (
+            issue.get("issueId") or None,
             normalized_code,
             str(issue.get("description", "")).strip(),
             issue.get("page"),
@@ -208,6 +244,7 @@ def _copy_issue(issue: Dict[str, Any]) -> Dict[str, Any]:
         "specification",
         "context",
         "title",
+        "advisoryCriteria",
     }
     copied = {key: issue[key] for key in allowed_keys if key in issue}
     copied.setdefault("severity", issue.get("severity", "medium"))

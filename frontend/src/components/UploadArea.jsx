@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, forwardRef, useImperativeHandle, useId } f
 import axios from "axios"
 import UploadProgressToast from "./UploadProgressToast"
 import { API_ENDPOINTS } from "../config/api"
+import { resolveEntityStatus } from "../utils/statuses"
 
 const formatFileSize = (bytes) => {
   if (bytes === 0) return "0 Bytes"
@@ -311,7 +312,15 @@ const UploadArea = forwardRef(function UploadArea(
           matchedScan = scansResponse[index]
         }
 
-        const statusCode = String(matchedScan?.statusCode || "").toLowerCase()
+        const statusInfo = resolveEntityStatus(matchedScan || {})
+        const statusCode = statusInfo.code
+        const errorMessage =
+          matchedScan?.error ||
+          matchedScan?.summary?.error ||
+          (Array.isArray(matchedScan?.results?.analysisErrors) && matchedScan.results.analysisErrors[0]) ||
+          trackErrorMessage(file.name) ||
+          "Upload failed. Please remove this file and try again."
+
         if (matchedScan && statusCode !== "error") {
           const resolvedName = matchedScan.filename || matchedScan.fileName || file.name
           const resolvedScanId = matchedScan.scanId || matchedScan.id
@@ -327,10 +336,6 @@ const UploadArea = forwardRef(function UploadArea(
             scanIds.push(resolvedScanId)
           }
         } else {
-          const errorMessage =
-            matchedScan?.error ||
-            trackErrorMessage(file.name) ||
-            "Upload failed. Please remove this file and try again."
           statuses[index] = { status: "error", message: errorMessage }
           failedFiles.push({
             name: matchedScan?.filename || matchedScan?.fileName || file.name,

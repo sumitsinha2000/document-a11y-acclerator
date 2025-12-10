@@ -63,16 +63,26 @@ const determineStatus = (issues = []) => {
 }
 
 const buildFallbackSummary = (results) => {
-  const source = Array.isArray(results?.pdfuaIssues) ? results.pdfuaIssues : []
+  const canonical = Array.isArray(results?.issues) ? results.issues : []
+  const source =
+    canonical.length > 0
+      ? canonical.filter((issue) => issue && typeof issue === "object" && issue.clause)
+      : Array.isArray(results?.pdfuaIssues)
+        ? results.pdfuaIssues
+        : []
   if (!source.length) return null
 
   const grouped = new Map()
+  const seenIds = new Set()
   source.forEach((issue) => {
     if (!issue || typeof issue !== "object") return
     const clause = issue.clause || issue.specification
     if (!clause) return
     const normalized = String(clause).trim()
     if (!normalized) return
+    const id = issue.issueId || null
+    if (id && seenIds.has(id)) return
+    if (id) seenIds.add(id)
     if (!grouped.has(normalized)) {
       grouped.set(normalized, [])
     }

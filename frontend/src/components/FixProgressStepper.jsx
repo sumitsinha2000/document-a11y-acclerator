@@ -3,23 +3,53 @@
 import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import { API_ENDPOINTS } from "../config/api"
-import { resolveSummary } from "../utils/compliance"
+import { resolveSummary, calculateSummaryFromResults } from "../utils/compliance"
 
 export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete }) {
   const [progress, setProgress] = useState(null)
   const [polling, setPolling] = useState(true)
   const [finalResultData, setFinalResultData] = useState(null)
   const hasCompletedRef = useRef(false)
+  const dialogRef = useRef(null)
+  const closeButtonRef = useRef(null)
+  const previouslyFocusedElementRef = useRef(null)
+
+  const sanitizedScanId = String(scanId ?? "progress").replace(/[^a-zA-Z0-9-_]/g, "-")
+  const dialogTitleId = `${sanitizedScanId}-progress-title`
+  const dialogStatusId = `${sanitizedScanId}-progress-status`
 
   const buildResolvedResult = (resultData) => {
     if (!resultData) return null
+    const canonicalSummary = calculateSummaryFromResults(resultData.results, resultData.verapdfStatus)
+    const resolvedSummary = resolveSummary({
+      summary: resultData.summary,
+      results: resultData.results,
+      verapdfStatus: resultData.verapdfStatus,
+    })
+
+    const numericKeys = ["totalIssues", "highSeverity", "mediumSeverity", "lowSeverity", "complianceScore"]
+    numericKeys.forEach((key) => {
+      if (typeof canonicalSummary[key] === "number") {
+        resolvedSummary[key] = canonicalSummary[key]
+      }
+    })
+
+    const complianceKeys = ["wcagCompliance", "pdfuaCompliance"]
+    complianceKeys.forEach((key) => {
+      if (typeof canonicalSummary[key] === "number") {
+        resolvedSummary[key] = canonicalSummary[key]
+      }
+    })
+
+    if (typeof canonicalSummary.totalIssues === "number") {
+      resolvedSummary.remainingIssues = canonicalSummary.totalIssues
+      resolvedSummary.issuesRemaining = canonicalSummary.totalIssues
+      resolvedSummary.totalIssuesRaw = canonicalSummary.totalIssues
+    }
+
     return {
       ...resultData,
-      summary: resolveSummary({
-        summary: resultData.summary,
-        results: resultData.results,
-        verapdfStatus: resultData.verapdfStatus,
-      }),
+      summary: resolvedSummary,
     }
   }
 
@@ -42,6 +72,78 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
       hasCompletedRef.current = false
     }
   }, [isOpen, scanId])
+
+  useEffect(() => {
+    if (!isOpen) {
+      const prevActive = previouslyFocusedElementRef.current
+      if (prevActive && typeof prevActive.focus === "function") {
+        prevActive.focus()
+      }
+      return
+    }
+
+    if (typeof document !== "undefined") {
+      previouslyFocusedElementRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null
+    }
+    closeButtonRef.current?.focus()
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen || typeof document === "undefined") {
+      return
+    }
+
+    const focusableSelector =
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault()
+        if (onClose) {
+          onClose()
+        }
+        return
+      }
+
+      if (event.key !== "Tab") {
+        return
+      }
+
+      const dialogEl = dialogRef.current
+      if (!dialogEl) {
+        return
+      }
+
+      const focusableElements = Array.from(
+        dialogEl.querySelectorAll(focusableSelector),
+      ).filter(
+        (element) =>
+          element &&
+          !element.hasAttribute("disabled") &&
+          element.getAttribute("aria-hidden") !== "true",
+      )
+
+      if (!focusableElements.length) {
+        return
+      }
+
+      const firstElement = focusableElements[0]
+      const lastElement = focusableElements[focusableElements.length - 1]
+
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault()
+        lastElement.focus()
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault()
+        firstElement.focus()
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [isOpen, onClose])
 
   const pollIntervalRef = useRef(null)
 
@@ -193,13 +295,32 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={dialogTitleId}
+        aria-describedby={dialogStatusId}
+        tabIndex={-1}
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Applying Fixes</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              <h3
+                id={dialogTitleId}
+                className="text-lg font-semibold text-gray-900 dark:text-white"
+              >
+                Applying Fixes
+              </h3>
+              <p
+                id={dialogStatusId}
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                className="text-sm text-gray-600 dark:text-gray-400 mt-1"
+              >
                 {progress.status === "completed"
                   ? "✅ All fixes applied successfully! Your document has been remediated."
                   : progress.status === "failed"
@@ -208,6 +329,7 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
               </p>
             </div>
             <button
+              ref={closeButtonRef}
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               aria-label="Close progress dialog"

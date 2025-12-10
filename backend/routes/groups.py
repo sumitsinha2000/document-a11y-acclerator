@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import psycopg2
 from fastapi import APIRouter
@@ -27,6 +27,62 @@ logger = logging.getLogger("doca11y-groups")
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
 MAX_GROUP_NAME_LENGTH = 255
+DEFAULT_CATEGORY_KEY = "other"
+
+
+def _normalize_category_key(value: Optional[Any]) -> str:
+    if value is None:
+        return DEFAULT_CATEGORY_KEY
+    text = str(value).strip()
+    return text or DEFAULT_CATEGORY_KEY
+
+
+def _normalize_severity_key(value: Optional[Any]) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"critical", "high"}:
+        return "high"
+    if normalized == "medium":
+        return "medium"
+    return "low"
+
+
+def _build_issue_fallback_key(issue: Dict[str, Any]) -> Optional[str]:
+    parts = []
+    for field in ("category", "criterion", "clause", "description"):
+        value = issue.get(field)
+        if value:
+            parts.append(str(value).strip().lower())
+    pages = issue.get("pages")
+    if isinstance(pages, list) and pages:
+        parts.append(",".join(str(page) for page in pages))
+    page = issue.get("page")
+    if page:
+        parts.append(f"p{page}")
+    return "|".join(parts) if parts else None
+
+
+def _accumulate_canonical_issue_stats(
+    issues, category_totals: Dict[str, int], severity_totals: Dict[str, int]
+) -> bool:
+    if not isinstance(issues, (list, tuple)):
+        return False
+
+    handled = False
+    seen_keys = set()
+    for issue in issues:
+        if not isinstance(issue, dict):
+            continue
+        issue_key = issue.get("issueId") or _build_issue_fallback_key(issue)
+        if issue_key:
+            if issue_key in seen_keys:
+                continue
+            seen_keys.add(issue_key)
+        category = _normalize_category_key(issue.get("category") or issue.get("rawSource"))
+        category_totals[category] = category_totals.get(category, 0) + 1
+        severity = _normalize_severity_key(issue.get("severity"))
+        severity_totals[severity] = severity_totals.get(severity, 0) + 1
+        handled = True
+    return handled
 
 
 class GroupPayload(BaseModel):
@@ -134,18 +190,26 @@ async def get_group_details(group_id: str):
             issues_fixed += scan_issues_fixed or 0
 
             if isinstance(results, dict):
-                for category, issues in results.items():
-                    if not isinstance(issues, list):
-                        continue
-                    category_totals[category] = category_totals.get(category, 0) + len(
-                        issues
+                handled_canonical = False
+                canonical_issues = results.get("issues")
+                if isinstance(canonical_issues, list) and canonical_issues:
+                    handled_canonical = _accumulate_canonical_issue_stats(
+                        canonical_issues, category_totals, severity_totals
                     )
-                    for issue in issues:
-                        if not isinstance(issue, dict):
+
+                if not handled_canonical:
+                    for category, issues in results.items():
+                        if category == "issues" or not isinstance(issues, list):
                             continue
-                        severity = (issue.get("severity") or "").lower()
-                        if severity in severity_totals:
-                            severity_totals[severity] += 1
+                        normalized_category = _normalize_category_key(category)
+                        category_totals[normalized_category] = (
+                            category_totals.get(normalized_category, 0) + len(issues)
+                        )
+                        for issue in issues:
+                            if not isinstance(issue, dict):
+                                continue
+                            severity = _normalize_severity_key(issue.get("severity"))
+                            severity_totals[severity] = severity_totals.get(severity, 0) + 1
 
             if status_code == "fixed":
                 fixed_count += 1

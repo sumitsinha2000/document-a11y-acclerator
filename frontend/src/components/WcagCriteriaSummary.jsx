@@ -101,16 +101,26 @@ const determineStatus = (issues = []) => {
 }
 
 const buildFallbackSummary = (results) => {
-  const source = Array.isArray(results?.wcagIssues) ? results.wcagIssues : []
+  const canonical = Array.isArray(results?.issues) ? results.issues : []
+  const source =
+    canonical.length > 0
+      ? canonical.filter((issue) => issue && typeof issue === "object" && issue.criterion)
+      : Array.isArray(results?.wcagIssues)
+        ? results.wcagIssues
+        : []
   if (!source.length) return null
 
   const grouped = new Map()
+  const seenIds = new Set()
   source.forEach((issue) => {
     if (!issue || typeof issue !== "object") return
     const code = issue.criterion || issue.code
     if (!code) return
     const normalized = String(code).trim()
     if (!normalized) return
+    const id = issue.issueId || null
+    if (id && seenIds.has(id)) return
+    if (id) seenIds.add(id)
     if (!grouped.has(normalized)) {
       grouped.set(normalized, [])
     }
@@ -169,13 +179,31 @@ const enrichWithMetadata = (data) => {
   return { ...data, items: enrichedItems }
 }
 
+const ALT_TEXT_LIMITATION_TOOLTIP =
+  "Professionally tagged PDFs may still show missing alt text when they use uncommon PDF/UA tagging; typical Word-to-PDF exports are supported."
+
+const addAltTextTooltip = (data) => {
+  if (!data || !Array.isArray(data.items)) {
+    return data
+  }
+  return {
+    ...data,
+    items: data.items.map((item) =>
+      item.code === "1.1.1" ? { ...item, infoTooltip: ALT_TEXT_LIMITATION_TOOLTIP } : item,
+    ),
+  }
+}
+
 export default function WcagCriteriaSummary({ criteriaSummary, results }) {
   const data = useMemo(() => {
+    let baseData = null
     if (criteriaSummary && Array.isArray(criteriaSummary.items)) {
-      return enrichWithMetadata(criteriaSummary)
+      baseData = enrichWithMetadata(criteriaSummary)
     }
-    const fallback = buildFallbackSummary(results)
-    return enrichWithMetadata(fallback)
+    if (!baseData) {
+      baseData = enrichWithMetadata(buildFallbackSummary(results))
+    }
+    return addAltTextTooltip(baseData)
   }, [criteriaSummary, results])
 
   if (!data) {

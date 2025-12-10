@@ -38,6 +38,7 @@ from backend.utils.app_helpers import (
     get_progress_tracker,
     get_scan_by_id,
     get_versioned_files,
+    schedule_tracker_cleanup,
     save_fix_history,
     save_scan_to_db,
     scan_results_changed,
@@ -682,6 +683,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
         if not result.get("success"):
             if tracker:
                 tracker.fail_all(result.get("error", "Unknown error"))
+                schedule_tracker_cleanup(scan_id)
             return JSONResponse(
                 {"status": "error", "error": result.get("error", "Unknown error")},
                 status_code=500,
@@ -689,6 +691,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
 
         if tracker:
             tracker.complete_all()
+            schedule_tracker_cleanup(scan_id)
 
         fixes_applied = result.get("fixesApplied") or []
         if not fixes_applied and fixes:
@@ -853,6 +856,7 @@ async def apply_semi_automated_fixes(scan_id: str, request: Request):
         )
         if tracker:
             tracker.fail_all(str(exc))
+            schedule_tracker_cleanup(scan_id)
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
@@ -1508,6 +1512,7 @@ async def apply_fixes(scan_id: str):
         logger.exception("[Backend] apply_fixes crashed for %s", scan_id)
         if tracker:
             tracker.fail_all(str(exc))
+            schedule_tracker_cleanup(scan_id)
         return JSONResponse(
             {"success": False, "error": str(exc) or "Automated fix failed"},
             status_code=500,
@@ -1517,6 +1522,7 @@ async def apply_fixes(scan_id: str):
     # but ensure failures bubble up to the HTTP response.
     if status >= 400 and tracker and tracker.status != "failed":
         tracker.fail_all(payload.get("error", "Automated fix failed"))
+        schedule_tracker_cleanup(scan_id)
 
     return JSONResponse(payload, status_code=status)
 

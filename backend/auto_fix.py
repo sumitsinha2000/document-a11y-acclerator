@@ -36,7 +36,50 @@ class AutoFixEngine:
         }
 
         # Automated fixes - can be applied programmatically
-        if issues.get("missingMetadata"):
+        metadata_issues = issues.get("missingMetadata") or []
+        title_issue_present = False
+        other_metadata_issue = False
+        author_fix_added = False
+        subject_fix_added = False
+
+        for issue in metadata_issues:
+            description = issue.get("description", "")
+            desc_lower = description.lower()
+
+            if "title" in desc_lower:
+                title_issue_present = True
+            elif "author" in desc_lower or "creator" in desc_lower:
+                if not author_fix_added:
+                    fixes["semiAutomated"].append(
+                        {
+                            "category": "missingMetadata",
+                            "action": "Add author metadata",
+                            "description": description,
+                            "impact": "medium",
+                            "timeEstimate": 2,
+                            "instructions": description
+                            or "Provide the author information in the PDF metadata.",
+                        }
+                    )
+                    author_fix_added = True
+            elif "subject" in desc_lower:
+                if not subject_fix_added:
+                    fixes["semiAutomated"].append(
+                        {
+                            "category": "missingMetadata",
+                            "action": "Add subject/description metadata",
+                            "description": description,
+                            "impact": "medium",
+                            "timeEstimate": 2,
+                            "instructions": description
+                            or "Summarize the document content in Subject/Description.",
+                        }
+                    )
+                    subject_fix_added = True
+            else:
+                other_metadata_issue = True
+
+        if title_issue_present or other_metadata_issue:
             fixes["automated"].append(
                 {
                     "category": "missingMetadata",

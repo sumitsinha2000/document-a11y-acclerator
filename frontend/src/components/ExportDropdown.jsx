@@ -11,7 +11,7 @@ import {
   UTF8_BOM,
 } from "../utils/exportUtils"
 
-export default function ExportDropdown({ scanId, filename }) {
+export default function ExportDropdown({ scanId, filename, disabled = false }) {
   const { showError } = useNotification()
   const CSV_MIME = "text/csv;charset=UTF-8"
 
@@ -43,7 +43,17 @@ export default function ExportDropdown({ scanId, filename }) {
     return () => document.removeEventListener("keydown", handleEscape)
   }, [])
 
+  useEffect(() => {
+    if (disabled) {
+      setIsOpen(false)
+    }
+  }, [disabled])
+
   const handleExport = async (format) => {
+    if (disabled) {
+      return
+    }
+
     setIsOpen(false)
 
     try {
@@ -103,13 +113,25 @@ export default function ExportDropdown({ scanId, filename }) {
     URL.revokeObjectURL(url)
   }
 
+  const baseButtonClasses =
+    "flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
+  const enabledClasses =
+    "text-white bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-400"
+  const disabledClasses = "text-slate-500 bg-slate-200 cursor-not-allowed dark:bg-slate-700 dark:text-slate-400"
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button
         id={buttonId}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!disabled) {
+            setIsOpen((prev) => !prev)
+          }
+        }}
+        disabled={disabled}
+        aria-disabled={disabled}
         type="button"
-        className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-white bg-violet-600 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-400"
+        className={`${baseButtonClasses} ${disabled ? disabledClasses : enabledClasses}`}
         aria-haspopup="menu"
         aria-expanded={isOpen}
         aria-controls={isOpen ? menuId : undefined}
@@ -120,6 +142,7 @@ export default function ExportDropdown({ scanId, filename }) {
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
+          aria-hidden="true"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>

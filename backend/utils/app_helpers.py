@@ -28,9 +28,14 @@ from backend.multi_tier_storage import download_remote_file, upload_file_with_fa
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
-from backend.fix_progress_tracker import create_progress_tracker, get_progress_tracker
+from backend.fix_progress_tracker import (
+    create_progress_tracker,
+    get_progress_tracker,
+    schedule_tracker_cleanup,
+)
 from backend.utils.wcag_mapping import annotate_wcag_mappings, CATEGORY_CRITERIA_MAP
 from backend.utils.criteria_summary import build_criteria_summary
+from backend.utils.compliance_scoring import derive_wcag_score
 
 load_dotenv()
 
@@ -69,6 +74,11 @@ SUMMARY_PENDING_STATUSES = {"queued", "pending", "uploading", "processing"}
 NEON_DATABASE_URL = os.getenv('NEON_DATABASE_URL')
 DB_SCHEMA = os.getenv('DB_SCHEMA', 'public')
 
+def _sanitize_string(value: str) -> str:
+    """Strip characters that PostgreSQL JSON/text types reject."""
+    return value.replace("\x00", "")
+
+
 def to_json_safe(data):
     """
     Recursively convert data into JSON-safe types:
@@ -77,6 +87,7 @@ def to_json_safe(data):
     - UUID -> string
     - set -> list
     - bytes -> utf-8 string
+    - str -> sanitized text
     - Nested dicts/lists handled automatically
     """
     if isinstance(data, (datetime, date)):
@@ -87,9 +98,11 @@ def to_json_safe(data):
         return str(data)
     elif isinstance(data, bytes):
         try:
-            return data.decode("utf-8")
+            return _sanitize_string(data.decode("utf-8"))
         except Exception:
             return str(data)
+    elif isinstance(data, str):
+        return _sanitize_string(data)
     elif isinstance(data, set):
         return list(data)
     elif isinstance(data, dict):
@@ -428,12 +441,20 @@ def _build_scan_export_payload(scan_row: Dict[str, Any]) -> Dict[str, Any]:
                 scan_row.get("id"),
                 calc_error,
             )
-            total_issues = sum(
-                len(v) if isinstance(v, list) else 0 for v in results.values()
+            canonical_list = results.get("issues") if isinstance(results, dict) else None
+            canonical_count = len(canonical_list) if isinstance(canonical_list, list) else 0
+            total_issues = canonical_count or sum(
+                len(v) if isinstance(v, list) else 0
+                for key, v in results.items()
+                if key != "issues"
             )
             summary = {
                 "totalIssues": total_issues,
+                "totalIssuesRaw": total_issues,
                 "highSeverity": 0,
+                "issuesRemaining": total_issues,
+                "remainingIssues": total_issues,
+                "issuesRemainingRaw": total_issues,
                 "complianceScore": max(0, 100 - total_issues * 2),
             }
 
@@ -517,6 +538,29 @@ def update_group_file_count(group_id: str):
     except Exception:
         logger.exception("[Backend] Error updating group file count for %s", group_id)
 
+def _extract_canonical_issue_count(payload: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Return the deduplicated canonical issue count from a scan payload."""
+    if not isinstance(payload, dict):
+        return None
+    results = payload.get("results")
+    if not isinstance(results, dict):
+        results = payload
+    canonical = results.get("issues")
+    if not isinstance(canonical, list):
+        return None
+    seen: Set[Any] = set()
+    count = 0
+    for issue in canonical:
+        if isinstance(issue, dict):
+            issue_id = issue.get("issueId")
+            if issue_id:
+                if issue_id in seen:
+                    continue
+                seen.add(issue_id)
+        count += 1
+    return count
+
+
 def save_scan_to_db(
     scan_id: str,
     original_filename: str,
@@ -538,6 +582,8 @@ def save_scan_to_db(
     payload_dict = scan_results if isinstance(scan_results, dict) else {}
     payload_dict = _ensure_scan_results_compliance(payload_dict)
     summary = payload_dict.get("summary", {}) if isinstance(payload_dict, dict) else {}
+    canonical_count = _extract_canonical_issue_count(payload_dict)
+
     computed_total = (
         total_issues if total_issues is not None else summary.get("totalIssues", 0)
     ) or 0
@@ -551,6 +597,18 @@ def save_scan_to_db(
     )
     if computed_remaining is None:
         computed_remaining = max(computed_total - computed_fixed, 0)
+
+    if canonical_count is not None:
+        computed_remaining = canonical_count
+        if total_issues is None:
+            computed_total = max(computed_total, canonical_count)
+        if issues_fixed is None:
+            computed_fixed = max(computed_total - canonical_count, 0)
+        summary["remainingIssues"] = canonical_count
+        summary["issuesRemaining"] = canonical_count
+        summary.setdefault("totalIssues", computed_total)
+        summary.setdefault("totalIssuesRaw", canonical_count)
+        payload_dict["summary"] = summary
 
     payload_json = _serialize_scan_results(payload_dict)
     timestamp = upload_date or datetime.utcnow()
@@ -1055,6 +1113,7 @@ def _combine_compliance_scores(*scores: Optional[float]) -> Optional[float]:
     return round(sum(numeric) / len(numeric), 2)
 
 def _ensure_scan_results_compliance(scan_results: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep summary fields in sync with WCAG validator metrics and VeraPDF advisories."""
     if not isinstance(scan_results, dict):
         return scan_results
 
@@ -1062,6 +1121,21 @@ def _ensure_scan_results_compliance(scan_results: Dict[str, Any]) -> Dict[str, A
     if not isinstance(summary, dict):
         summary = {}
         scan_results["summary"] = summary
+
+    results = scan_results.get("results")
+    if isinstance(results, dict) and results.get("analysisErrors"):
+        for key in ("complianceScore", "wcagCompliance", "pdfuaCompliance"):
+            summary.pop(key, None)
+        summary.setdefault("status", "error")
+        summary.setdefault("statusCode", "error")
+        return scan_results
+
+    derived_wcag = derive_wcag_score(
+        scan_results.get("results"),
+        scan_results.get("criteriaSummary"),
+    )
+    if derived_wcag is not None:
+        summary["wcagCompliance"] = derived_wcag
 
     verapdf_status = scan_results.get("verapdfStatus")
     if isinstance(verapdf_status, dict):
@@ -1109,6 +1183,9 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
     else:
         scan_results = annotate_wcag_mappings(scan_results)
 
+    # Analyzer results contain the custom WCAG validator findings. We still
+    # synthesize VeraPDF-style stats so the UI can show advisory counts, but
+    # they remain secondary to the native WCAG/PDF-UA pipeline.
     verapdf_status = build_verapdf_status(scan_results, analyzer)
     summary: Dict[str, Any] = {}
     try:
@@ -1121,6 +1198,23 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
     except Exception:
         logger.exception("calculate_summary failed")
         summary = {}
+
+    wcag_metrics = None
+    metrics_getter = getattr(analyzer, "get_wcag_validator_metrics", None)
+    if callable(metrics_getter):
+        try:
+            wcag_metrics = metrics_getter()
+        except Exception:
+            wcag_metrics = None
+
+    if isinstance(summary, dict) and isinstance(wcag_metrics, dict):
+        # WCAG validator drives the primary compliance score; VeraPDF stays advisory.
+        summary["wcagCompliance"] = wcag_metrics.get("wcagScore", summary.get("wcagCompliance"))
+        summary["pdfuaCompliance"] = wcag_metrics.get("pdfuaScore", summary.get("pdfuaCompliance"))
+        if wcag_metrics.get("wcagCompliance"):
+            summary["wcagLevels"] = wcag_metrics["wcagCompliance"]
+        if wcag_metrics.get("pdfuaCompliance"):
+            summary["pdfuaLevels"] = wcag_metrics["pdfuaCompliance"]
 
     if isinstance(summary, dict) and verapdf_status:
         summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
@@ -1137,14 +1231,64 @@ async def _analyze_pdf_document(file_path: Path) -> Dict[str, Any]:
         fix_suggestions = []
 
     criteria_summary = build_criteria_summary(scan_results)
+    if isinstance(summary, dict):
+        derived_wcag = derive_wcag_score(scan_results, criteria_summary)
+        if derived_wcag is not None:
+            summary["wcagCompliance"] = derived_wcag
+            combined_score = _combine_compliance_scores(
+                summary.get("wcagCompliance"),
+                summary.get("pdfuaCompliance"),
+            )
+            if combined_score is not None:
+                summary["complianceScore"] = combined_score
+    try:
+        analysis_messages = list(getattr(analyzer, "_analysis_errors", []) or [])
+    except Exception:
+        analysis_messages = []
 
-    return {
+    analysis_error_objects = [
+        {"message": msg.strip()}
+        for msg in analysis_messages
+        if isinstance(msg, str) and msg.strip()
+    ]
+    has_analysis_errors = bool(analysis_error_objects)
+    if has_analysis_errors:
+        summary = {
+            "status": "error",
+            "statusCode": "error",
+            "totalIssues": 0,
+            "highSeverity": 0,
+            "mediumSeverity": 0,
+            "lowSeverity": 0,
+        }
+        scan_results = {"analysisErrors": analysis_error_objects}
+        verapdf_status = None
+        fix_suggestions = []
+        criteria_summary = {}
+
+    error_message = analysis_error_objects[0]["message"] if has_analysis_errors else None
+    status_code = "error" if has_analysis_errors else None
+    if error_message and isinstance(summary, dict):
+        summary.setdefault("status", status_code)
+        summary.setdefault("statusCode", status_code)
+        summary.setdefault("error", error_message)
+
+    payload = {
         "results": scan_results,
         "summary": summary if isinstance(summary, dict) else {},
         "verapdfStatus": verapdf_status,
         "fixes": fix_suggestions,
         "criteriaSummary": criteria_summary,
     }
+    if status_code:
+        payload["status"] = status_code
+        payload["statusCode"] = status_code
+    if error_message:
+        payload["error"] = error_message
+        if isinstance(scan_results, dict):
+            scan_results.setdefault("analysisErrors", analysis_error_objects)
+
+    return payload
 
 def _fetch_scan_record(scan_id: str) -> Optional[Dict[str, Any]]:
     """
@@ -1535,6 +1679,7 @@ def _perform_automated_fix(
         if not result.get("success"):
             if tracker:
                 tracker.fail_all(result.get("error", "Automated fix failed"))
+                schedule_tracker_cleanup(scan_id)
             return 500, {
                 "success": False,
                 "error": result.get("error", "Automated fix failed"),
@@ -1558,6 +1703,7 @@ def _perform_automated_fix(
                     )
                     if tracker:
                         tracker.fail_all(str(archive_exc))
+                        schedule_tracker_cleanup(scan_id)
                     return 500, {
                         "success": False,
                         "error": str(archive_exc),
@@ -1595,6 +1741,7 @@ def _perform_automated_fix(
 
         if tracker:
             tracker.complete_all()
+            schedule_tracker_cleanup(scan_id)
 
         raw_fixes_applied = result.get("fixesApplied") or []
         filtered_fixes_applied = _filter_skipped_fixes(raw_fixes_applied)
@@ -1637,6 +1784,8 @@ def _perform_automated_fix(
         status = "fixed" if remaining_issues == 0 else "processed"
         result["successCount"] = success_count
 
+        scan_results_payload = _ensure_scan_results_compliance(scan_results_payload)
+
         cursor.execute(
             """
             UPDATE scans
@@ -1670,31 +1819,32 @@ def _perform_automated_fix(
                     "remotePath": archive_info.get("remote_path"),
                 }
             )
-        try:
-            save_fix_history(
-                scan_id=scan_id,
-                original_filename=scan_row.get("filename"),
-                fixed_filename=result.get("fixedFile") or scan_row.get("filename"),
-                fixes_applied=fixes_applied,
-                fix_type="automated",
-                issues_before=initial_scan_payload.get("results")
-                if isinstance(initial_scan_payload, dict)
-                else {},
-                issues_after=scan_results_payload.get("results"),
-                compliance_before=initial_summary.get("complianceScore"),
-                compliance_after=summary.get("complianceScore"),
-                fix_suggestions=scan_results_payload.get("fixes"),
-                fix_metadata=fix_metadata,
-                batch_id=scan_row.get("batch_id"),
-                group_id=scan_row.get("group_id"),
-                total_issues_before=total_issues_before,
-                total_issues_after=remaining_issues,
-                high_severity_before=initial_summary.get("highSeverity"),
-                high_severity_after=summary.get("highSeverity"),
-                success_count=success_count,
-            )
-        except Exception:
-            logger.exception("[Backend] Failed to record fix history for %s", scan_id)
+        if success_count > 0:
+            try:
+                save_fix_history(
+                    scan_id=scan_id,
+                    original_filename=scan_row.get("filename"),
+                    fixed_filename=result.get("fixedFile") or scan_row.get("filename"),
+                    fixes_applied=fixes_applied,
+                    fix_type="automated",
+                    issues_before=initial_scan_payload.get("results")
+                    if isinstance(initial_scan_payload, dict)
+                    else {},
+                    issues_after=scan_results_payload.get("results"),
+                    compliance_before=initial_summary.get("complianceScore"),
+                    compliance_after=summary.get("complianceScore"),
+                    fix_suggestions=scan_results_payload.get("fixes"),
+                    fix_metadata=fix_metadata,
+                    batch_id=scan_row.get("batch_id"),
+                    group_id=scan_row.get("group_id"),
+                    total_issues_before=total_issues_before,
+                    total_issues_after=remaining_issues,
+                    high_severity_before=initial_summary.get("highSeverity"),
+                    high_severity_after=summary.get("highSeverity"),
+                    success_count=success_count,
+                )
+            except Exception:
+                logger.exception("[Backend] Failed to record fix history for %s", scan_id)
 
         conn.commit()
 
@@ -1722,6 +1872,7 @@ def _perform_automated_fix(
             conn.rollback()
         if tracker:
             tracker.fail_all(str(exc))
+            schedule_tracker_cleanup(scan_id)
         logger.exception("[Backend] Error performing automated fix for %s", scan_id)
         return 500, {
             "success": False,
@@ -1735,6 +1886,7 @@ def _perform_automated_fix(
             conn.close()
 
 def build_verapdf_status(results, analyzer=None):
+    """Approximate VeraPDF compliance so UI can show advisory statistics."""
     status = {
         "isActive": False,
         "wcagCompliance": None,
@@ -1750,13 +1902,33 @@ def build_verapdf_status(results, analyzer=None):
             logger.exception("analyzer.get_verapdf_status failed")
     if not isinstance(results, dict):
         return status
-    wcag_issues = len(results.get("wcagIssues", []))
-    pdfua_issues = len(results.get("pdfuaIssues", []))
-    for category in CATEGORY_CRITERIA_MAP:
-        category_issues = results.get(category)
-        if isinstance(category_issues, list):
-            wcag_issues += len(category_issues)
-    total = wcag_issues + pdfua_issues
+
+    canonical = results.get("issues")
+    if isinstance(canonical, list) and canonical:
+        seen = set()
+        wcag_issues = 0
+        pdfua_issues = 0
+        for issue in canonical:
+            if not isinstance(issue, dict):
+                continue
+            issue_id = issue.get("issueId")
+            if issue_id and issue_id in seen:
+                continue
+            if issue_id:
+                seen.add(issue_id)
+            if issue.get("criterion"):
+                wcag_issues += 1
+            if issue.get("clause"):
+                pdfua_issues += 1
+        total = wcag_issues + pdfua_issues
+    else:
+        wcag_issues = len(results.get("wcagIssues", []))
+        pdfua_issues = len(results.get("pdfuaIssues", []))
+        for category in CATEGORY_CRITERIA_MAP:
+            category_issues = results.get(category)
+            if isinstance(category_issues, list):
+                wcag_issues += len(category_issues)
+        total = wcag_issues + pdfua_issues
     status["totalVeraPDFIssues"] = total
     if total == 0:
         status["isActive"] = True

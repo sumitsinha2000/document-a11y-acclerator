@@ -1,14 +1,29 @@
 import { FILE_STATUS_LABELS_MAP, normalizeStatusCode, resolveEntityStatus } from "../utils/statuses"
 
 const CATEGORY_LABELS = {
+  metadata: "Metadata",
   missingMetadata: "Metadata",
-  untaggedContent: "Tagging",
-  missingAltText: "Alt Text",
-  poorContrast: "Contrast",
+  language: "Language",
   missingLanguage: "Language",
-  formIssues: "Forms",
+  "alt-text": "Alt Text",
+  missingAltText: "Alt Text",
+  contrast: "Contrast",
+  poorContrast: "Contrast",
+  tagging: "Tagging",
+  untaggedContent: "Tagging",
+  table: "Tables",
   tableIssues: "Tables",
+  forms: "Forms",
+  formIssues: "Forms",
+  links: "Link Purpose",
   linkIssues: "Link Purpose",
+  structure: "Structure",
+  structureIssues: "Structure",
+  "reading-order": "Reading Order",
+  readingOrderIssues: "Reading Order",
+  pdfua: "PDF/UA",
+  wcag: "WCAG",
+  other: "Other",
 }
 
 const STATUS_LABELS = {
@@ -22,40 +37,177 @@ const severityPalette = {
   low: "bg-emerald-500",
 }
 
+const DEFAULT_CATEGORY_KEY = "other"
+
+const normalizeCategoryKey = (value) => {
+  if (value === null || value === undefined) {
+    return DEFAULT_CATEGORY_KEY
+  }
+  const text = String(value).trim()
+  if (!text) {
+    return DEFAULT_CATEGORY_KEY
+  }
+  if (CATEGORY_LABELS[text]) {
+    return text
+  }
+  const lowered = text.toLowerCase()
+  if (CATEGORY_LABELS[lowered]) {
+    return lowered
+  }
+  return text
+}
+
+const normalizeSeverityKey = (severity) => {
+  const normalized = String(severity || "").trim().toLowerCase()
+  if (normalized === "medium") {
+    return "medium"
+  }
+  if (normalized === "low") {
+    return "low"
+  }
+  if (normalized) {
+    return "high"
+  }
+  return "low"
+}
+
+const normalizeIssueCount = (value, fallback = 0) => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : fallback
+  }
+  if (value === null || value === undefined) {
+    return fallback
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+const incrementCategoryTotal = (categoryTotals, key, amount = 1) => {
+  const normalized = normalizeCategoryKey(key)
+  categoryTotals[normalized] = (categoryTotals[normalized] || 0) + amount
+}
+
+const toTitleCase = (value) =>
+  value
+    .split(/\s+/)
+    .map((word) => (word ? `${word[0].toUpperCase()}${word.slice(1)}` : ""))
+    .join(" ")
+    .trim()
+
+const formatCategoryLabel = (key) => {
+  const normalized = normalizeCategoryKey(key)
+  if (CATEGORY_LABELS[normalized]) {
+    return CATEGORY_LABELS[normalized]
+  }
+  const spaced = normalized
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]/g, " ")
+    .trim()
+  if (!spaced) {
+    return CATEGORY_LABELS[DEFAULT_CATEGORY_KEY]
+  }
+  return toTitleCase(spaced)
+}
+
+const buildIssueIdentity = (issue, index) => {
+  if (!issue || typeof issue !== "object") {
+    return `issue-${index}`
+  }
+  if (issue.issueId) {
+    return issue.issueId
+  }
+  const parts = []
+  const fields = ["category", "criterion", "clause", "description"]
+  fields.forEach((field) => {
+    if (issue[field]) {
+      parts.push(String(issue[field]).trim().toLowerCase())
+    }
+  })
+  if (Array.isArray(issue.pages) && issue.pages.length) {
+    parts.push(issue.pages.map((page) => String(page)).join(","))
+  } else if (issue.page) {
+    parts.push(`p${issue.page}`)
+  }
+  return parts.length ? parts.join("|") : `issue-${index}`
+}
+
+const extractCanonicalIssues = (results) => {
+  if (!results || typeof results !== "object") {
+    return []
+  }
+  const canonical = results.issues
+  if (!Array.isArray(canonical) || canonical.length === 0) {
+    return []
+  }
+  const seen = new Set()
+  const deduped = []
+  canonical.forEach((issue, index) => {
+    if (!issue || typeof issue !== "object") {
+      return
+    }
+    const identity = buildIssueIdentity(issue, index)
+    if (seen.has(identity)) {
+      return
+    }
+    seen.add(identity)
+    deduped.push(issue)
+  })
+  return deduped
+}
+
+const accumulateIssueStats = (issues, severityTotals, categoryTotals) => {
+  issues.forEach((issue) => {
+    if (!issue || typeof issue !== "object") {
+      severityTotals.low += 1
+      incrementCategoryTotal(categoryTotals, DEFAULT_CATEGORY_KEY)
+      return
+    }
+    incrementCategoryTotal(
+      categoryTotals,
+      issue.category || issue.rawSource || issue.bucket || DEFAULT_CATEGORY_KEY,
+    )
+    const severity = normalizeSeverityKey(issue.severity)
+    severityTotals[severity] = (severityTotals[severity] || 0) + 1
+  })
+}
+
 function collectBatchIssueData(scans = []) {
   const severityTotals = { high: 0, medium: 0, low: 0 }
   const categoryTotals = {}
-  let totalIssues = 0
+  let remainingIssues = 0
 
   scans.forEach((scan) => {
     const scanResults = scan?.results
-    if (scanResults && typeof scanResults === "object") {
+    const canonicalIssues = extractCanonicalIssues(scanResults)
+    if (canonicalIssues.length > 0) {
+      accumulateIssueStats(canonicalIssues, severityTotals, categoryTotals)
+    } else if (scanResults && typeof scanResults === "object") {
       Object.entries(scanResults).forEach(([key, issues]) => {
-        if (!Array.isArray(issues)) {
+        if (key === "issues" || !Array.isArray(issues) || issues.length === 0) {
           return
         }
-        categoryTotals[key] = (categoryTotals[key] || 0) + issues.length
+        incrementCategoryTotal(categoryTotals, key, issues.length)
         issues.forEach((issue) => {
-          if (!issue || typeof issue !== "object") return
-          const severity = (issue.severity || "").toLowerCase()
-          if (severityTotals[severity] !== undefined) {
-            severityTotals[severity] += 1
-          }
+          const severity = normalizeSeverityKey(issue?.severity)
+          severityTotals[severity] = (severityTotals[severity] || 0) + 1
         })
       })
     }
 
-    let issueCount = scan?.summary?.totalIssues ?? scan?.initialSummary?.totalIssues ?? 0
-    if (typeof issueCount !== "number") {
-      issueCount = Number(issueCount)
-    }
-    if (!Number.isFinite(issueCount)) {
-      issueCount = 0
-    }
-    totalIssues += issueCount
+    const summary = scan?.summary || {}
+    const initialSummary = scan?.initialSummary || {}
+    const remainingValue =
+      summary.remainingIssues ??
+      summary.issuesRemaining ??
+      summary.totalIssues ??
+      initialSummary.remainingIssues ??
+      initialSummary.issuesRemaining ??
+      initialSummary.totalIssues ??
+      0
+    remainingIssues += normalizeIssueCount(remainingValue)
   })
 
-  return { severityTotals, categoryTotals, totalIssues }
+  return { severityTotals, categoryTotals, remainingIssues }
 }
 
 function ProgressItem({ label, value, total, colorClass, srLabel }) {
@@ -86,28 +238,31 @@ function ProgressItem({ label, value, total, colorClass, srLabel }) {
 
 export function FileInsightPanel({ results, summary }) {
   const severityTotals = { high: 0, medium: 0, low: 0 }
-  const categoryTotals = []
+  const categoryTotals = {}
+  const canonicalIssues = extractCanonicalIssues(results)
 
-  Object.entries(results || {}).forEach(([key, issues]) => {
-    const count = Array.isArray(issues) ? issues.length : 0
-    if (count === 0) {
-      return
-    }
-
-    categoryTotals.push({
-      key,
-      label: CATEGORY_LABELS[key] || key.replace(/([A-Z])/g, " $1").trim(),
-      count,
-    })
-
-    issues.forEach((issue) => {
-      if (!issue || typeof issue !== "object") return
-      const severity = (issue.severity || "").toLowerCase()
-      if (severityTotals[severity] !== undefined) {
-        severityTotals[severity] += 1
+  if (canonicalIssues.length > 0) {
+    accumulateIssueStats(canonicalIssues, severityTotals, categoryTotals)
+  } else {
+    Object.entries(results || {}).forEach(([key, issues]) => {
+      if (key === "issues" || !Array.isArray(issues) || issues.length === 0) {
+        return
       }
+
+      incrementCategoryTotal(categoryTotals, key, issues.length)
+
+      issues.forEach((issue) => {
+        const severity = normalizeSeverityKey(issue?.severity)
+        severityTotals[severity] = (severityTotals[severity] || 0) + 1
+      })
     })
-  })
+  }
+
+  const categoryEntries = Object.entries(categoryTotals).map(([key, count]) => ({
+    key,
+    label: formatCategoryLabel(key),
+    count,
+  }))
 
   const summaryTotalIssues =
     typeof summary?.totalIssues === "number" ? summary.totalIssues : null
@@ -123,9 +278,7 @@ export function FileInsightPanel({ results, summary }) {
   const totalIssues = summaryTotalIssues ?? normalizedSeveritySum
   const hasDetailedSeverity = normalizedSeveritySum > 0
 
-  const sortedCategories = categoryTotals
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 3)
+  const sortedCategories = categoryEntries.sort((a, b) => b.count - a.count).slice(0, 3)
 
   const showSeverity = totalIssues > 0 && hasDetailedSeverity
   const showCategories = sortedCategories.length > 0
@@ -198,7 +351,12 @@ export function BatchInsightPanel({ scans }) {
 
   const hasScannedFiles = scans.some((scan) => resolveEntityStatus(scan).code !== "uploaded")
   const statusTotals = new Map()
-  const { severityTotals, categoryTotals, totalIssues } = collectBatchIssueData(scans)
+  const {
+    severityTotals,
+    categoryTotals,
+    remainingIssues: totalRemainingIssues,
+  } = collectBatchIssueData(scans)
+  const resolvedRemainingIssues = normalizeIssueCount(totalRemainingIssues)
 
   scans.forEach((scan) => {
     const { code } = resolveEntityStatus(scan)
@@ -214,16 +372,21 @@ export function BatchInsightPanel({ scans }) {
 
   const progressHeading = totalScans === 1 ? "File Status" : "Files Status"
 
-  const severityTotalCount = severityTotals.high + severityTotals.medium + severityTotals.low
-  if (totalIssues > severityTotalCount) {
-    severityTotals.low += totalIssues - severityTotalCount
-  }
-  const normalizedSeverityCount =
+  let normalizedSeverityCount =
     severityTotals.high + severityTotals.medium + severityTotals.low
-  const hasSeverity = normalizedSeverityCount > 0
+  if (resolvedRemainingIssues > normalizedSeverityCount) {
+    severityTotals.low += resolvedRemainingIssues - normalizedSeverityCount
+    normalizedSeverityCount =
+      severityTotals.high + severityTotals.medium + severityTotals.low
+  }
+  const severityDisplayTotal =
+    resolvedRemainingIssues > 0 ? resolvedRemainingIssues : normalizedSeverityCount
+  const severityInsightLabel =
+    resolvedRemainingIssues > 0 ? "Remaining issues" : "Issues analysed"
+  const hasSeverity = normalizedSeverityCount > 0 || resolvedRemainingIssues > 0
   const categoryEntries = Object.entries(categoryTotals || {}).map(([key, count]) => ({
     key,
-    label: CATEGORY_LABELS[key] || key.replace(/([A-Z])/g, " $1").trim(),
+    label: formatCategoryLabel(key),
     count,
   }))
   const topCategories = categoryEntries.sort((a, b) => b.count - a.count).slice(0, 3)
@@ -237,7 +400,7 @@ export function BatchInsightPanel({ scans }) {
             Severity Overview
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Total issues analysed: {totalIssues}. Severity counts are shown below.
+            {severityInsightLabel}: {severityDisplayTotal}. Severity counts are shown below.
           </p>
           <div className="mt-4 space-y-3">
             {["high", "medium", "low"].map((severity) => (
@@ -245,9 +408,9 @@ export function BatchInsightPanel({ scans }) {
                 key={severity}
                 label={`${severity[0].toUpperCase()}${severity.slice(1)}`}
                 value={severityTotals[severity]}
-                total={normalizedSeverityCount}
+                total={severityDisplayTotal}
                 colorClass={severityPalette[severity]}
-                srLabel={`Severity ${severity}: ${severityTotals[severity]} of ${normalizedSeverityCount}`}
+                srLabel={`Severity ${severity}: ${severityTotals[severity]} of ${severityDisplayTotal}`}
               />
             ))}
           </div>
@@ -260,12 +423,14 @@ export function BatchInsightPanel({ scans }) {
             Top Issue Categories
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Showing up to three categories with the highest issue counts across this batch.
+            Showing up to three categories with the highest issue counts across this folder.
           </p>
           <dl className="mt-4 space-y-3">
             {topCategories.map((category) => {
               const percent =
-                totalIssues > 0 ? Math.round((category.count / totalIssues) * 100) : 0
+                severityDisplayTotal > 0
+                  ? Math.round((category.count / severityDisplayTotal) * 100)
+                  : 0
               return (
                 <div key={category.key} className="flex items-center justify-between text-sm">
                   <dt className="text-slate-600 dark:text-slate-300">{category.label}</dt>
@@ -305,14 +470,60 @@ export function BatchInsightPanel({ scans }) {
   )
 }
 
-export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts, totalFiles, totalIssues }) {
+export function GroupInsightPanel({
+  categoryTotals,
+  severityTotals,
+  statusCounts,
+  totalFiles,
+  totalIssues,
+  remainingIssues,
+}) {
   const normalizedSeverity = severityTotals || {}
-  const severityTotalCount =
-    (normalizedSeverity.high || 0) + (normalizedSeverity.medium || 0) + (normalizedSeverity.low || 0)
+  let severityBreakdown = {
+    high: normalizeIssueCount(normalizedSeverity.high),
+    medium: normalizeIssueCount(normalizedSeverity.medium),
+    low: normalizeIssueCount(normalizedSeverity.low),
+  }
+  let severityTotalCount = severityBreakdown.high + severityBreakdown.medium + severityBreakdown.low
+  const totalIssuesValue = normalizeIssueCount(totalIssues)
+  const resolvedRemainingIssues = normalizeIssueCount(remainingIssues, totalIssuesValue)
+  if (resolvedRemainingIssues > 0) {
+    if (severityTotalCount === 0) {
+      severityBreakdown = { high: 0, medium: 0, low: resolvedRemainingIssues }
+      severityTotalCount = resolvedRemainingIssues
+    } else if (resolvedRemainingIssues !== severityTotalCount) {
+      const scaled = { high: 0, medium: 0, low: 0 }
+      let remainingScale = resolvedRemainingIssues
+      const severityKeys = ["high", "medium", "low"]
+      severityKeys.forEach((key, index) => {
+        if (index === severityKeys.length - 1) {
+          scaled[key] = Math.max(0, remainingScale)
+          return
+        }
+        const rawValue = severityBreakdown[key]
+        if (!rawValue || severityTotalCount === 0) {
+          scaled[key] = 0
+          return
+        }
+        const scaledValue = Math.round((rawValue / severityTotalCount) * resolvedRemainingIssues)
+        const clampedValue = Math.max(0, Math.min(remainingScale, scaledValue))
+        scaled[key] = clampedValue
+        remainingScale -= clampedValue
+      })
+      severityBreakdown = scaled
+      severityTotalCount = resolvedRemainingIssues
+    }
+  } else if (resolvedRemainingIssues === 0 && severityTotalCount === 0) {
+    severityBreakdown = { high: 0, medium: 0, low: 0 }
+  }
+  const severityDisplayTotal =
+    resolvedRemainingIssues > 0 ? resolvedRemainingIssues : severityTotalCount
+  const severityInsightLabel =
+    resolvedRemainingIssues > 0 ? "Remaining issues" : "Issues analysed"
 
   const categoryEntries = Object.entries(categoryTotals || {}).map(([key, count]) => ({
     key,
-    label: CATEGORY_LABELS[key] || key.replace(/([A-Z])/g, " $1").trim(),
+    label: formatCategoryLabel(key),
     count,
   }))
   const topCategories = categoryEntries.sort((a, b) => b.count - a.count).slice(0, 3)
@@ -331,7 +542,7 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
   const filteredStatuses = statusEntries.filter((entry) => entry.count > 0).sort((a, b) => b.count - a.count)
   const statusTotal = totalFiles || filteredStatuses.reduce((sum, entry) => sum + entry.count, 0)
 
-  const hasSeverity = severityTotalCount > 0
+  const hasSeverity = severityDisplayTotal > 0
   const hasCategories = topCategories.length > 0
   const hasStatuses = filteredStatuses.length > 0
 
@@ -347,17 +558,17 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
             Severity Overview
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Total issues analysed: {totalIssues}. Severity counts are shown below.
+            {severityInsightLabel}: {severityDisplayTotal}. Severity counts are shown below.
           </p>
           <div className="mt-4 space-y-3">
             {["high", "medium", "low"].map((severity) => (
               <ProgressItem
                 key={severity}
                 label={`${severity[0].toUpperCase()}${severity.slice(1)}`}
-                value={normalizedSeverity[severity] || 0}
-                total={severityTotalCount}
+                value={severityBreakdown[severity] || 0}
+                total={severityDisplayTotal}
                 colorClass={severityPalette[severity]}
-                srLabel={`Severity ${severity}: ${normalizedSeverity[severity] || 0} of ${severityTotalCount}`}
+                srLabel={`Severity ${severity}: ${severityBreakdown[severity] || 0} of ${severityDisplayTotal}`}
               />
             ))}
           </div>
@@ -374,7 +585,8 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
           </p>
           <dl className="mt-4 space-y-3">
             {topCategories.map((category) => {
-              const percent = totalIssues > 0 ? Math.round((category.count / totalIssues) * 100) : 0
+              const percent =
+                totalIssuesValue > 0 ? Math.round((category.count / totalIssuesValue) * 100) : 0
               return (
                 <div key={category.key} className="flex items-center justify-between text-sm">
                   <dt className="text-slate-600 dark:text-slate-300">{category.label}</dt>

@@ -86,11 +86,19 @@ export default function CriteriaSummarySection({
   const [expanded, setExpanded] = useState([])
 
   const items = data?.items || []
-  const totalCriteria = items.length
+  const totalIssues = items.reduce((sum, criterion) => {
+    if (Array.isArray(criterion.issues)) {
+      return sum + criterion.issues.length
+    }
+    if (typeof criterion.issueCount === "number") {
+      return sum + criterion.issueCount
+    }
+    return sum
+  }, 0)
 
   const expandedSet = useMemo(() => new Set(expanded), [expanded])
 
-  if (!data || totalCriteria === 0) {
+  if (!data || items.length === 0) {
     return (
       <section className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
         <header className="flex items-center justify-between gap-3">
@@ -118,7 +126,7 @@ export default function CriteriaSummarySection({
           <p className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
             {title}
             <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300 text-xs font-semibold">
-              {totalCriteria}
+              {totalIssues}
             </span>
           </p>
           {subtitle && <p className="text-sm text-slate-500 dark:text-slate-300">{subtitle}</p>}
@@ -134,11 +142,13 @@ export default function CriteriaSummarySection({
           } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500`}
           style={{ alignSelf: "flex-start" }}
         >
+          <span className="sr-only">{isCollapsed ? "Expand criteria summary" : "Collapse criteria summary"}</span>
           <svg
             className={`w-5 h-5 transition-transform ${isCollapsed ? "" : "rotate-180"}`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
@@ -169,7 +179,7 @@ export default function CriteriaSummarySection({
 
           <div className="space-y-3">
             {items.map((criterion) => {
-              const { code, name, level, summary: description, issues = [] } = criterion
+              const { code, name, level, summary: description, issues = [], infoTooltip } = criterion
               const statusMeta = STATUS_META[criterion.status] || STATUS_META.supports
               const showIssueCount = issues.length > 0 && criterion.status !== "supports"
               const isExpanded = expandedSet.has(code)
@@ -193,7 +203,32 @@ export default function CriteriaSummarySection({
                           </span>
                         )}
                       </div>
-                      {description && <p className="text-sm text-slate-500 dark:text-slate-400">{description}</p>}
+                      {description && (
+                        <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                          <span>{description}</span>
+                          {infoTooltip && (
+                            <span
+                              role="img"
+                              aria-label={infoTooltip}
+                              title={infoTooltip}
+                              className="flex items-center justify-center w-5 h-5 rounded-full border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 text-[10px] font-semibold cursor-help"
+                            >
+                              <svg
+                                className="w-3 h-3"
+                                viewBox="0 0 16 16"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="M8 1.333a6.667 6.667 0 100 13.334A6.667 6.667 0 008 1.333zm0 1.333a5.334 5.334 0 110 10.668A5.334 5.334 0 018 2.667zM8.667 5.333h-1.334v1.334h1.334V5.333zm0 2.667h-1.334v4h1.334v-4z"
+                                  fill="currentColor"
+                                />
+                              </svg>
+                            </span>
+                          )}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <span className={`text-xs font-semibold rounded-full px-3 py-1 ${statusMeta.badgeClass}`}>
@@ -209,6 +244,7 @@ export default function CriteriaSummarySection({
                         viewBox="0 0 20 20"
                         fill="none"
                         stroke="currentColor"
+                        aria-hidden="true"
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 8l4 4 4-4" />
                       </svg>

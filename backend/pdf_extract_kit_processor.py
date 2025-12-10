@@ -14,14 +14,17 @@ import json
 MODEL_DIR = "/tmp/pdf_extract_models"
 
 if not os.path.exists(os.path.join(MODEL_DIR, "pdf_extract")):
-    print("[PDF-Extract-Kit] Downloading model package from Hugging Face...")
-    snapshot_download(
-        repo_id="opendatalab/pdf-extract-kit-1.0-base",
-        local_dir=MODEL_DIR,
-        local_dir_use_symlinks=False,
-        resume_download=True,
-    )
-    print(f"[PDFExtract] Model ready at {MODEL_DIR}")
+    try:
+        print("[PDF-Extract-Kit] Downloading model package from Hugging Face...")
+        snapshot_download(
+            repo_id="opendatalab/pdf-extract-kit-1.0-base",
+            local_dir=MODEL_DIR,
+            local_dir_use_symlinks=False,
+            resume_download=True,
+        )
+        print(f"[PDFExtract] Model ready at {MODEL_DIR}")
+    except Exception as exc:  # pragma: no cover - external download may not be accessible
+        print(f"[PDF-Extract-Kit] Failed to download models: {exc}")
 
 # --- Step 2: Add to Python path so importlib can find it ---
 sys.path.insert(0, MODEL_DIR)
