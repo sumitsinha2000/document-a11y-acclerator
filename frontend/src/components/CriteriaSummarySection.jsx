@@ -86,11 +86,19 @@ export default function CriteriaSummarySection({
   const [expanded, setExpanded] = useState([])
 
   const items = data?.items || []
-  const totalCriteria = items.length
+  const totalIssues = items.reduce((sum, criterion) => {
+    if (Array.isArray(criterion.issues)) {
+      return sum + criterion.issues.length
+    }
+    if (typeof criterion.issueCount === "number") {
+      return sum + criterion.issueCount
+    }
+    return sum
+  }, 0)
 
   const expandedSet = useMemo(() => new Set(expanded), [expanded])
 
-  if (!data || totalCriteria === 0) {
+  if (!data || items.length === 0) {
     return (
       <section className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
         <header className="flex items-center justify-between gap-3">
@@ -118,7 +126,7 @@ export default function CriteriaSummarySection({
           <p className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
             {title}
             <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300 text-xs font-semibold">
-              {totalCriteria}
+              {totalIssues}
             </span>
           </p>
           {subtitle && <p className="text-sm text-slate-500 dark:text-slate-300">{subtitle}</p>}
