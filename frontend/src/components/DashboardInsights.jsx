@@ -71,6 +71,17 @@ const normalizeSeverityKey = (severity) => {
   return "low"
 }
 
+const normalizeIssueCount = (value, fallback = 0) => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : fallback
+  }
+  if (value === null || value === undefined) {
+    return fallback
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
 const incrementCategoryTotal = (categoryTotals, key, amount = 1) => {
   const normalized = normalizeCategoryKey(key)
   categoryTotals[normalized] = (categoryTotals[normalized] || 0) + amount
@@ -163,7 +174,7 @@ const accumulateIssueStats = (issues, severityTotals, categoryTotals) => {
 function collectBatchIssueData(scans = []) {
   const severityTotals = { high: 0, medium: 0, low: 0 }
   const categoryTotals = {}
-  let totalIssues = 0
+  let remainingIssues = 0
 
   scans.forEach((scan) => {
     const scanResults = scan?.results
@@ -183,17 +194,20 @@ function collectBatchIssueData(scans = []) {
       })
     }
 
-    let issueCount = scan?.summary?.totalIssues ?? scan?.initialSummary?.totalIssues ?? 0
-    if (typeof issueCount !== "number") {
-      issueCount = Number(issueCount)
-    }
-    if (!Number.isFinite(issueCount)) {
-      issueCount = 0
-    }
-    totalIssues += issueCount
+    const summary = scan?.summary || {}
+    const initialSummary = scan?.initialSummary || {}
+    const remainingValue =
+      summary.remainingIssues ??
+      summary.issuesRemaining ??
+      summary.totalIssues ??
+      initialSummary.remainingIssues ??
+      initialSummary.issuesRemaining ??
+      initialSummary.totalIssues ??
+      0
+    remainingIssues += normalizeIssueCount(remainingValue)
   })
 
-  return { severityTotals, categoryTotals, totalIssues }
+  return { severityTotals, categoryTotals, remainingIssues }
 }
 
 function ProgressItem({ label, value, total, colorClass, srLabel }) {
@@ -337,7 +351,12 @@ export function BatchInsightPanel({ scans }) {
 
   const hasScannedFiles = scans.some((scan) => resolveEntityStatus(scan).code !== "uploaded")
   const statusTotals = new Map()
-  const { severityTotals, categoryTotals, totalIssues } = collectBatchIssueData(scans)
+  const {
+    severityTotals,
+    categoryTotals,
+    remainingIssues: totalRemainingIssues,
+  } = collectBatchIssueData(scans)
+  const resolvedRemainingIssues = normalizeIssueCount(totalRemainingIssues)
 
   scans.forEach((scan) => {
     const { code } = resolveEntityStatus(scan)
@@ -353,13 +372,18 @@ export function BatchInsightPanel({ scans }) {
 
   const progressHeading = totalScans === 1 ? "File Status" : "Files Status"
 
-  const severityTotalCount = severityTotals.high + severityTotals.medium + severityTotals.low
-  if (totalIssues > severityTotalCount) {
-    severityTotals.low += totalIssues - severityTotalCount
-  }
-  const normalizedSeverityCount =
+  let normalizedSeverityCount =
     severityTotals.high + severityTotals.medium + severityTotals.low
-  const hasSeverity = normalizedSeverityCount > 0
+  if (resolvedRemainingIssues > normalizedSeverityCount) {
+    severityTotals.low += resolvedRemainingIssues - normalizedSeverityCount
+    normalizedSeverityCount =
+      severityTotals.high + severityTotals.medium + severityTotals.low
+  }
+  const severityDisplayTotal =
+    resolvedRemainingIssues > 0 ? resolvedRemainingIssues : normalizedSeverityCount
+  const severityInsightLabel =
+    resolvedRemainingIssues > 0 ? "Remaining issues" : "Issues analysed"
+  const hasSeverity = normalizedSeverityCount > 0 || resolvedRemainingIssues > 0
   const categoryEntries = Object.entries(categoryTotals || {}).map(([key, count]) => ({
     key,
     label: formatCategoryLabel(key),
@@ -376,7 +400,7 @@ export function BatchInsightPanel({ scans }) {
             Severity Overview
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Total issues analysed: {totalIssues}. Severity counts are shown below.
+            {severityInsightLabel}: {severityDisplayTotal}. Severity counts are shown below.
           </p>
           <div className="mt-4 space-y-3">
             {["high", "medium", "low"].map((severity) => (
@@ -384,9 +408,9 @@ export function BatchInsightPanel({ scans }) {
                 key={severity}
                 label={`${severity[0].toUpperCase()}${severity.slice(1)}`}
                 value={severityTotals[severity]}
-                total={normalizedSeverityCount}
+                total={severityDisplayTotal}
                 colorClass={severityPalette[severity]}
-                srLabel={`Severity ${severity}: ${severityTotals[severity]} of ${normalizedSeverityCount}`}
+                srLabel={`Severity ${severity}: ${severityTotals[severity]} of ${severityDisplayTotal}`}
               />
             ))}
           </div>
@@ -404,7 +428,9 @@ export function BatchInsightPanel({ scans }) {
           <dl className="mt-4 space-y-3">
             {topCategories.map((category) => {
               const percent =
-                totalIssues > 0 ? Math.round((category.count / totalIssues) * 100) : 0
+                severityDisplayTotal > 0
+                  ? Math.round((category.count / severityDisplayTotal) * 100)
+                  : 0
               return (
                 <div key={category.key} className="flex items-center justify-between text-sm">
                   <dt className="text-slate-600 dark:text-slate-300">{category.label}</dt>
@@ -444,10 +470,56 @@ export function BatchInsightPanel({ scans }) {
   )
 }
 
-export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts, totalFiles, totalIssues }) {
+export function GroupInsightPanel({
+  categoryTotals,
+  severityTotals,
+  statusCounts,
+  totalFiles,
+  totalIssues,
+  remainingIssues,
+}) {
   const normalizedSeverity = severityTotals || {}
-  const severityTotalCount =
-    (normalizedSeverity.high || 0) + (normalizedSeverity.medium || 0) + (normalizedSeverity.low || 0)
+  let severityBreakdown = {
+    high: normalizeIssueCount(normalizedSeverity.high),
+    medium: normalizeIssueCount(normalizedSeverity.medium),
+    low: normalizeIssueCount(normalizedSeverity.low),
+  }
+  let severityTotalCount = severityBreakdown.high + severityBreakdown.medium + severityBreakdown.low
+  const totalIssuesValue = normalizeIssueCount(totalIssues)
+  const resolvedRemainingIssues = normalizeIssueCount(remainingIssues, totalIssuesValue)
+  if (resolvedRemainingIssues > 0) {
+    if (severityTotalCount === 0) {
+      severityBreakdown = { high: 0, medium: 0, low: resolvedRemainingIssues }
+      severityTotalCount = resolvedRemainingIssues
+    } else if (resolvedRemainingIssues !== severityTotalCount) {
+      const scaled = { high: 0, medium: 0, low: 0 }
+      let remainingScale = resolvedRemainingIssues
+      const severityKeys = ["high", "medium", "low"]
+      severityKeys.forEach((key, index) => {
+        if (index === severityKeys.length - 1) {
+          scaled[key] = Math.max(0, remainingScale)
+          return
+        }
+        const rawValue = severityBreakdown[key]
+        if (!rawValue || severityTotalCount === 0) {
+          scaled[key] = 0
+          return
+        }
+        const scaledValue = Math.round((rawValue / severityTotalCount) * resolvedRemainingIssues)
+        const clampedValue = Math.max(0, Math.min(remainingScale, scaledValue))
+        scaled[key] = clampedValue
+        remainingScale -= clampedValue
+      })
+      severityBreakdown = scaled
+      severityTotalCount = resolvedRemainingIssues
+    }
+  } else if (resolvedRemainingIssues === 0 && severityTotalCount === 0) {
+    severityBreakdown = { high: 0, medium: 0, low: 0 }
+  }
+  const severityDisplayTotal =
+    resolvedRemainingIssues > 0 ? resolvedRemainingIssues : severityTotalCount
+  const severityInsightLabel =
+    resolvedRemainingIssues > 0 ? "Remaining issues" : "Issues analysed"
 
   const categoryEntries = Object.entries(categoryTotals || {}).map(([key, count]) => ({
     key,
@@ -470,7 +542,7 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
   const filteredStatuses = statusEntries.filter((entry) => entry.count > 0).sort((a, b) => b.count - a.count)
   const statusTotal = totalFiles || filteredStatuses.reduce((sum, entry) => sum + entry.count, 0)
 
-  const hasSeverity = severityTotalCount > 0
+  const hasSeverity = severityDisplayTotal > 0
   const hasCategories = topCategories.length > 0
   const hasStatuses = filteredStatuses.length > 0
 
@@ -486,17 +558,17 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
             Severity Overview
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Total issues analysed: {totalIssues}. Severity counts are shown below.
+            {severityInsightLabel}: {severityDisplayTotal}. Severity counts are shown below.
           </p>
           <div className="mt-4 space-y-3">
             {["high", "medium", "low"].map((severity) => (
               <ProgressItem
                 key={severity}
                 label={`${severity[0].toUpperCase()}${severity.slice(1)}`}
-                value={normalizedSeverity[severity] || 0}
-                total={severityTotalCount}
+                value={severityBreakdown[severity] || 0}
+                total={severityDisplayTotal}
                 colorClass={severityPalette[severity]}
-                srLabel={`Severity ${severity}: ${normalizedSeverity[severity] || 0} of ${severityTotalCount}`}
+                srLabel={`Severity ${severity}: ${severityBreakdown[severity] || 0} of ${severityDisplayTotal}`}
               />
             ))}
           </div>
@@ -513,7 +585,8 @@ export function GroupInsightPanel({ categoryTotals, severityTotals, statusCounts
           </p>
           <dl className="mt-4 space-y-3">
             {topCategories.map((category) => {
-              const percent = totalIssues > 0 ? Math.round((category.count / totalIssues) * 100) : 0
+              const percent =
+                totalIssuesValue > 0 ? Math.round((category.count / totalIssuesValue) * 100) : 0
               return (
                 <div key={category.key} className="flex items-center justify-between text-sm">
                   <dt className="text-slate-600 dark:text-slate-300">{category.label}</dt>

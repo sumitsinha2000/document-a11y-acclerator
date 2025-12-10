@@ -1021,6 +1021,7 @@ export default function GroupDashboard({
                         statusCounts={nodeData.status_counts}
                         totalFiles={nodeData.file_count}
                         totalIssues={nodeData.total_issues}
+                        remainingIssues={groupSummary?.remainingIssues}
                       />
                     </div>
                   )}
