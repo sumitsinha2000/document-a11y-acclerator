@@ -876,6 +876,105 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     }
   };
 
+  const getSelectedNodeGroupId = () => {
+    if (!selectedNode) {
+      return "";
+    }
+    if (selectedNode.type === "group") {
+      return normalizeId(selectedNode.id);
+    }
+    return normalizeId(
+      selectedNode.data?.groupId ??
+        selectedNode.data?.group_id ??
+        ""
+    );
+  };
+
+  const getSelectedNodeBatchId = () => {
+    if (!selectedNode) {
+      return "";
+    }
+    if (selectedNode.type === "batch") {
+      return normalizeId(selectedNode.id);
+    }
+    if (selectedNode.type === "file") {
+      return normalizeId(
+        selectedNode.data?.batchId ??
+          selectedNode.data?.batch_id ??
+          selectedNode.data?.folderId ??
+          selectedNode.data?.folder_id ??
+          ""
+      );
+    }
+    return "";
+  };
+
+  const refreshDashboardGroupView = (groupId) => {
+    if (!onNodeSelect) {
+      return;
+    }
+    const normalizedGroupId = normalizeId(groupId);
+    if (!normalizedGroupId) {
+      return;
+    }
+    const targetGroup = groups.find((group) => normalizeId(group.id) === normalizedGroupId);
+    if (!targetGroup) {
+      return;
+    }
+    void handleNodeClick({
+      type: "group",
+      id: targetGroup.id,
+      data: targetGroup,
+    });
+  };
+
+  const ensureDashboardReflectsGroupDeletion = (groupId) => {
+    if (!onNodeSelect || !groupId) {
+      return;
+    }
+    const normalizedGroupId = normalizeId(groupId);
+    if (!normalizedGroupId) {
+      return;
+    }
+    const belongsToGroup = getSelectedNodeGroupId() === normalizedGroupId;
+    if (belongsToGroup) {
+      void onNodeSelect(null);
+    }
+  };
+
+  const ensureDashboardReflectsFolderDeletion = (groupId, folderId) => {
+    if (!onNodeSelect || !groupId || !folderId) {
+      return;
+    }
+    const normalizedGroupId = normalizeId(groupId);
+    const normalizedFolderId = normalizeId(folderId);
+    if (!normalizedGroupId || !normalizedFolderId) {
+      return;
+    }
+    const targetGroup = groups.find((group) => normalizeId(group.id) === normalizedGroupId);
+    const selectedBatchId = getSelectedNodeBatchId();
+    const isBatchSelected =
+      selectedNode?.type === "batch" && selectedBatchId === normalizedFolderId;
+    const isFileSelected =
+      selectedNode?.type === "file" && selectedBatchId === normalizedFolderId;
+    const isGroupSelected =
+      selectedNode?.type === "group" && normalizeId(selectedNode.id) === normalizedGroupId;
+    const refreshOrClear = () => {
+      if (targetGroup) {
+        void refreshDashboardGroupView(normalizedGroupId);
+        return;
+      }
+      void onNodeSelect(null);
+    };
+    if (isBatchSelected || isFileSelected) {
+      refreshOrClear();
+      return;
+    }
+    if (isGroupSelected) {
+      refreshOrClear();
+    }
+  };
+
   const toggleSection = (groupId, section, groupName, label) => {
     const normalizedId = normalizeId(groupId);
     setSectionStates((prev) => {
@@ -1546,6 +1645,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     try {
       await axios.delete(`${API_BASE_URL}/api/groups/${pendingDeleteGroup.id}`);
       removeGroupById(pendingDeleteGroup.id, pendingDeleteGroup?.name);
+      void ensureDashboardReflectsGroupDeletion(pendingDeleteGroup.id);
       setStatusMessage(`${projectName} deleted`);
       showSuccess(`Deleted "${projectName}"`);
       setPendingDeleteGroup(null);
@@ -1633,6 +1733,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
 
       setStatusMessage(`${batchName} deleted`);
       showSuccess(`Deleted "${batchName}"`);
+      void ensureDashboardReflectsFolderDeletion(groupId, batchId);
       setPendingDeleteFolder(null);
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete folder:", error);
