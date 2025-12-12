@@ -7,18 +7,9 @@ import pytest
 
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
+from backend.tests.utils.normalization import normalize_scan
+from backend.tests.utils.test_entrypoints import run_scan_for_tests
 from backend.utils.criteria_summary import build_criteria_summary
-
-_SNAPSHOT_BUCKETS: Tuple[str, ...] = (
-    "wcagIssues",
-    "pdfuaIssues",
-    "missingAltText",
-    "poorContrast",
-    "linkIssues",
-    "tableIssues",
-    "formIssues",
-    "untaggedContent",
-)
 
 
 @pytest.fixture(scope="module")
@@ -112,6 +103,14 @@ def _run_full_analysis(pdf_path: Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     return raw_results, summary
 
 
+def _capture_normalized_payload_for_snapshot(pdf_path: Path) -> Dict[str, Any]:
+    """
+    Run the full analyzer entrypoint and normalize the payload for snapshot tests.
+    """
+    payload = run_scan_for_tests(pdf_path)
+    return normalize_scan(payload)
+
+
 def _estimate_verapdf_status(results: Dict[str, Any]) -> Dict[str, Any]:
     """Lightweight stand-in for build_verapdf_status that only inspects analyzer output."""
     status: Dict[str, Any] = {
@@ -172,137 +171,6 @@ def _has_table_structure_issue(results: Dict[str, Any]) -> bool:
         if "table" in description or "table" in code or "table" in category:
             return True
     return False
-
-
-def _normalize_issue_entry(issue: Dict[str, Any]) -> Dict[str, Any]:
-    """Strip noisy fields and keep stable metadata for snapshot comparisons."""
-    if not isinstance(issue, dict):
-        return {}
-
-    normalized: Dict[str, Any] = {}
-    for key in ("criterion", "code", "clause", "level", "severity", "category"):
-        value = issue.get(key)
-        if isinstance(value, str) and value:
-            normalized[key] = value
-
-    page_number = issue.get("pageNumber", issue.get("page"))
-    if isinstance(page_number, (int, float)):
-        normalized["page"] = int(page_number)
-
-    pages = issue.get("pages")
-    if isinstance(pages, list):
-        coerced_pages = sorted(
-            {int(page) for page in pages if isinstance(page, (int, float))}
-        )
-        if coerced_pages:
-            normalized["pages"] = coerced_pages
-
-    context = issue.get("context")
-    if isinstance(context, str) and context.strip():
-        normalized["context"] = context.strip()
-
-    count = issue.get("count")
-    if isinstance(count, (int, float)):
-        normalized["count"] = int(round(count))
-
-    advisories = issue.get("advisoryCriteria")
-    if isinstance(advisories, list):
-        advisory_tokens = sorted(
-            {str(item) for item in advisories if isinstance(item, (str, int, float))}
-        )
-        if advisory_tokens:
-            normalized["advisoryCriteria"] = advisory_tokens
-
-    contrast_ratio = issue.get("contrastRatio")
-    if isinstance(contrast_ratio, (int, float)):
-        normalized["contrastRatio"] = round(float(contrast_ratio), 2)
-
-    return normalized
-
-
-def _issue_sort_key(issue: Dict[str, Any]) -> Tuple[Any, ...]:
-    """Return a tuple that keeps issue ordering stable for comparisons."""
-    return (
-        issue.get("criterion") or "",
-        issue.get("clause") or "",
-        issue.get("code") or "",
-        issue.get("severity") or "",
-        issue.get("level") or "",
-        issue.get("page") or 0,
-        tuple(issue.get("pages") or ()),
-        issue.get("context") or "",
-    )
-
-
-def _normalize_issue_bucket(entries: Any) -> List[Dict[str, Any]]:
-    """Normalize each supported issue bucket for deterministic serialization."""
-    normalized: List[Dict[str, Any]] = []
-    if not isinstance(entries, list):
-        return normalized
-
-    for entry in entries:
-        normalized_entry = _normalize_issue_entry(entry)
-        if normalized_entry:
-            normalized.append(normalized_entry)
-
-    normalized.sort(key=_issue_sort_key)
-    return normalized
-
-
-def _count_canonical_issues(results: Dict[str, Any]) -> int:
-    """Return the size of the canonical issues list when present."""
-    canonical = results.get("issues")
-    if not isinstance(canonical, list):
-        return 0
-    return sum(1 for issue in canonical if isinstance(issue, dict))
-
-
-def _normalize_summary(summary: Dict[str, Any]) -> Dict[str, Any]:
-    """Strip transient summary fields and keep the main numeric metrics."""
-    if not isinstance(summary, dict):
-        return {}
-
-    summary_fields = (
-        "totalIssues",
-        "totalIssuesRaw",
-        "highSeverity",
-        "mediumSeverity",
-        "issuesRemaining",
-        "remainingIssues",
-        "complianceScore",
-        "wcagCompliance",
-        "pdfuaCompliance",
-    )
-    normalized: Dict[str, Any] = {}
-    for field in summary_fields:
-        value = summary.get(field)
-        if isinstance(value, bool):
-            normalized[field] = bool(value)
-            continue
-        if isinstance(value, int):
-            normalized[field] = int(value)
-            continue
-        if isinstance(value, float):
-            normalized[field] = round(float(value), 2)
-    return normalized
-
-
-def _normalize_scan_for_snapshot(results: Dict[str, Any], summary: Dict[str, Any]) -> Dict[str, Any]:
-    """Return a simplified view of analyzer output for golden snapshot comparisons."""
-    normalized_issues: Dict[str, List[Dict[str, Any]]] = {}
-    issue_counts: Dict[str, int] = {}
-    for bucket in _SNAPSHOT_BUCKETS:
-        normalized_bucket = _normalize_issue_bucket(results.get(bucket))
-        normalized_issues[bucket] = normalized_bucket
-        issue_counts[bucket] = len(normalized_bucket)
-
-    issue_counts["canonicalIssues"] = _count_canonical_issues(results)
-    normalized = {
-        "issues": normalized_issues,
-        "issueCounts": issue_counts,
-        "summary": _normalize_summary(summary),
-    }
-    return normalized
 
 
 @pytest.mark.slow_pdf
@@ -380,8 +248,7 @@ def test_clean_pdf_contrast_summary(fixtures_dir: Path) -> None:
 def test_clean_tagged_scan_matches_expected_snapshot(fixtures_dir: Path, snapshot_json) -> None:
     """Clean fixture output should stay stable so regressions surface quickly."""
     pdf_path = _require_fixture(fixtures_dir, "clean_tagged.pdf")
-    results, summary = _run_full_analysis(pdf_path)
-    normalized = _normalize_scan_for_snapshot(results, summary)
+    normalized = _capture_normalized_payload_for_snapshot(pdf_path)
     expected = snapshot_json("clean_tagged_expected.json", normalized)
     assert normalized == expected
 
@@ -414,8 +281,7 @@ def test_missing_alt_pdf_reports_image_issues(fixtures_dir: Path) -> None:
 def test_missing_alt_scan_matches_expected_snapshot(fixtures_dir: Path, snapshot_json) -> None:
     """Missing-alt fixture output should match the recorded golden snapshot."""
     pdf_path = _require_fixture(fixtures_dir, "missing_alt.pdf")
-    results, summary = _run_full_analysis(pdf_path)
-    normalized = _normalize_scan_for_snapshot(results, summary)
+    normalized = _capture_normalized_payload_for_snapshot(pdf_path)
     expected = snapshot_json("missing_alt_expected.json", normalized)
     assert normalized == expected
 
@@ -444,4 +310,3 @@ def test_untagged_table_pdf_emits_missing_table_structure_issue(fixtures_dir: Pa
     pdfua_issues = results.get("pdfuaIssues") or []
     clauses = [issue.get("clause") for issue in pdfua_issues if isinstance(issue, dict)]
     assert "ISO 14289-1:7.5" in clauses, "PDF/UA clause 7.5 should mirror missing table structure findings"
-
