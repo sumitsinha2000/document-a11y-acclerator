@@ -420,6 +420,7 @@ export default function ReportViewer({
   const isCompletedScan = !isUploaded && !isScanError
   const canExportReport = isCompletedScan
   const scanDateLabel = isUploaded ? "Uploaded on" : isScanError ? "Attempted scan on" : "Scanned on"
+  const hasResultPanels = scans.length > 1 || isScanError || isCompletedScan
   const parsedReportDate = parseBackendDate(reportData.uploadDate || reportData.timestamp || reportData.created_at)
 
   const breadcrumbItems = [{ label: "Home", onClick: onBack }, { label: "Report" }]
@@ -555,7 +556,7 @@ export default function ReportViewer({
           sidebarOpen ? "ml-[240px]" : "ml-0"
         } ${scans.length > 1 && !isSidebarCollapsed ? "ml-[504px]" : ""} ${
           sidebarOpen ? "min-h-screen" : "min-h-0"
-        } bg-white dark:bg-slate-800 border-r border-b border-slate-200 dark:border-slate-700 flex flex-col`}
+        } bg-white dark:bg-slate-800 flex flex-col`}
       >
         <div className="px-8 py-8">
           <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -729,375 +730,363 @@ export default function ReportViewer({
         )}
       </div>
 
-      <div className="px-8 pb-8 space-y-6">
-          {scans.length > 1 && (
-            <div className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
-              {scans.map((scan, index) => {
-                const statusInfo = resolveEntityStatus(scan)
-                const showCompliance =
-                  scan.summary &&
-                  statusInfo.code !== "uploaded" &&
-                  statusInfo.code !== "error" &&
-                  typeof scan.summary.complianceScore === "number"
+        {hasResultPanels && (
+          <div className="px-8 pb-8 space-y-6">
+            {scans.length > 1 && (
+              <div className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
+                {scans.map((scan, index) => {
+                  const statusInfo = resolveEntityStatus(scan)
+                  const showCompliance =
+                    scan.summary &&
+                    statusInfo.code !== "uploaded" &&
+                    statusInfo.code !== "error" &&
+                    typeof scan.summary.complianceScore === "number"
 
-                return (
-                  <button
-                    key={index}
-                    ref={(el) => (tabRefs.current[index] = el)}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 font-medium ${
-                      selectedFileIndex === index
-                        ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-lg"
-                        : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
-                    }`}
-                    onClick={() => setSelectedFileIndex(index)}
-                  >
-                    <span>📄</span>
-                    <span>{scan.fileName || scan.filename}</span>
-                    {showCompliance && (
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                          scan.summary.complianceScore >= 70
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                            : "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
-                        }`}
-                      >
-                        {scan.summary.complianceScore}%
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-
-          {isScanError && (
-            <div
-              className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700 dark:border-rose-800/60 dark:bg-rose-900/20 dark:text-rose-300"
-              role="status"
-              aria-live="polite"
-            >
-              <span aria-hidden="true">⚠️</span>
-              <div>
-                <p className="font-semibold">Scan failed</p>
-                <p className="text-sm mt-1">
-                  {scanErrorMessage || "We were unable to analyze this file."}
-                </p>
+                  return (
+                    <button
+                      key={index}
+                      ref={(el) => (tabRefs.current[index] = el)}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 font-medium ${
+                        selectedFileIndex === index
+                          ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-lg"
+                          : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                      }`}
+                      onClick={() => setSelectedFileIndex(index)}
+                    >
+                      <span>📄</span>
+                      <span>{scan.fileName || scan.filename}</span>
+                      {showCompliance && (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                            scan.summary.complianceScore >= 70
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              : "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                          }`}
+                        >
+                          {scan.summary.complianceScore}%
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
               </div>
-            </div>
-          )}
+            )}
 
-          {isCompletedScan ? (
-            <>
-              <div id="overview" key={`overview-${refreshKey}`}>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Compliance Score</p>
-                        <div className="flex items-baseline">
-                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.complianceScore}%</p>
+            {isScanError && (
+              <div
+                className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700 dark:border-rose-800/60 dark:bg-rose-900/20 dark:text-rose-300"
+                role="status"
+                aria-live="polite"
+              >
+                <svg
+                  className="w-5 h-5 text-rose-600 dark:text-rose-300"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+                </svg>
+                <div>
+                  <p className="font-semibold">Scan failed</p>
+                  <p className="text-sm mt-1">
+                    {scanErrorMessage || "We were unable to analyze this file."}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {isCompletedScan ? (
+              <>
+                <div id="overview" key={`overview-${refreshKey}`}>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Compliance Score</p>
+                          <div className="flex items-baseline">
+                            <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.complianceScore}%</p>
+                          </div>
+                        </div>
+                        <div
+                          className={`w-16 h-16 rounded-full flex items-center justify-center ${summary.complianceScore >= 70 ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-rose-100 dark:bg-rose-900/30"}`}
+                        >
+                          <svg
+                            className={`w-8 h-8 ${summary.complianceScore >= 70 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
                         </div>
                       </div>
-                      <div
-                        className={`w-16 h-16 rounded-full flex items-center justify-center ${summary.complianceScore >= 70 ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-rose-100 dark:bg-rose-900/30"}`}
-                      >
-                        <svg
-                          className={`w-8 h-8 ${summary.complianceScore >= 70 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                      </div>
+
+                      {showComplianceBadges && (
+                        <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
+                          {isNumeric(wcagComplianceDisplay) && (
+                            <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
+                              <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                                <path
+                                  fillRule="evenodd"
+                                  d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                              <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                                WCAG {wcagComplianceDisplay}%
+                              </span>
+                            </div>
+                          )}
+                          {isNumeric(pdfuaComplianceDisplay) && (
+                            <div className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-full border border-purple-200 dark:border-purple-800">
+                              <svg
+                                className="w-4 h-4 text-purple-600 dark:text-purple-400"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                              <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
+                                PDF/UA {pdfuaComplianceDisplay}%
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    {showComplianceBadges && (
-                      <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
-                        {isNumeric(wcagComplianceDisplay) && (
-                          <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
-                            <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-                              <path
-                                fillRule="evenodd"
-                                d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z"
-                                clipRule="evenodd"
-                              />
-                            </svg>
-                            <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
-                              WCAG {wcagComplianceDisplay}%
-                            </span>
-                          </div>
-                        )}
-                        {isNumeric(pdfuaComplianceDisplay) && (
-                          <div className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-full border border-purple-200 dark:border-purple-800">
-                            <svg
-                              className="w-4 h-4 text-purple-600 dark:text-purple-400"
-                              fill="currentColor"
-                              viewBox="0 0 20 20"
-                              aria-hidden="true"
-                            >
-                              <path
-                                fillRule="evenodd"
-                                d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
-                                clipRule="evenodd"
-                              />
-                            </svg>
-                            <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
-                              PDF/UA {pdfuaComplianceDisplay}%
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">
-                          {issueDelta === 0 ? "Issues" : "Remaining Issues"}
-                        </p>
-                        <div className="flex items-baseline">
-                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{remainingIssuesValue}</p>
-                        </div>
-                        {hasIssueDelta && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                            Issues still reported on the latest scan
+                    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">
+                            {issueDelta === 0 ? "Issues" : "Remaining Issues"}
                           </p>
-                        )}
-                        {hasIssueDelta && (
-                          <div className="mt-2 flex items-center gap-1 text-xs font-semibold">
-                            {issueDelta > 0 ? (
-                              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                                <span aria-hidden="true" className="text-base leading-none">↓</span>
-                                <span>{issueDelta} resolved</span>
-                              </span>
-                            ) : (
-                              <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                                <span aria-hidden="true" className="text-base leading-none">↑</span>
-                                <span>{Math.abs(issueDelta)} new</span>
-                              </span>
-                            )}
+                          <div className="flex items-baseline">
+                            <p className="text-4xl font-bold text-slate-900 dark:text-white">{remainingIssuesValue}</p>
                           </div>
-                        )}
-                        {!hasIssueDelta && hasReportedIssuesFixed && (
-                          <div className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                            <span aria-hidden="true" className="text-base leading-none">↓</span>
-                            <span>
-                              {reportedIssuesFixed} issue{reportedIssuesFixed === 1 ? "" : "s"} fixed since last scan
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/10 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-8 h-8 text-amber-500 dark:text-amber-300"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                          />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Fixes Applied</p>
-                        <div className="flex items-baseline">
-                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{fixesAppliedCount}</p>
+                          {hasIssueDelta && (
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                              Issues still reported on the latest scan
+                            </p>
+                          )}
+                          {hasIssueDelta && (
+                            <div className="mt-2 flex items-center gap-1 text-xs font-semibold">
+                              {issueDelta > 0 ? (
+                                <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                  <span aria-hidden="true" className="text-base leading-none">↓</span>
+                                  <span>{issueDelta} resolved</span>
+                                </span>
+                              ) : (
+                                <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                                  <span aria-hidden="true" className="text-base leading-none">↑</span>
+                                  <span>{Math.abs(issueDelta)} new</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {!hasIssueDelta && hasReportedIssuesFixed && (
+                            <div className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                              <span aria-hidden="true" className="text-base leading-none">↓</span>
+                              <span>
+                                {reportedIssuesFixed} issue{reportedIssuesFixed === 1 ? "" : "s"} fixed since last scan
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                          Fixes recorded for this scan
-                        </p>
-                      </div>
-                      <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-8 h-8 text-emerald-600 dark:text-emerald-400"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">High Severity</p>
-                        <div className="flex items-baseline">
-                          <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.highSeverity}</p>
+                        <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/10 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-8 h-8 text-amber-500 dark:text-amber-300"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                            />
+                          </svg>
                         </div>
                       </div>
-                      <div className="w-16 h-16 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-8 h-8 text-rose-600 dark:text-rose-400"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">Fixes Applied</p>
+                          <div className="flex items-baseline">
+                            <p className="text-4xl font-bold text-slate-900 dark:text-white">{fixesAppliedCount}</p>
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            Fixes recorded for this scan
+                          </p>
+                        </div>
+                        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-8 h-8 text-emerald-600 dark:text-emerald-400"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M5 13l4 4L19 7"
+                            />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-7">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-3">High Severity</p>
+                          <div className="flex items-baseline">
+                            <p className="text-4xl font-bold text-slate-900 dark:text-white">{summary.highSeverity}</p>
+                          </div>
+                        </div>
+                        <div className="w-16 h-16 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-8 h-8 text-rose-600 dark:text-rose-400"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
-              </div>
+                <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                  <FixHistory
+                    scanId={reportData.scanId}
+                    onRefresh={handleRefresh}
+                    refreshSignal={refreshKey}
+                  />
+                </div>
 
-              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-                <FixHistory
-                  scanId={reportData.scanId}
-                  onRefresh={handleRefresh}
-                  refreshSignal={refreshKey}
-                />
-              </div>
+                <div id="criteria" key={`criteria-${refreshKey}`} className="space-y-6">
+                  <WcagCriteriaSummary
+                    criteriaSummary={reportData.criteriaSummary?.wcag}
+                    results={reportData.results}
+                  />
+                  <PdfUaCriteriaSummary
+                    criteriaSummary={reportData.criteriaSummary?.pdfua}
+                    results={reportData.results}
+                  />
+                </div>
 
-              <div id="criteria" key={`criteria-${refreshKey}`} className="space-y-6">
-                <WcagCriteriaSummary
-                  criteriaSummary={reportData.criteriaSummary?.wcag}
-                  results={reportData.results}
-                />
-                <PdfUaCriteriaSummary
-                  criteriaSummary={reportData.criteriaSummary?.pdfua}
-                  results={reportData.results}
-                />
-              </div>
-
-              {contrastSamples.length > 0 && (
-                <section
-                  className="bg-white dark:bg-slate-800 rounded-2xl border border-amber-200/70 dark:border-amber-500/30 shadow-sm p-6"
-                  aria-labelledby="contrast-sample-title"
-                >
-                  <header className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <p id="contrast-sample-title" className="text-base font-semibold text-slate-900 dark:text-white">
-                        Sample contrast text
-                      </p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Use these snippets to pinpoint low-contrast passages flagged in this scan.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsContrastPanelOpen((prev) => !prev)}
-                      aria-expanded={isContrastPanelOpen}
-                      aria-controls="contrast-sample-panel"
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
-                    >
-                      <span>Contrast details</span>
-                      <svg
-                        className={`w-4 h-4 transition-transform ${isContrastPanelOpen ? "rotate-180" : ""}`}
-                        viewBox="0 0 20 20"
-                        fill="none"
-                        stroke="currentColor"
-                        aria-hidden="true"
+                {contrastSamples.length > 0 && (
+                  <section
+                    className="bg-white dark:bg-slate-800 rounded-2xl border border-amber-200/70 dark:border-amber-500/30 shadow-sm p-6"
+                    aria-labelledby="contrast-sample-title"
+                  >
+                    <header className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p id="contrast-sample-title" className="text-base font-semibold text-slate-900 dark:text-white">
+                          Sample contrast text
+                        </p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                          Use these snippets to pinpoint low-contrast passages flagged in this scan.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsContrastPanelOpen((prev) => !prev)}
+                        aria-expanded={isContrastPanelOpen}
+                        aria-controls="contrast-sample-panel"
+                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
                       >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 8l4 4 4-4" />
-                      </svg>
-                    </button>
-                  </header>
-
-                  {isContrastPanelOpen && (
-                    <div
-                      id="contrast-sample-panel"
-                      role="region"
-                      aria-live="polite"
-                      className="mt-4 space-y-3"
-                    >
-                      {contrastSamples.map((sample, index) => (
-                        <div
-                          key={`${sample.text}-${sample.pageLabel || index}`}
-                          className="rounded-xl border border-amber-100 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-900/20 p-4"
+                        <span>Contrast details</span>
+                        <svg
+                          className={`w-4 h-4 transition-transform ${isContrastPanelOpen ? "rotate-180" : ""}`}
+                          viewBox="0 0 20 20"
+                          fill="none"
+                          stroke="currentColor"
+                          aria-hidden="true"
                         >
-                          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-200">
-                            {sample.pageLabel && (
-                              <span className="inline-flex items-center gap-1">
-                                <span className="text-[11px] uppercase tracking-wide text-amber-600 dark:text-amber-300">Page</span>
-                                {sample.pageLabel}
-                              </span>
-                            )}
-                            {sample.ratio && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/80 text-amber-700 border border-amber-200 dark:bg-slate-900/40 dark:text-amber-200 dark:border-amber-500/40">
-                                ~{sample.ratio}:1
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-slate-900 dark:text-slate-100 mt-2 leading-snug">
-                            &quot;{sample.text}&quot;
-                          </p>
-                        </div>
-                      ))}
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Based on extracted text; snippets are truncated to keep this summary scannable.
-                      </p>
-                    </div>
-                  )}
-                </section>
-              )}
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 8l4 4 4-4" />
+                        </svg>
+                      </button>
+                    </header>
 
-              <div id="fixes">
-                <FixSuggestions
-                  scanId={reportData.scanId}
-                  fixes={reportData.fixes}
-                  filename={reportData.fileName || reportData.filename}
-                  onRefresh={handleRefresh}
-                />
-              </div>
-            </>
-          ) : isUploaded ? (
-            <div
-              id="overview"
-              className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-8"
-            >
-              <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Ready to Scan</h2>
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                Start the scan from the folder dashboard or from the scan button above in this dashboard to generate
-                accessibility results.
-              </p>
-            </div>
-          ) : (
-            <div
-              id="overview"
-              className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-rose-200 dark:border-rose-800/60 p-8"
-            >
-              <h2 className="text-2xl font-bold text-rose-700 dark:text-rose-300 mb-2">Scan failed</h2>
-              <p className="text-sm text-rose-700/90 dark:text-rose-200">
-                {scanErrorMessage || "We were unable to analyze this file."}
-              </p>
-            </div>
-          )}
-        </div>
+                    {isContrastPanelOpen && (
+                      <div
+                        id="contrast-sample-panel"
+                        role="region"
+                        aria-live="polite"
+                        className="mt-4 space-y-3"
+                      >
+                        {contrastSamples.map((sample, index) => (
+                          <div
+                            key={`${sample.text}-${sample.pageLabel || index}`}
+                            className="rounded-xl border border-amber-100 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-900/20 p-4"
+                          >
+                            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-200">
+                              {sample.pageLabel && (
+                                <span className="inline-flex items-center gap-1">
+                                  <span className="text-[11px] uppercase tracking-wide text-amber-600 dark:text-amber-300">Page</span>
+                                  {sample.pageLabel}
+                                </span>
+                              )}
+                              {sample.ratio && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/80 text-amber-700 border border-amber-200 dark:bg-slate-900/40 dark:text-amber-200 dark:border-amber-500/40">
+                                  ~{sample.ratio}:1
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-slate-900 dark:text-slate-100 mt-2 leading-snug">
+                              &quot;{sample.text}&quot;
+                            </p>
+                          </div>
+                        ))}
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Based on extracted text; snippets are truncated to keep this summary scannable.
+                        </p>
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                <div id="fixes">
+                  <FixSuggestions
+                    scanId={reportData.scanId}
+                    fixes={reportData.fixes}
+                    filename={reportData.fileName || reportData.filename}
+                    onRefresh={handleRefresh}
+                  />
+                </div>
+              </>
+            ) : null}
+          </div>
+        )}
 
         {showAiModal && (
           <AIFixStrategyModal

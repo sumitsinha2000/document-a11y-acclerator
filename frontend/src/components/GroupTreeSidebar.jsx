@@ -25,7 +25,8 @@ const STATUS_BADGE_STYLES = {
   error:
     "border-rose-100 bg-rose-50 text-rose-900 dark:border-rose-700/60 dark:bg-rose-900/20 dark:text-rose-100",
 };
-const SELECTED_STATUS_BADGE_CLASSES = "border-white bg-white/30 text-white";
+const SELECTED_STATUS_BADGE_CLASSES =
+  "border-white/90 bg-white text-slate-800 dark:border-slate-200/80 dark:bg-slate-800 dark:text-white";
 const TREE_ITEM_FOCUS_CLASSES =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
 const FOCUSABLE_ELEMENTS_SELECTOR = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
@@ -2127,9 +2128,11 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                       {fileName}
                     </p>
                     <span
-                      className={`mt-2 inline-flex rounded-full border px-3 py-0.5 text-[11px] font-semibold uppercase tracking-wide transition ${
+                      className={`mt-2 inline-flex rounded-full border px-3 py-0.5 text-[11px] font-semibold uppercase tracking-wide align-middle transition ${
                         selected ? SELECTED_STATUS_BADGE_CLASSES : badgeColorClasses
                       }`}
+                      role="status"
+                      aria-label={`File status: ${statusInfo.label}`}
                     >
                       {statusInfo.label.toUpperCase()}
                     </span>

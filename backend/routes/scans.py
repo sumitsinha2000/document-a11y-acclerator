@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
-from backend.fix_suggestions import generate_fix_suggestions
 from backend.multi_tier_storage import upload_file_with_fallback
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.utils.wcag_mapping import annotate_wcag_mappings
@@ -576,47 +575,34 @@ async def start_deferred_scan(scan_id: str):
             status_code=404,
         )
 
-    analyzer = PDFAccessibilityAnalyzer()
-    analyze_fn = getattr(analyzer, "analyze", None)
-    if analyze_fn is None:
-        return JSONResponse({"error": "Analyzer not available"}, status_code=500)
-
-    if asyncio.iscoroutinefunction(analyze_fn):
-        scan_results = await analyze_fn(str(file_path))
-    else:
-        scan_results = await asyncio.to_thread(analyze_fn, str(file_path))
-
-    verapdf_status = build_verapdf_status(scan_results, analyzer)
-    summary: Dict[str, Any] = {}
-    try:
-        if hasattr(analyzer, "calculate_summary"):
-            calc = getattr(analyzer, "calculate_summary")
-            if asyncio.iscoroutinefunction(calc):
-                summary = await calc(scan_results, verapdf_status)
-            else:
-                summary = await asyncio.to_thread(calc, scan_results, verapdf_status)
-    except Exception:
-        logger.exception("[Backend] calculate_summary failed for %s", scan_id)
-        summary = {}
-
-    if isinstance(summary, dict) and verapdf_status:
-        summary.setdefault("wcagCompliance", verapdf_status.get("wcagCompliance"))
-        summary.setdefault("pdfuaCompliance", verapdf_status.get("pdfuaCompliance"))
-
-    fix_suggestions = (
-        generate_fix_suggestions(scan_results)
-        if callable(generate_fix_suggestions)
-        else []
+    record_payload = await _analyze_pdf_document(file_path)
+    summary = record_payload.get("summary", {}) or {}
+    results = record_payload.get("results", {}) or {}
+    fix_suggestions = record_payload.get("fixes", [])
+    verapdf_status = record_payload.get("verapdfStatus")
+    criteria_summary = record_payload.get("criteriaSummary") or {}
+    total_issues = summary.get("totalIssues", 0) or 0
+    remaining_issues = summary.get(
+        "issuesRemaining", summary.get("remainingIssues", total_issues)
+    )
+    status_code_candidate = (
+        record_payload.get("statusCode")
+        or record_payload.get("status")
+        or "scanned"
+    )
+    resolved_status_code, status_label = derive_file_status(
+        status_code_candidate,
+        issues_remaining=remaining_issues,
+        summary_status=summary.get("status"),
     )
 
     formatted_results = {
-        "results": scan_results,
+        "results": results,
         "summary": summary,
         "verapdfStatus": verapdf_status,
         "fixes": fix_suggestions,
+        "criteriaSummary": criteria_summary,
     }
-
-    total_issues = summary.get("totalIssues", 0) if isinstance(summary, dict) else 0
 
     try:
         execute_query(
@@ -631,9 +617,9 @@ async def start_deferred_scan(scan_id: str):
             """,
             (
                 _serialize_scan_results(formatted_results),
-                "scanned",
+                resolved_status_code,
                 total_issues,
-                total_issues,
+                remaining_issues,
                 0,
                 scan_id,
             ),
@@ -663,11 +649,13 @@ async def start_deferred_scan(scan_id: str):
             "filename": scan_record.get("filename"),
             "groupId": scan_record.get("group_id"),
             "summary": summary,
-            "results": scan_results,
+            "results": results,
+            "criteriaSummary": criteria_summary,
             "fixes": fix_suggestions,
             "verapdfStatus": verapdf_status,
-            "status": FILE_STATUS_LABELS.get("scanned", "Scanned"),
-            "statusCode": "scanned",
+            "status": status_label,
+            "statusCode": resolved_status_code,
+            "error": record_payload.get("error"),
             "timestamp": datetime.now().isoformat(),
         }
     )
@@ -781,11 +769,29 @@ async def get_scan(scan_id: str):
         if verapdf_status is None:
             verapdf_status = build_verapdf_status(results)
 
-        if (
-            not summary
-            or "totalIssues" not in summary
-            or summary.get("totalIssues", 0) == 0
-        ):
+        summary_status = (
+            str(summary.get("status") or summary.get("statusCode") or "").strip().lower()
+        )
+        has_analysis_errors = (
+            isinstance(results, dict) and bool(results.get("analysisErrors"))
+        )
+
+        should_skip_summary_rebuild = (
+            summary_status == "error"
+            or bool(summary.get("error"))
+            or has_analysis_errors
+        )
+
+        needs_summary_rebuild = (
+            not should_skip_summary_rebuild
+            and (
+                not summary
+                or "totalIssues" not in summary
+                or summary.get("totalIssues", 0) == 0
+            )
+        )
+
+        if needs_summary_rebuild:
             try:
                 summary = PDFAccessibilityAnalyzer.calculate_summary(
                     results, verapdf_status
