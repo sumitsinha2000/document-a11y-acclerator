@@ -1668,6 +1668,18 @@ def _perform_automated_fix(
             if isinstance(initial_scan_payload, dict)
             else {}
         )
+        initial_issue_count = (
+            _extract_canonical_issue_count(initial_scan_payload)
+            if isinstance(initial_scan_payload, dict)
+            else None
+        )
+        if initial_issue_count is None and isinstance(initial_summary, dict):
+            initial_issue_count = (
+                _coerce_int(initial_summary.get("totalIssues"))
+                or _coerce_int(initial_summary.get("totalIssuesRaw"))
+                or _coerce_int(initial_summary.get("issuesRemaining"))
+                or _coerce_int(initial_summary.get("remainingIssues"))
+            )
 
         resolved_path = _resolve_scan_file_path(scan_id, scan_row)
         if resolved_path and resolved_path.exists():
@@ -1768,10 +1780,19 @@ def _perform_automated_fix(
         scan_results_payload["fixesApplied"] = filtered_fixes_applied
         summary = scan_results_payload.get("summary") or result.get("summary") or {}
         reported_remaining = summary.get("totalIssues") or 0
-        total_issues_before = scan_row.get("total_issues") or reported_remaining
+        total_issues_before = (
+            initial_issue_count
+            if initial_issue_count is not None
+            else scan_row.get("total_issues")
+            or reported_remaining
+        ) or 0
         issues_fixed = success_count
-        estimated_remaining = max(total_issues_before - issues_fixed, 0)
-        remaining_issues = max(reported_remaining, estimated_remaining)
+        if issues_fixed == 0:
+            estimated_remaining = total_issues_before
+            remaining_issues = total_issues_before
+        else:
+            estimated_remaining = max(total_issues_before - issues_fixed, 0)
+            remaining_issues = max(reported_remaining, estimated_remaining)
         total_issues_after = remaining_issues + issues_fixed
         summary["totalIssues"] = total_issues_after
         summary["issuesRemaining"] = remaining_issues
