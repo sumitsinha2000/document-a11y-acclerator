@@ -99,6 +99,7 @@ export default function GroupDashboard({
   const [isUploadAreaScanning, setUploadAreaScanning] = useState(false)
   const [shouldAutoOpenFileDialog, setShouldAutoOpenFileDialog] = useState(false)
   const [ariaLiveMessage, setAriaLiveMessage] = useState("")
+  const [autoOpenedBatchId, setAutoOpenedBatchId] = useState(null)
 
   const isFolderSelected = selectedNode?.type === "batch"
   const groupSummary = deriveGroupSummary(nodeData)
@@ -318,6 +319,48 @@ export default function GroupDashboard({
       }
     }
   }, [shouldAutoOpenFileDialog, uploadSectionOpen])
+
+  useEffect(() => {
+    if (!nodeData || nodeData.type !== "batch") {
+      setAutoOpenedBatchId(null)
+      return
+    }
+    const batchId = nodeData.batchId ?? nodeData.folderId ?? selectedNode?.id
+    if (!batchId) {
+      setAutoOpenedBatchId(null)
+      return
+    }
+    const filesCount =
+      nodeData.file_count ??
+      nodeData.totalFiles ??
+      nodeData.total_files ??
+      (Array.isArray(nodeData.scans) ? nodeData.scans.length : 0)
+    const isEmpty = filesCount === 0
+
+    if (!isEmpty) {
+      setAutoOpenedBatchId(null)
+      return
+    }
+
+    if (uploadSectionOpen || isUploadAreaScanning) {
+      return
+    }
+
+    if (autoOpenedBatchId === batchId) {
+      return
+    }
+
+    setAutoOpenedBatchId(batchId)
+    onUploadRequest()
+    setShouldAutoOpenFileDialog(true)
+  }, [
+    nodeData,
+    selectedNode,
+    uploadSectionOpen,
+    isUploadAreaScanning,
+    autoOpenedBatchId,
+    onUploadRequest,
+  ])
 
   useEffect(() => {
     if (!folderNavigationContext?.folderId || !folderNavigationContext?.groupId) {
