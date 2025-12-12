@@ -103,22 +103,11 @@
       "items": [
         {
           "code": "1.1.1",
-          "issueCount": 1,
-          "issues": [
-            {
-              "category": "alt-text",
-              "clause": null,
-              "criterion": "1.1.1",
-              "description": "Image on page 1 lacks alternative text",
-              "pages": [
-                1
-              ],
-              "severity": "high"
-            }
-          ],
+          "issueCount": 0,
+          "issues": [],
           "level": "A",
           "name": "Non-text Content",
-          "status": "doesNotSupport",
+          "status": "supports",
           "summary": "Provide text alternatives for non-text content."
         },
         {
@@ -141,22 +130,11 @@
         },
         {
           "code": "1.4.3",
-          "issueCount": 1,
-          "issues": [
-            {
-              "category": "contrast",
-              "clause": null,
-              "criterion": "1.4.3",
-              "description": "Document contains images - text contrast should be manually verified",
-              "pages": [
-                1
-              ],
-              "severity": "info"
-            }
-          ],
+          "issueCount": 0,
+          "issues": [],
           "level": "AA",
           "name": "Contrast (Minimum)",
-          "status": "doesNotSupport",
+          "status": "supports",
           "summary": "Text/background contrast must be at least 4.5:1 for body text."
         },
         {
@@ -208,11 +186,32 @@
         },
         {
           "code": "2.4.4",
-          "issueCount": 0,
-          "issues": [],
+          "issueCount": 2,
+          "issues": [
+            {
+              "category": "links",
+              "clause": null,
+              "criterion": "2.4.4",
+              "description": "Link annotation on page 1 lacks descriptive text or alternative text.",
+              "pages": [
+                1
+              ],
+              "severity": "high"
+            },
+            {
+              "category": "links",
+              "clause": null,
+              "criterion": "2.4.4",
+              "description": "Link annotation on page 1 uses ambiguous text \"click here\".",
+              "pages": [
+                1
+              ],
+              "severity": "medium"
+            }
+          ],
           "level": "AA",
           "name": "Link Purpose (In Context)",
-          "status": "supports",
+          "status": "doesNotSupport",
           "summary": "Ensure link text, tooltips, or alt descriptions clearly explain the target destination."
         },
         {
@@ -247,11 +246,20 @@
         },
         {
           "code": "3.3.2",
-          "issueCount": 0,
-          "issues": [],
+          "issueCount": 1,
+          "issues": [
+            {
+              "category": "forms",
+              "clause": null,
+              "criterion": "3.3.2",
+              "description": "Found 3 form annotation(s) that may lack proper labels",
+              "pages": [],
+              "severity": "high"
+            }
+          ],
           "level": "A",
           "name": "Labels or Instructions",
-          "status": "supports",
+          "status": "doesNotSupport",
           "summary": "Provide instructions so users know required input."
         },
         {
@@ -311,7 +319,7 @@
         "title": "Set document language"
       }
     ],
-    "estimatedTime": 58,
+    "estimatedTime": 72,
     "manual": [
       {
         "action": "Tag document structure",
@@ -330,25 +338,6 @@
         ],
         "severity": "high",
         "title": "Tag content structure"
-      },
-      {
-        "action": "Fix contrast for 1 element(s)",
-        "category": "color",
-        "description": "Document contains images - text contrast should be manually verified",
-        "estimatedTime": 5,
-        "instructions": "Modify text and background colors to achieve at least 4.5:1 contrast ratio",
-        "location": {
-          "count": 1,
-          "pages": [
-            1
-          ]
-        },
-        "page": 1,
-        "pages": [
-          1
-        ],
-        "severity": "info",
-        "title": "Improve color contrast"
       }
     ],
     "semiAutomated": [
@@ -365,21 +354,56 @@
         "title": "Fix WCAG 2.4.1 issue"
       },
       {
-        "action": "Review and add descriptive alt text for images",
-        "category": "images",
-        "criterion": "1.1.1",
-        "description": "Image on page 1 lacks alternative text",
+        "action": "Provide descriptive link text or Alt/Contents data so the link purpose is clear.",
+        "category": "wcagIssues",
+        "criterion": "2.4.4",
+        "description": "Link annotation on page 1 uses ambiguous text \"click here\".",
         "estimatedTime": 10,
         "location": {
-          "criterion": "1.1.1"
+          "clause": ""
+        },
+        "severity": "medium",
+        "title": "Fix WCAG 2.4.4 issue"
+      },
+      {
+        "action": "Provide descriptive link text or Alt/Contents data so the link purpose is clear.",
+        "category": "wcagIssues",
+        "criterion": "2.4.4",
+        "description": "Link annotation on page 1 lacks descriptive text or alternative text.",
+        "estimatedTime": 10,
+        "location": {
+          "clause": ""
         },
         "severity": "high",
-        "title": "Add alternative text to images"
+        "title": "Fix WCAG 2.4.4 issue"
+      },
+      {
+        "action": "Add labels to 3 form field(s)",
+        "category": "forms",
+        "description": "Found 3 form annotation(s) that may lack proper labels",
+        "estimatedTime": 9,
+        "location": {
+          "count": 3,
+          "pages": []
+        },
+        "page": 1,
+        "pages": [],
+        "severity": "high",
+        "title": "Add form field labels"
       }
     ]
   },
   "results": {
-    "formIssues": [],
+    "formIssues": [
+      {
+        "count": 3,
+        "description": "Found 3 form annotation(s) that may lack proper labels",
+        "pages": [],
+        "recommendation": "Ensure all form fields have associated labels and tooltips.",
+        "severity": "high",
+        "wcagCriteria": "3.3.2 Labels or Instructions (Level A) \u2013 Provide instructions so users know required input.; 4.1.2 Name, Role, Value (Level A) \u2013 Expose UI semantics programmatically."
+      }
+    ],
     "issues": [
       {
         "category": "metadata",
@@ -414,35 +438,6 @@
         "severity": "high"
       },
       {
-        "category": "alt-text",
-        "clause": null,
-        "criterion": "1.1.1",
-        "description": "Image on page 1 lacks alternative text",
-        "meta": {
-          "context": "/FormXob.4ad3cab594e3c1ef5df50759cf452491"
-        },
-        "pages": [
-          1
-        ],
-        "rawSource": "wcagIssues",
-        "severity": "high"
-      },
-      {
-        "category": "contrast",
-        "clause": null,
-        "criterion": "1.4.3",
-        "description": "Document contains images - text contrast should be manually verified",
-        "meta": {
-          "count": 1
-        },
-        "pages": [
-          1
-        ],
-        "penaltyWeight": 0,
-        "rawSource": "poorContrast",
-        "severity": "info"
-      },
-      {
         "category": "wcag",
         "clause": null,
         "criterion": "2.4.1",
@@ -463,6 +458,31 @@
         "severity": "high"
       },
       {
+        "category": "links",
+        "clause": null,
+        "criterion": "2.4.4",
+        "description": "Link annotation on page 1 lacks descriptive text or alternative text.",
+        "pages": [
+          1
+        ],
+        "rawSource": "wcagIssues",
+        "severity": "high"
+      },
+      {
+        "category": "links",
+        "clause": null,
+        "criterion": "2.4.4",
+        "description": "Link annotation on page 1 uses ambiguous text \"click here\".",
+        "meta": {
+          "context": "click here"
+        },
+        "pages": [
+          1
+        ],
+        "rawSource": "wcagIssues",
+        "severity": "medium"
+      },
+      {
         "category": "language",
         "clause": null,
         "criterion": "3.1.1",
@@ -472,9 +492,51 @@
         ],
         "rawSource": "missingLanguage",
         "severity": "medium"
+      },
+      {
+        "category": "forms",
+        "clause": null,
+        "criterion": "3.3.2",
+        "description": "Found 3 form annotation(s) that may lack proper labels",
+        "meta": {
+          "count": 3
+        },
+        "pages": [],
+        "rawSource": "formIssues",
+        "severity": "high"
       }
     ],
-    "linkIssues": [],
+    "linkIssues": [
+      {
+        "category": "wcag",
+        "criterion": "2.4.4",
+        "description": "Link annotation on page 1 lacks descriptive text or alternative text.",
+        "level": "AA",
+        "page": 1,
+        "pages": [
+          1
+        ],
+        "remediation": "Provide descriptive link text or Alt/Contents data so the link purpose is clear.",
+        "severity": "high",
+        "specification": "WCAG 2.1 Level AA",
+        "wcagCriteria": "2.4.4 Link Purpose (In Context) (Level AA) \u2013 Ensure link text, tooltips, or alt descriptions clearly explain the target destination."
+      },
+      {
+        "category": "wcag",
+        "context": "click here",
+        "criterion": "2.4.4",
+        "description": "Link annotation on page 1 uses ambiguous text \"click here\".",
+        "level": "AA",
+        "page": 1,
+        "pages": [
+          1
+        ],
+        "remediation": "Provide descriptive link text or Alt/Contents data so the link purpose is clear.",
+        "severity": "medium",
+        "specification": "WCAG 2.1 Level AA",
+        "wcagCriteria": "2.4.4 Link Purpose (In Context) (Level AA) \u2013 Ensure link text, tooltips, or alt descriptions clearly explain the target destination."
+      }
+    ],
     "missingAltText": [],
     "missingLanguage": [
       {
@@ -524,19 +586,7 @@
         "specification": "PDF/UA-1 (ISO 14289-1)"
       }
     ],
-    "poorContrast": [
-      {
-        "count": 1,
-        "description": "Document contains images - text contrast should be manually verified",
-        "pages": [
-          1
-        ],
-        "penaltyWeight": 0,
-        "recommendation": "Manually check that all text has sufficient contrast ratio (4.5:1 for normal text)",
-        "severity": "info",
-        "wcagCriteria": "1.4.3 Contrast (Minimum) (Level AA) \u2013 Text/background contrast must be at least 4.5:1 for body text.; 1.4.6 Contrast (Enhanced) (Level AAA) \u2013 Enhanced 7:1 contrast aids users with low vision."
-      }
-    ],
+    "poorContrast": [],
     "readingOrderIssues": [],
     "structureIssues": [],
     "tableIssues": [],
@@ -552,21 +602,6 @@
       }
     ],
     "wcagIssues": [
-      {
-        "category": "wcag",
-        "context": "/FormXob.4ad3cab594e3c1ef5df50759cf452491",
-        "criterion": "1.1.1",
-        "description": "Image on page 1 lacks alternative text",
-        "level": "A",
-        "page": 1,
-        "pages": [
-          1
-        ],
-        "remediation": "Add alternative text for meaningful images, or mark them as decorative where appropriate.",
-        "severity": "high",
-        "specification": "WCAG 2.1 Level A",
-        "wcagCriteria": "1.1.1 Non-text Content (Level A) \u2013 Provide text alternatives for non-text content."
-      },
       {
         "category": "wcag",
         "criterion": "2.4.1",
@@ -593,6 +628,35 @@
       },
       {
         "category": "wcag",
+        "criterion": "2.4.4",
+        "description": "Link annotation on page 1 lacks descriptive text or alternative text.",
+        "level": "AA",
+        "page": 1,
+        "pages": [
+          1
+        ],
+        "remediation": "Provide descriptive link text or Alt/Contents data so the link purpose is clear.",
+        "severity": "high",
+        "specification": "WCAG 2.1 Level AA",
+        "wcagCriteria": "2.4.4 Link Purpose (In Context) (Level AA) \u2013 Ensure link text, tooltips, or alt descriptions clearly explain the target destination."
+      },
+      {
+        "category": "wcag",
+        "context": "click here",
+        "criterion": "2.4.4",
+        "description": "Link annotation on page 1 uses ambiguous text \"click here\".",
+        "level": "AA",
+        "page": 1,
+        "pages": [
+          1
+        ],
+        "remediation": "Provide descriptive link text or Alt/Contents data so the link purpose is clear.",
+        "severity": "medium",
+        "specification": "WCAG 2.1 Level AA",
+        "wcagCriteria": "2.4.4 Link Purpose (In Context) (Level AA) \u2013 Ensure link text, tooltips, or alt descriptions clearly explain the target destination."
+      },
+      {
+        "category": "wcag",
         "criterion": "3.1.1",
         "description": "Document language not specified",
         "level": "A",
@@ -605,16 +669,16 @@
     ]
   },
   "summary": {
-    "complianceScore": 63.75,
-    "highSeverity": 6,
-    "issuesRemaining": 8,
-    "issuesRemainingRaw": 8,
-    "mediumSeverity": 1,
+    "complianceScore": 60.21,
+    "highSeverity": 7,
+    "issuesRemaining": 9,
+    "issuesRemainingRaw": 9,
+    "mediumSeverity": 2,
     "pdfuaCompliance": 60,
-    "remainingIssues": 8,
-    "totalIssues": 8,
-    "totalIssuesRaw": 8,
-    "wcagCompliance": 67.5,
+    "remainingIssues": 9,
+    "totalIssues": 9,
+    "totalIssuesRaw": 9,
+    "wcagCompliance": 60.42,
     "wcagLevels": {
       "A": false,
       "AA": false,
@@ -624,7 +688,7 @@
   "verapdfStatus": {
     "isActive": true,
     "pdfuaCompliance": 70,
-    "totalVeraPDFIssues": 8,
-    "wcagCompliance": 50
+    "totalVeraPDFIssues": 9,
+    "wcagCompliance": 40
   }
 }
