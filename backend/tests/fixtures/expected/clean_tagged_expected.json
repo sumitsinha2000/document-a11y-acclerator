@@ -1,0 +1,56 @@
+{
+  "issueCounts": {
+    "canonicalIssues": 2,
+    "formIssues": 0,
+    "linkIssues": 0,
+    "missingAltText": 0,
+    "pdfuaIssues": 0,
+    "poorContrast": 2,
+    "tableIssues": 0,
+    "untaggedContent": 0,
+    "wcagIssues": 0
+  },
+  "issues": {
+    "formIssues": [],
+    "linkIssues": [],
+    "missingAltText": [],
+    "pdfuaIssues": [],
+    "poorContrast": [
+      {
+        "count": 2,
+        "pages": [
+          1,
+          3
+        ],
+        "severity": "info"
+      },
+      {
+        "advisoryCriteria": [
+          "1.4.6"
+        ],
+        "contrastRatio": 1.81,
+        "count": 9,
+        "criterion": "1.4.3",
+        "level": "AA",
+        "pages": [
+          2
+        ],
+        "severity": "medium"
+      }
+    ],
+    "tableIssues": [],
+    "untaggedContent": [],
+    "wcagIssues": []
+  },
+  "summary": {
+    "complianceScore": 93,
+    "highSeverity": 0,
+    "issuesRemaining": 2,
+    "mediumSeverity": 1,
+    "pdfuaCompliance": 100,
+    "remainingIssues": 2,
+    "totalIssues": 2,
+    "totalIssuesRaw": 2,
+    "wcagCompliance": 100
+  }
+}

@@ -1,3 +1,7 @@
+"""
+Ensure automated fix history, summaries, and DB events stay consistent when remediation runs.
+"""
+
 import json
 
 from backend.utils import app_helpers

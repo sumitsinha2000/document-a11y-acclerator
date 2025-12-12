@@ -1,0 +1,703 @@
+{
+  "criteriaSummary": {
+    "pdfua": {
+      "items": [
+        {
+          "code": "ISO 14289-1:7.1",
+          "issueCount": 1,
+          "issues": [
+            {
+              "category": "pdfua",
+              "clause": "ISO 14289-1:7.1",
+              "criterion": null,
+              "description": "Document MarkInfo.Marked is false",
+              "pages": [],
+              "severity": "high"
+            }
+          ],
+          "level": null,
+          "name": "Document Identification",
+          "status": "doesNotSupport",
+          "summary": "Metadata, tagging, and document title requirements."
+        },
+        {
+          "code": "ISO 14289-1:7.18",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Forms & Alt Text",
+          "status": "supports",
+          "summary": "Interactive elements need names and alternative text."
+        },
+        {
+          "code": "ISO 14289-1:7.18.1",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Annotations",
+          "status": "supports",
+          "summary": "Annotations require Contents text for assistive tech."
+        },
+        {
+          "code": "ISO 14289-1:7.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Structure Tree",
+          "status": "supports",
+          "summary": "Structure element semantics, RoleMap, and reading order."
+        },
+        {
+          "code": "ISO 14289-1:7.3",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Artifacts",
+          "status": "supports",
+          "summary": "Artifacts must be separate from tagged content."
+        },
+        {
+          "code": "ISO 14289-1:7.4",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Headings",
+          "status": "supports",
+          "summary": "Heading hierarchy and nesting rules."
+        },
+        {
+          "code": "ISO 14289-1:7.5",
+          "issueCount": 1,
+          "issues": [
+            {
+              "category": "table",
+              "clause": "ISO 14289-1:7.5",
+              "criterion": "1.3.1",
+              "description": "Found 1 table(s) that may lack proper header markup",
+              "pages": [
+                2
+              ],
+              "severity": "high"
+            }
+          ],
+          "level": null,
+          "name": "Tables",
+          "status": "doesNotSupport",
+          "summary": "Tables require header associations and structure."
+        }
+      ],
+      "statusCounts": {
+        "doesNotSupport": 2,
+        "partiallySupports": 0,
+        "supports": 5
+      }
+    },
+    "wcag": {
+      "items": [
+        {
+          "code": "1.1.1",
+          "issueCount": 2,
+          "issues": [
+            {
+              "category": "alt-text",
+              "clause": null,
+              "criterion": "1.1.1",
+              "description": "Image on page 1 lacks alternative text",
+              "pages": [
+                1
+              ],
+              "severity": "high"
+            },
+            {
+              "category": "alt-text",
+              "clause": null,
+              "criterion": "1.1.1",
+              "description": "Image on page 3 lacks alternative text",
+              "pages": [
+                3
+              ],
+              "severity": "high"
+            }
+          ],
+          "level": "A",
+          "name": "Non-text Content",
+          "status": "doesNotSupport",
+          "summary": "Provide text alternatives for non-text content."
+        },
+        {
+          "code": "1.3.1",
+          "issueCount": 1,
+          "issues": [
+            {
+              "category": "table",
+              "clause": "ISO 14289-1:7.5",
+              "criterion": "1.3.1",
+              "description": "Found 1 table(s) that may lack proper header markup",
+              "pages": [
+                2
+              ],
+              "severity": "high"
+            }
+          ],
+          "level": "A",
+          "name": "Info and Relationships",
+          "status": "doesNotSupport",
+          "summary": "Preserve semantics so assistive technology can convey relationships."
+        },
+        {
+          "code": "1.3.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Meaningful Sequence",
+          "status": "supports",
+          "summary": "Ensure reading order preserves intended meaning."
+        },
+        {
+          "code": "1.4.3",
+          "issueCount": 2,
+          "issues": [
+            {
+              "category": "contrast",
+              "clause": null,
+              "criterion": "1.4.3",
+              "description": "Document contains images - text contrast should be manually verified",
+              "pages": [
+                1,
+                3
+              ],
+              "severity": "info"
+            },
+            {
+              "advisoryCriteria": [
+                "1.4.6"
+              ],
+              "category": "contrast",
+              "clause": null,
+              "criterion": "1.4.3",
+              "description": "Text on page 2 has low contrast (~1.8:1) against assumed white background",
+              "pages": [
+                2
+              ],
+              "severity": "medium"
+            }
+          ],
+          "level": "AA",
+          "name": "Contrast (Minimum)",
+          "status": "doesNotSupport",
+          "summary": "Text/background contrast must be at least 4.5:1 for body text."
+        },
+        {
+          "code": "1.4.6",
+          "issueCount": 1,
+          "issues": [
+            {
+              "advisoryCriteria": [
+                "1.4.6"
+              ],
+              "category": "contrast",
+              "clause": null,
+              "criterion": "1.4.6",
+              "description": "Text on page 2 has low contrast (~1.8:1) against assumed white background",
+              "pages": [
+                2
+              ],
+              "severity": "medium"
+            }
+          ],
+          "level": "AAA",
+          "name": "Contrast (Enhanced)",
+          "status": "doesNotSupport",
+          "summary": "Enhanced 7:1 contrast aids users with low vision."
+        },
+        {
+          "code": "2.4.1",
+          "issueCount": 1,
+          "issues": [
+            {
+              "category": "wcag",
+              "clause": null,
+              "criterion": "2.4.1",
+              "description": "Document lacks a bypass block or clear entry point.",
+              "pages": [
+                1
+              ],
+              "severity": "high"
+            }
+          ],
+          "level": "A",
+          "name": "Bypass Blocks",
+          "status": "doesNotSupport",
+          "summary": "Provide the ability to skip repeated content via clear headings or bookmarks."
+        },
+        {
+          "code": "2.4.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Page Titled",
+          "status": "supports",
+          "summary": "Provide descriptive titles so users can identify content."
+        },
+        {
+          "code": "2.4.4",
+          "issueCount": 0,
+          "issues": [],
+          "level": "AA",
+          "name": "Link Purpose (In Context)",
+          "status": "supports",
+          "summary": "Ensure link text, tooltips, or alt descriptions clearly explain the target destination."
+        },
+        {
+          "code": "2.4.6",
+          "issueCount": 0,
+          "issues": [],
+          "level": "AA",
+          "name": "Headings and Labels",
+          "status": "supports",
+          "summary": "Use clear headings/labels for navigation."
+        },
+        {
+          "code": "3.1.1",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Language of Page",
+          "status": "supports",
+          "summary": "Declare the primary language for pronunciation support."
+        },
+        {
+          "code": "3.3.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Labels or Instructions",
+          "status": "supports",
+          "summary": "Provide instructions so users know required input."
+        },
+        {
+          "code": "4.1.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Name, Role, Value",
+          "status": "supports",
+          "summary": "Expose UI semantics programmatically."
+        }
+      ],
+      "statusCounts": {
+        "doesNotSupport": 5,
+        "partiallySupports": 0,
+        "supports": 7
+      }
+    }
+  },
+  "fixes": {
+    "automated": [],
+    "estimatedTime": 135,
+    "manual": [
+      {
+        "action": "Fix 1 table(s) structure",
+        "category": "tables",
+        "description": "Found 1 table(s) that may lack proper header markup",
+        "estimatedTime": 20,
+        "instructions": "Use PDF editor to define table headers, data cells, and proper table structure",
+        "location": {
+          "count": 1,
+          "pages": [
+            2
+          ]
+        },
+        "page": 2,
+        "pages": [
+          2
+        ],
+        "severity": "high",
+        "title": "Fix table structure"
+      },
+      {
+        "action": "Fix contrast for 2 element(s)",
+        "category": "color",
+        "description": "Document contains images - text contrast should be manually verified",
+        "estimatedTime": 10,
+        "instructions": "Modify text and background colors to achieve at least 4.5:1 contrast ratio",
+        "location": {
+          "count": 2,
+          "pages": [
+            1,
+            3
+          ]
+        },
+        "page": 1,
+        "pages": [
+          1,
+          3
+        ],
+        "severity": "info",
+        "title": "Improve color contrast"
+      },
+      {
+        "action": "Fix contrast for 9 element(s)",
+        "category": "color",
+        "description": "Text on page 2 has low contrast (~1.8:1) against assumed white background",
+        "estimatedTime": 45,
+        "instructions": "Modify text and background colors to achieve at least 4.5:1 contrast ratio",
+        "location": {
+          "count": 9,
+          "pages": [
+            2
+          ]
+        },
+        "page": 2,
+        "pages": [
+          2
+        ],
+        "severity": "medium",
+        "title": "Improve color contrast"
+      }
+    ],
+    "semiAutomated": [
+      {
+        "action": "Add a clear first-page H1 heading, accessible bookmarks/outlines, or an internal TOC so users can bypass repeated content.",
+        "category": "wcagIssues",
+        "criterion": "2.4.1",
+        "description": "Document lacks a bypass block or clear entry point.",
+        "estimatedTime": 10,
+        "location": {
+          "clause": ""
+        },
+        "severity": "high",
+        "title": "Fix WCAG 2.4.1 issue"
+      },
+      {
+        "action": "Review and add descriptive alt text for images",
+        "category": "images",
+        "criterion": "1.1.1",
+        "description": "Image on page 1 lacks alternative text",
+        "estimatedTime": 10,
+        "location": {
+          "criterion": "1.1.1"
+        },
+        "severity": "high",
+        "title": "Add alternative text to images"
+      },
+      {
+        "action": "Review and add descriptive alt text for images",
+        "category": "images",
+        "criterion": "1.1.1",
+        "description": "Image on page 3 lacks alternative text",
+        "estimatedTime": 10,
+        "location": {
+          "criterion": "1.1.1"
+        },
+        "severity": "high",
+        "title": "Add alternative text to images"
+      },
+      {
+        "action": "Ensure all tables have properly marked header rows and columns.",
+        "category": "pdfuaIssues",
+        "clause": "ISO 14289-1:7.5",
+        "description": "Found 1 table(s) that may lack proper header markup",
+        "estimatedTime": 10,
+        "location": {
+          "clause": "ISO 14289-1:7.5"
+        },
+        "severity": "high",
+        "title": "Fix PDF/UA ISO 14289-1:7.5 issue"
+      },
+      {
+        "action": "Set MarkInfo.Marked to true in document catalog",
+        "category": "pdfuaIssues",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Document MarkInfo.Marked is false",
+        "estimatedTime": 10,
+        "location": {
+          "clause": "ISO 14289-1:7.1"
+        },
+        "severity": "high",
+        "title": "Fix PDF/UA ISO 14289-1:7.1 issue"
+      },
+      {
+        "action": "Add a structure tree root to the document catalog",
+        "category": "pdfuaIssues",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Document lacks structure tree",
+        "estimatedTime": 10,
+        "location": {
+          "clause": "ISO 14289-1:7.1"
+        },
+        "severity": "high",
+        "title": "Fix PDF/UA ISO 14289-1:7.1 issue"
+      }
+    ]
+  },
+  "results": {
+    "formIssues": [],
+    "issues": [
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "criterion": null,
+        "description": "Document MarkInfo.Marked is false",
+        "pages": [],
+        "pdfuaClause": "ISO 14289-1:7.1",
+        "rawSource": "pdfuaIssues",
+        "severity": "high"
+      },
+      {
+        "category": "table",
+        "clause": "ISO 14289-1:7.5",
+        "criterion": null,
+        "description": "Found 1 table(s) that may lack proper header markup",
+        "pages": [
+          2
+        ],
+        "pdfuaClause": "ISO 14289-1:7.5",
+        "rawSource": "pdfuaIssues",
+        "severity": "high"
+      },
+      {
+        "category": "alt-text",
+        "clause": null,
+        "criterion": "1.1.1",
+        "description": "Image on page 1 lacks alternative text",
+        "meta": {
+          "context": "/Image23"
+        },
+        "pages": [
+          1
+        ],
+        "rawSource": "wcagIssues",
+        "severity": "high"
+      },
+      {
+        "category": "alt-text",
+        "clause": null,
+        "criterion": "1.1.1",
+        "description": "Image on page 3 lacks alternative text",
+        "meta": {
+          "context": "/Image30"
+        },
+        "pages": [
+          3
+        ],
+        "rawSource": "wcagIssues",
+        "severity": "high"
+      },
+      {
+        "category": "table",
+        "clause": "ISO 14289-1:7.5",
+        "criterion": "1.3.1",
+        "description": "Found 1 table(s) that may lack proper header markup",
+        "meta": {
+          "count": 1
+        },
+        "pages": [
+          2
+        ],
+        "pdfuaClause": "ISO 14289-1:7.5",
+        "rawSource": "tableIssues",
+        "severity": "high"
+      },
+      {
+        "category": "contrast",
+        "clause": null,
+        "criterion": "1.4.3",
+        "description": "Document contains images - text contrast should be manually verified",
+        "meta": {
+          "count": 2
+        },
+        "pages": [
+          1,
+          3
+        ],
+        "penaltyWeight": 0,
+        "rawSource": "poorContrast",
+        "severity": "info"
+      },
+      {
+        "advisoryCriteria": [
+          "1.4.6"
+        ],
+        "category": "contrast",
+        "clause": null,
+        "criterion": "1.4.3",
+        "description": "Text on page 2 has low contrast (~1.8:1) against assumed white background",
+        "meta": {
+          "advisoryCriteria": [
+            "1.4.6"
+          ],
+          "contrastRatio": 1.81,
+          "count": 9,
+          "textSample": "Ce l l 1"
+        },
+        "pages": [
+          2
+        ],
+        "penaltyWeight": 3,
+        "rawSource": "poorContrast",
+        "severity": "medium"
+      },
+      {
+        "category": "wcag",
+        "clause": null,
+        "criterion": "2.4.1",
+        "description": "Document lacks a bypass block or clear entry point.",
+        "pages": [
+          1
+        ],
+        "rawSource": "wcagIssues",
+        "severity": "high"
+      }
+    ],
+    "linkIssues": [],
+    "missingAltText": [],
+    "missingLanguage": [],
+    "missingMetadata": [],
+    "pdfaIssues": [],
+    "pdfuaIssues": [
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Document MarkInfo.Marked is false",
+        "remediation": "Set MarkInfo.Marked to true in document catalog",
+        "severity": "high",
+        "specification": "PDF/UA-1 (ISO 14289-1)"
+      },
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Document lacks structure tree",
+        "remediation": "Add a structure tree root to the document catalog",
+        "severity": "high",
+        "specification": "PDF/UA-1 (ISO 14289-1)"
+      },
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.5",
+        "description": "Found 1 table(s) that may lack proper header markup",
+        "pages": [
+          2
+        ],
+        "remediation": "Ensure all tables have properly marked header rows and columns.",
+        "severity": "high"
+      }
+    ],
+    "poorContrast": [
+      {
+        "count": 2,
+        "description": "Document contains images - text contrast should be manually verified",
+        "pages": [
+          1,
+          3
+        ],
+        "penaltyWeight": 0,
+        "recommendation": "Manually check that all text has sufficient contrast ratio (4.5:1 for normal text)",
+        "severity": "info",
+        "wcagCriteria": "1.4.3 Contrast (Minimum) (Level AA) \u2013 Text/background contrast must be at least 4.5:1 for body text.; 1.4.6 Contrast (Enhanced) (Level AAA) \u2013 Enhanced 7:1 contrast aids users with low vision."
+      },
+      {
+        "advisoryCriteria": [
+          "1.4.6"
+        ],
+        "contrastRatio": 1.81,
+        "count": 9,
+        "criterion": "1.4.3",
+        "description": "Text on page 2 has low contrast (~1.8:1) against assumed white background",
+        "level": "AA",
+        "pages": [
+          2
+        ],
+        "penaltyWeight": 3,
+        "recommendation": "Increase text color contrast to at least 4.5:1 (WCAG 1.4.3 / 1.4.6).",
+        "severity": "medium",
+        "textSample": "Ce l l 1",
+        "wcagCriteria": "1.4.3 Contrast (Minimum) (Level AA) \u2013 Text/background contrast must be at least 4.5:1 for body text.; 1.4.6 Contrast (Enhanced) (Level AAA) \u2013 Enhanced 7:1 contrast aids users with low vision."
+      }
+    ],
+    "readingOrderIssues": [],
+    "structureIssues": [],
+    "tableIssues": [
+      {
+        "count": 1,
+        "description": "Found 1 table(s) that may lack proper header markup",
+        "pages": [
+          2
+        ],
+        "recommendation": "Ensure all tables have properly marked header rows and columns.",
+        "severity": "high",
+        "wcagCriteria": "1.3.1 Info and Relationships (Level A) \u2013 Preserve semantics so assistive technology can convey relationships."
+      }
+    ],
+    "untaggedContent": [],
+    "wcagIssues": [
+      {
+        "category": "wcag",
+        "context": "/Image23",
+        "criterion": "1.1.1",
+        "description": "Image on page 1 lacks alternative text",
+        "level": "A",
+        "page": 1,
+        "pages": [
+          1
+        ],
+        "remediation": "Add alternative text for meaningful images, or mark them as decorative where appropriate.",
+        "severity": "high",
+        "specification": "WCAG 2.1 Level A",
+        "wcagCriteria": "1.1.1 Non-text Content (Level A) \u2013 Provide text alternatives for non-text content."
+      },
+      {
+        "category": "wcag",
+        "context": "/Image30",
+        "criterion": "1.1.1",
+        "description": "Image on page 3 lacks alternative text",
+        "level": "A",
+        "page": 3,
+        "pages": [
+          3
+        ],
+        "remediation": "Add alternative text for meaningful images, or mark them as decorative where appropriate.",
+        "severity": "high",
+        "specification": "WCAG 2.1 Level A",
+        "wcagCriteria": "1.1.1 Non-text Content (Level A) \u2013 Provide text alternatives for non-text content."
+      },
+      {
+        "category": "wcag",
+        "criterion": "2.4.1",
+        "description": "Document lacks a bypass block or clear entry point.",
+        "level": "A",
+        "page": 1,
+        "pages": [
+          1
+        ],
+        "remediation": "Add a clear first-page H1 heading, accessible bookmarks/outlines, or an internal TOC so users can bypass repeated content.",
+        "severity": "high",
+        "specification": "WCAG 2.1 Level A",
+        "wcagCriteria": "2.4.1 Bypass Blocks (Level A) \u2013 Provide the ability to skip repeated content via clear headings or bookmarks."
+      }
+    ]
+  },
+  "summary": {
+    "complianceScore": 71.25,
+    "highSeverity": 6,
+    "issuesRemaining": 8,
+    "issuesRemainingRaw": 8,
+    "mediumSeverity": 1,
+    "pdfuaCompliance": 80,
+    "remainingIssues": 8,
+    "totalIssues": 8,
+    "totalIssuesRaw": 8,
+    "wcagCompliance": 62.5,
+    "wcagLevels": {
+      "A": false,
+      "AA": true,
+      "AAA": true
+    }
+  },
+  "verapdfStatus": {
+    "isActive": true,
+    "pdfuaCompliance": 70,
+    "totalVeraPDFIssues": 9,
+    "wcagCompliance": 40
+  }
+}

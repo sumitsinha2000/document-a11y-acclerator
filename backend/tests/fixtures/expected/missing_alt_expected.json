@@ -1,0 +1,104 @@
+{
+  "issueCounts": {
+    "canonicalIssues": 8,
+    "formIssues": 0,
+    "linkIssues": 0,
+    "missingAltText": 0,
+    "pdfuaIssues": 4,
+    "poorContrast": 1,
+    "tableIssues": 0,
+    "untaggedContent": 1,
+    "wcagIssues": 4
+  },
+  "issues": {
+    "formIssues": [],
+    "linkIssues": [],
+    "missingAltText": [],
+    "pdfuaIssues": [
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "severity": "high"
+      },
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "severity": "high"
+      },
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "severity": "high"
+      },
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "severity": "high"
+      }
+    ],
+    "poorContrast": [
+      {
+        "count": 1,
+        "pages": [
+          1
+        ],
+        "severity": "info"
+      }
+    ],
+    "tableIssues": [],
+    "untaggedContent": [
+      {
+        "pages": [
+          1
+        ],
+        "severity": "high"
+      }
+    ],
+    "wcagIssues": [
+      {
+        "category": "wcag",
+        "context": "/FormXob.4ad3cab594e3c1ef5df50759cf452491",
+        "criterion": "1.1.1",
+        "level": "A",
+        "page": 1,
+        "pages": [
+          1
+        ],
+        "severity": "high"
+      },
+      {
+        "category": "wcag",
+        "criterion": "2.4.1",
+        "level": "A",
+        "page": 1,
+        "pages": [
+          1
+        ],
+        "severity": "high"
+      },
+      {
+        "category": "wcag",
+        "criterion": "2.4.2",
+        "level": "A",
+        "severity": "high"
+      },
+      {
+        "category": "wcag",
+        "criterion": "3.1.1",
+        "level": "A",
+        "severity": "high"
+      }
+    ]
+  },
+  "summary": {
+    "complianceScore": 3,
+    "highSeverity": 6,
+    "issuesRemaining": 8,
+    "mediumSeverity": 1,
+    "pdfuaCompliance": 60,
+    "remainingIssues": 8,
+    "totalIssues": 8,
+    "totalIssuesRaw": 8,
+    "wcagCompliance": 75
+  }
+}

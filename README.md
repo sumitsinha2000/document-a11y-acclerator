@@ -122,6 +122,14 @@ Notes:
 
 More details at [backend/tests/README.md](/backend/tests/README.md)
 
+### Snapshot fixtures
+
+Normalized analyzer payloads under `backend/tests/fixtures/expected/` keep the integration suites stable; the full workflow is documented in [backend/tests/fixtures/expected/README.md](backend/tests/fixtures/expected/README.md).
+
+- Refer to the above README to update snapshots
+
+- `python -m backend.tests.utils.dump_expected_snapshots --pdf <fixture>` for a single PDF. Always review the generated diffs before committing changes so regressions stay caught.
+
 ## Deployment
 
 See [DEPLOYMENT.md](/documentation/DEPLOYMENT.md) for detailed deployment instructions.
