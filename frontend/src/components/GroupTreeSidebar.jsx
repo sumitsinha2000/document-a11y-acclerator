@@ -80,6 +80,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     onNodeSelect,
     selectedNode,
     onRefresh,
+    onDashboardRefresh,
     initialGroupId,
     latestUploadContext = null,
     onUploadContextAcknowledged = () => {},
@@ -1025,6 +1026,16 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     }
   };
 
+  const triggerDashboardRefresh = useCallback(() => {
+    if (onDashboardRefresh) {
+      onDashboardRefresh();
+      return;
+    }
+    if (onRefresh) {
+      onRefresh();
+    }
+  }, [onDashboardRefresh, onRefresh]);
+
   const toggleSection = (groupId, section, groupName, label) => {
     const normalizedId = normalizeId(groupId);
     setSectionStates((prev) => {
@@ -1084,16 +1095,13 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
         name: trimmedName,
       });
 
-      if (response?.data?.group) {
-        setStatusMessage(`Project "${trimmedName}" created`);
-        setNewProjectName("");
-        await fetchGroups();
-        return;
-      }
-
-      setStatusMessage("Project created");
+      const successMessage = response?.data?.group
+        ? `Project "${trimmedName}" created`
+        : "Project created";
+      setStatusMessage(successMessage);
       setNewProjectName("");
       await fetchGroups();
+      triggerDashboardRefresh();
     } catch (error) {
       const errMessage =
         error?.response?.data?.error ||
@@ -1592,6 +1600,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
         ...prev,
         [key]: "",
       }));
+      triggerDashboardRefresh();
     } catch (folderError) {
       console.error("[GroupTreeSidebar] Failed to create folder:", folderError);
       setStatusMessage(folderError?.response?.data?.error || "Failed to create folder");
@@ -1672,6 +1681,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       );
       setStatusMessage(`${trimmedName} updated`);
       cancelGroupEdit();
+      triggerDashboardRefresh();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to update group:", error);
       setStatusMessage(error?.response?.data?.error || "Failed to update project");
@@ -1746,6 +1756,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       });
       setStatusMessage(`${folderName} renamed`);
       cancelBatchEdit();
+      triggerDashboardRefresh();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to rename folder:", error);
       setStatusMessage(error?.response?.data?.error || "Failed to rename folder");
@@ -1783,6 +1794,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       setStatusMessage(`${projectName} deleted`);
       showSuccess(`Deleted project "${projectName}"`);
       setPendingDeleteGroup(null);
+      triggerDashboardRefresh();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete group:", error);
       const message = error?.response?.data?.error || "Failed to delete project";
@@ -1869,6 +1881,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       showSuccess(`Deleted folder "${batchName}"`);
       void ensureDashboardReflectsFolderDeletion(groupId, batchId);
       setPendingDeleteFolder(null);
+      triggerDashboardRefresh();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete folder:", error);
       const message = error?.response?.data?.error || "Failed to delete folder";
@@ -2306,7 +2319,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                           const sanitized = sanitizeInputValue(event.target.value);
                           setEditingGroupName(sanitized);
                         }}
-                        className="flex-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-indigo-500/40 dark:bg-gray-950 dark:text-gray-100"
+                        className="flex-1 min-w-0 rounded-md border border-indigo-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-indigo-500/40 dark:bg-gray-950 dark:text-gray-100"
                         autoFocus
                         aria-label="Edit project name"
                         autoComplete="off"
@@ -2507,7 +2520,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                                       const sanitized = sanitizeInputValue(event.target.value);
                                       setEditingBatchName(sanitized);
                                     }}
-                                    className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-indigo-500/30 dark:bg-[#0b1327] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-400"
+                                    className="flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-indigo-500/30 dark:bg-[#0b1327] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-400"
                                     autoFocus
                                     aria-label="Edit folder name"
                                     autoComplete="off"

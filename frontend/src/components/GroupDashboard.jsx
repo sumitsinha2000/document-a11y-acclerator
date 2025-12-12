@@ -536,6 +536,22 @@ export default function GroupDashboard({
           }
         }
 
+        if (node.type === "batch" && statusCode === 404) {
+          cacheRef.current.delete(cacheKey)
+          setSelectedNode(null)
+          setNodeData(null)
+          showError("Selected folder is no longer available.")
+          const fallbackGroupId =
+            node.data?.groupId ?? node.data?.group_id ?? node.data?.projectId ?? null
+          if (fallbackGroupId) {
+            void refreshDashboardGroupView(fallbackGroupId)
+          }
+          return {
+            removedFolderId: node.id,
+            removedFolderName: node.data?.name ?? node.data?.folderName,
+          }
+        }
+
         const errorPrefix =
           node.type === "batch"
             ? "Failed to load folder data"
@@ -815,14 +831,15 @@ export default function GroupDashboard({
       </div>
       <div className="w-full flex h-full flex-col gap-6 px-4 py-6 lg:flex-row lg:items-start">
           <div className="w-full lg:max-w-sm flex-shrink-0">
-            <GroupTreeSidebar
-              ref={sidebarRef}
-              onNodeSelect={handleNodeSelect}
-              selectedNode={selectedNode}
-              onRefresh={loadInitialData}
-              initialGroupId={initialGroupId}
-              latestUploadContext={latestUploadContext}
-              onUploadContextAcknowledged={onUploadContextAcknowledged}
+        <GroupTreeSidebar
+          ref={sidebarRef}
+          onNodeSelect={handleNodeSelect}
+          selectedNode={selectedNode}
+          onRefresh={loadInitialData}
+          onDashboardRefresh={refreshSelectedNodeData}
+          initialGroupId={initialGroupId}
+          latestUploadContext={latestUploadContext}
+          onUploadContextAcknowledged={onUploadContextAcknowledged}
               folderNavigationContext={folderNavigationContext}
               folderStatusUpdateSignal={folderStatusSignal}
             />
