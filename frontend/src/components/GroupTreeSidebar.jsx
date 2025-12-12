@@ -76,20 +76,21 @@ const validateEntityName = (value, options = {}) => {
   };
 };
 
-const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
-  {
-    onNodeSelect,
-    selectedNode,
-    onRefresh,
-    onDashboardRefresh,
-    initialGroupId,
-    latestUploadContext = null,
-    onUploadContextAcknowledged = () => {},
-    folderNavigationContext = null,
-    folderStatusUpdateSignal = null,
-  },
-  ref,
-) {
+  const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
+    {
+      onNodeSelect,
+      selectedNode,
+      onRefresh,
+      onDashboardRefresh,
+      onStaleNode,
+      initialGroupId,
+      latestUploadContext = null,
+      onUploadContextAcknowledged = () => {},
+      folderNavigationContext = null,
+      folderStatusUpdateSignal = null,
+    },
+    ref,
+  ) {
   const [groups, setGroups] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [loading, setLoading] = useState(true);
@@ -1071,6 +1072,17 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     }
   }, [onDashboardRefresh, onRefresh]);
 
+  const reportStaleNode = useCallback(
+    async (node, statusCode) => {
+      if (!onStaleNode || ![404, 410].includes(statusCode)) {
+        return false;
+      }
+      await onStaleNode(node, statusCode);
+      return true;
+    },
+    [onStaleNode]
+  );
+
   const toggleSection = (groupId, section, groupName, label) => {
     const normalizedId = normalizeId(groupId);
     setSectionStates((prev) => {
@@ -1161,9 +1173,18 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     ensureProjectView();
   };
 
-  useImperativeHandle(ref, () => ({
-    closeFolderView,
-  }), [closeFolderView]);
+  const refreshSidebarView = async () => {
+    await fetchGroups();
+  };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      closeFolderView,
+      refresh: refreshSidebarView,
+    }),
+    [closeFolderView, refreshSidebarView]
+  );
 
   const openFolderView = async (group, batch) => {
     const normalizedBatchId = normalizeId(batch.batchId || batch.id);
@@ -1203,6 +1224,22 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       syncFolderCountWithSidebar(group.id, folderMeta.folderId, accurateCount);
     } catch (folderError) {
       console.error("[GroupTreeSidebar] Failed to load folder files:", folderError);
+      const statusCode = folderError?.response?.status;
+      const staleNode = {
+        type: "batch",
+        id: folderMeta.folderId,
+        data: {
+          batchId: folderMeta.folderId,
+          folderId: folderMeta.folderId,
+          groupId: folderMeta.groupId,
+          groupName: folderMeta.groupName,
+          folderName: folderMeta.folderName,
+        },
+      };
+      if (await reportStaleNode(staleNode, statusCode)) {
+        setFolderFilesError(null);
+        return;
+      }
       setFolderFilesError(folderError?.response?.data?.error || "Failed to load folder files");
     } finally {
       setFolderFilesLoading(false);
