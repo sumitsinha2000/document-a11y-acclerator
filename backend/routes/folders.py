@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from psycopg2.extras import RealDictCursor
 
+from .validation import NAME_ALLOWED_MESSAGE, NAME_REGEX
 from backend.utils.app_helpers import (
     FILE_STATUS_LABELS,
     SafeJSONResponse,
@@ -376,6 +377,12 @@ async def create_folder(payload: FolderCreatePayload):
     name = payload.name.strip()
     status = (payload.status or "uploaded").strip()
 
+    if not NAME_REGEX.match(name):
+        return JSONResponse(
+            {"error": f"Folder name {NAME_ALLOWED_MESSAGE}"},
+            status_code=400,
+        )
+
     folder_id = f"batch_{uuid.uuid4().hex}"
     rows = execute_query(
         """
@@ -408,8 +415,14 @@ async def update_folder(folder_id: str, payload: FolderUpdatePayload):
     params: List[str] = []
 
     if payload.name:
+        clean_name = payload.name.strip()
+        if not NAME_REGEX.match(clean_name):
+            return JSONResponse(
+                {"error": f"Folder name {NAME_ALLOWED_MESSAGE}"},
+                status_code=400,
+            )
         updates.append("name = %s")
-        params.append(payload.name.strip())
+        params.append(clean_name)
     if payload.status:
         updates.append("status = %s")
         params.append(payload.status.strip())
@@ -443,6 +456,11 @@ async def rename_folder(folder_id: str, payload: dict = Body(...)):
     if not isinstance(new_name, str) or not new_name.strip():
         return JSONResponse({"error": "Folder name is required to rename"}, status_code=400)
     clean_name = new_name.strip()
+    if not NAME_REGEX.match(clean_name):
+        return JSONResponse(
+            {"error": f"Folder name {NAME_ALLOWED_MESSAGE}"},
+            status_code=400,
+        )
     rows = execute_query(
         "UPDATE batches SET name = %s WHERE id = %s RETURNING id, name, group_id",
         (clean_name, folder_id),

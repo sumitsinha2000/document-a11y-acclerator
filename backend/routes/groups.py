@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from .validation import NAME_ALLOWED_MESSAGE, NAME_REGEX
 from backend.utils.app_helpers import (
     SafeJSONResponse,
     _delete_batch_with_files,
@@ -26,7 +27,7 @@ logger = logging.getLogger("doca11y-groups")
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
-MAX_GROUP_NAME_LENGTH = 255
+MAX_GROUP_NAME_LENGTH = 50
 DEFAULT_CATEGORY_KEY = "other"
 
 
@@ -338,7 +339,14 @@ async def create_group(payload: GroupPayload):
 
     if len(name) > MAX_GROUP_NAME_LENGTH:
         return JSONResponse(
-            {"error": "Group name must be less than 255 characters"}, status_code=400
+            {"error": f"Group name must be {MAX_GROUP_NAME_LENGTH} characters or fewer"},
+            status_code=400,
+        )
+
+    if not NAME_REGEX.match(name):
+        return JSONResponse(
+            {"error": f"Group name {NAME_ALLOWED_MESSAGE}"},
+            status_code=400,
         )
 
     group_id = f"group_{uuid.uuid4().hex}"
@@ -405,6 +413,18 @@ async def update_group(group_id: str, payload: GroupPayload):
 
     if not name:
         return JSONResponse({"error": "Group name is required"}, status_code=400)
+
+    if len(name) > MAX_GROUP_NAME_LENGTH:
+        return JSONResponse(
+            {"error": f"Group name must be {MAX_GROUP_NAME_LENGTH} characters or fewer"},
+            status_code=400,
+        )
+
+    if not NAME_REGEX.match(name):
+        return JSONResponse(
+            {"error": f"Group name {NAME_ALLOWED_MESSAGE}"},
+            status_code=400,
+        )
 
     conn = None
     cur = None

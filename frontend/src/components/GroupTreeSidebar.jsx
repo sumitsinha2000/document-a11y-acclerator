@@ -30,11 +30,12 @@ const TREE_ITEM_FOCUS_CLASSES =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
 const FOCUSABLE_ELEMENTS_SELECTOR = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
 
-const ENTITY_NAME_MIN_LENGTH = 3;
+const ENTITY_NAME_MIN_LENGTH = 2;
 const ENTITY_NAME_MAX_LENGTH = 50;
+const ENTITY_NAME_PATTERN = /^[A-Za-z0-9 ()_.-]+$/;
 const sanitizeInputValue = (value) => {
-  return (value ?? "").replace(/[^A-Za-z0-9 ]+/g, "")
-}
+  return (value ?? "").replace(/[^A-Za-z0-9 ()_.-]+/g, "");
+};
 
 const validateEntityName = (value, options = {}) => {
   const { label = "Name", minLength = ENTITY_NAME_MIN_LENGTH, maxLength = ENTITY_NAME_MAX_LENGTH } = options;
@@ -58,6 +59,13 @@ const validateEntityName = (value, options = {}) => {
       isValid: false,
       trimmed,
       message: `${label} must be ${maxLength} characters or fewer.`,
+    };
+  }
+  if (!ENTITY_NAME_PATTERN.test(trimmed)) {
+    return {
+      isValid: false,
+      trimmed,
+      message: `${label} may only include letters, numbers, spaces, parentheses, periods, underscores, and hyphens.`,
     };
   }
   return {
@@ -1612,14 +1620,39 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     if (!editingGroupId) {
       return;
     }
-    const trimmedName = editingGroupName.trim();
-    if (!trimmedName) {
-      setStatusMessage("Project name is required");
+    const validation = validateEntityName(editingGroupName, { label: "Project name" });
+    if (!validation.isValid) {
+      const message = validation.message;
+      showDialog({
+        title: "Invalid project name",
+        message,
+        closeText: "Okay",
+      });
+      setStatusMessage(message);
       return;
     }
 
+    const trimmedName = validation.trimmed;
     const normalizedId = normalizeId(editingGroupId);
+    const normalizedName = trimmedName.toLowerCase();
     const currentGroup = groups.find((group) => normalizeId(group.id) === normalizedId);
+    const duplicate =
+      normalizedName &&
+      groups.some(
+        (group) =>
+          normalizeId(group.id) !== normalizedId &&
+          (group.name || "").trim().toLowerCase() === normalizedName
+      );
+    if (duplicate) {
+      const message = `Project "${trimmedName}" already exists`;
+      showDialog({
+        title: "Duplicate project name",
+        message,
+        closeText: "Got it",
+      });
+      setStatusMessage(message);
+      return;
+    }
     try {
       const response = await axios.put(`${API_BASE_URL}/api/groups/${editingGroupId}`, {
         name: trimmedName,
@@ -1664,26 +1697,54 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     if (!editingBatchId) {
       return;
     }
-    const trimmedName = editingBatchName.trim();
-    if (!trimmedName) {
-      setStatusMessage("Folder name is required");
+    const validation = validateEntityName(editingBatchName, { label: "Folder name" });
+    if (!validation.isValid) {
+      const message = validation.message;
+      showDialog({
+        title: "Invalid folder name",
+        message,
+        closeText: "Okay",
+      });
+      setStatusMessage(message);
       return;
     }
+
+    const folderName = validation.trimmed;
     const normalizedBatchId = normalizeId(editingBatchId);
     const normalizedGroupId = normalizeId(editingBatchGroupId);
+    const existingFolders = groupBatches[normalizedGroupId] || [];
+    const normalizedNewFolderName = folderName.toLowerCase();
+    const folderExists = existingFolders.some((batch) => {
+      const batchId = normalizeId(batch.batchId ?? batch.id);
+      if (!batchId || batchId === normalizedBatchId) {
+        return false;
+      }
+      const name = (batch.name || batch.folderName || "").toLowerCase().trim();
+      return name && name === normalizedNewFolderName;
+    });
+    if (folderExists) {
+      const message = `Folder "${folderName}" already exists`;
+      showDialog({
+        title: "Duplicate folder",
+        message,
+        closeText: "Got it",
+      });
+      setStatusMessage(message);
+      return;
+    }
     try {
       await axios.patch(`${API_BASE_URL}/api/folders/${editingBatchId}/rename`, {
-        folderName: trimmedName,
+        folderName,
       });
       setGroupBatches((prev) => {
         const next = { ...prev };
         const list = (next[normalizedGroupId] || []).map((batch) =>
-          normalizeId(batch.batchId) === normalizedBatchId ? { ...batch, name: trimmedName } : batch
+          normalizeId(batch.batchId) === normalizedBatchId ? { ...batch, name: folderName } : batch
         );
         next[normalizedGroupId] = list;
         return next;
       });
-      setStatusMessage(`${trimmedName} renamed`);
+      setStatusMessage(`${folderName} renamed`);
       cancelBatchEdit();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to rename folder:", error);
@@ -2241,7 +2302,10 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                       <input
                         type="text"
                         value={editingGroupName}
-                        onChange={(event) => setEditingGroupName(event.target.value)}
+                        onChange={(event) => {
+                          const sanitized = sanitizeInputValue(event.target.value);
+                          setEditingGroupName(sanitized);
+                        }}
                         className="flex-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-indigo-500/40 dark:bg-gray-950 dark:text-gray-100"
                         autoFocus
                         aria-label="Edit project name"
@@ -2439,7 +2503,10 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                                   <input
                                     type="text"
                                     value={editingBatchName}
-                                    onChange={(event) => setEditingBatchName(event.target.value)}
+                                    onChange={(event) => {
+                                      const sanitized = sanitizeInputValue(event.target.value);
+                                      setEditingBatchName(sanitized);
+                                    }}
                                     className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-indigo-500/30 dark:bg-[#0b1327] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-400"
                                     autoFocus
                                     aria-label="Edit folder name"
