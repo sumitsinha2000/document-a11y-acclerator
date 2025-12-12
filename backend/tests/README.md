@@ -2,15 +2,17 @@
 
 All backend tests live under `backend/tests/` and use pytest fixtures plus PDF fixtures stored in `backend/tests/fixtures/`.
 
+> **Note:** The suite now exercises the fully migrated `pypdf` stack, so fixtures and helpers rely on the modern `pypdf` APIs rather than the retired `PyPDF2` module.
+
 ## Test Suites
 
 - `test_health.py` – Fast sanity check that the FastAPI health endpoint returns HTTP 200 using the shared `client` fixture.
 - `test_alt_detection.py` – Unit tests for WCAG alt-text detection helpers using tagged PDFs. Contains one `alt_fallback` regression test that is intentionally skipped by default.
-- `test_contrast_scan_pypdf.py` – Exercises the PyPDF-backed contrast scanner with controlled synthetic PDFs covering low/high contrast and missing content streams.
+- `test_contrast_scan_pypdf.py` – Exercises the pypdf-based contrast scanner with controlled synthetic PDFs covering low/high contrast and missing content streams.
 - `test_metadata_analyzer_pypdf.py` – Validates metadata extraction (title, language, tagging) using catalog fixtures, ensuring backward compatibility while parser logic evolves.
 - `test_pdf_integration.py` – End-to-end analyzer runs against real PDFs. These are tagged `slow_pdf` because they open full documents, parse all pages, and compute summaries/fix suggestions.
 - `test_automated_fix_history_alignment.py` – Exercises the automated remediation helper in `backend.utils.app_helpers` to keep summary counters and saved history aligned with fix output.
-- `test_link_annotation_detection.py` – Ensures WCAG link-purpose validation handles varied annotation encodings and respects descriptive-text heuristics (2.4.4) by walking PyPDF annotations.
+- `test_link_annotation_detection.py` – Ensures WCAG link-purpose validation handles varied annotation encodings and respects descriptive-text heuristics (2.4.4) by walking pypdf annotations.
 - `test_metadata_fix_classification.py` – Verifies both legacy and modern `AutoFixEngine` instances send author/subject guidance to the semi-automated bucket while keeping other metadata fixes automated.
 - `test_metadata_stream_fix.py` – Confirms the metadata stream fix workflow actually removes the canonical `metadata-iso14289-1-7-1` issue and shrinks the issue list after remediation.
 - `test_pdf_error_handling_pypdf.py` – Posts malformed fixtures against `/api/scan` to assert they surface clean failure responses without leaking stack traces or fabricated compliance data.
@@ -50,7 +52,7 @@ Each test module provides its own fixture directory helper (like `_FIXTURE_DIR`)
 
 ## Golden snapshots
 
-The normalized analyzer payloads in `backend/tests/fixtures/expected/` drive the integration and PyPDF-focused tests. Check `backend/tests/fixtures/expected/README.md` for the full workflow before refreshing data.
+The normalized analyzer payloads in `backend/tests/fixtures/expected/` drive the integration and pypdf-focused tests. Check `backend/tests/fixtures/expected/README.md` for the full workflow before refreshing data.
 
 ### Refresh the canonical integration or other snapshots
 

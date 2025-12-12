@@ -29,8 +29,10 @@ The application features a **professional loading screen** that:
 - **Backend**: Python FastAPI, PDF Extract Kit
 - **Database**: Online PostgreSQL database
 - **Deployment**: Vercel
-- **PDF Processing**: PyPDF2 (moving to pypdf), pikepdf, pdfplumber
+- **PDF Processing**: pypdf (metadata/contrast/annotation), pikepdf, pdfplumber
 - **Validation**: Built-in WCAG 2.1 & PDF/UA-1 validator, veraPDF (optional)
+
+The backend and its pytest suites now fully depend on `pypdf` instead of the legacy `PyPDF2` package for metadata, annotation, and structure analysis, completing the migration referenced elsewhere in the repository.
 
 ## Quick Start
 
