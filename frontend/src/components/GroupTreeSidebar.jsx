@@ -124,6 +124,23 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
   const [refreshingGroupId, setRefreshingGroupId] = useState(null);
   const [deletingFileIds, setDeletingFileIds] = useState(() => new Set());
   const [refreshingFolderCounts, setRefreshingFolderCounts] = useState({});
+  const editingTreeItemIdRef = useRef(null);
+  const focusEditedTreeItem = useCallback(() => {
+    const treeId = editingTreeItemIdRef.current;
+    if (!treeId) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (!treeId) {
+        return;
+      }
+      const element = document.querySelector(`[data-tree-id="${treeId}"]`);
+      if (element instanceof HTMLElement) {
+        focusTreeItem(element);
+      }
+    });
+    editingTreeItemIdRef.current = null;
+  }, []);
   const handledFolderNavigationRef = useRef(null);
   const folderStatusRefreshKeyRef = useRef(null);
   const treeContainerRef = useRef(null);
@@ -422,6 +439,25 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     ) {
       return;
     }
+
+    const activeElement =
+      typeof document !== "undefined" ? document.activeElement : null;
+    const editingInputType =
+      activeElement instanceof HTMLElement ? activeElement.dataset?.editingType : null;
+    const editingInProgress = Boolean(editingGroupId || editingBatchId);
+    if (editingInProgress || editingInputType) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (editingInputType === "group" || editingGroupId) {
+          cancelGroupEdit();
+        } else if (editingInputType === "folder" || editingBatchId) {
+          cancelBatchEdit();
+        }
+      }
+      return;
+    }
+
     const navigationKeys = ["ArrowDown", "ArrowUp", "Home", "End", "ArrowLeft", "ArrowRight"];
     if (!navigationKeys.includes(event.key)) {
       return;
@@ -433,8 +469,6 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     }
 
     event.preventDefault();
-    const activeElement =
-      typeof document !== "undefined" ? document.activeElement : null;
     const currentIndex = items.indexOf(activeElement);
     let targetIndex = 0;
     const treeItemElement =
@@ -1616,11 +1650,13 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     setEditingGroupId(group.id);
     setEditingGroupName(group.name || "");
     setDeletingGroupId(null);
+    editingTreeItemIdRef.current = buildTreeItemId("group", group.id);
   };
 
   const cancelGroupEdit = () => {
     setEditingGroupId(null);
     setEditingGroupName("");
+    focusEditedTreeItem();
   };
 
   const saveGroupEdit = async (event) => {
@@ -1693,12 +1729,15 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     setEditingBatchId(batch.batchId);
     setEditingBatchGroupId(groupId);
     setEditingBatchName(batch.name || "");
+    const identifier = batch.batchId ?? batch.id;
+    editingTreeItemIdRef.current = buildTreeItemId("folder", identifier);
   };
 
   const cancelBatchEdit = () => {
     setEditingBatchId(null);
     setEditingBatchGroupId(null);
     setEditingBatchName("");
+    focusEditedTreeItem();
   };
 
   const saveBatchEdit = async (event) => {
@@ -2322,6 +2361,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                           const sanitized = sanitizeInputValue(event.target.value);
                           setEditingGroupName(sanitized);
                         }}
+                        data-editing-type="group"
                         className="flex-1 min-w-0 rounded-md border border-indigo-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-indigo-500/40 dark:bg-gray-950 dark:text-gray-100"
                         autoFocus
                         aria-label="Edit project name"
@@ -2523,6 +2563,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                                       const sanitized = sanitizeInputValue(event.target.value);
                                       setEditingBatchName(sanitized);
                                     }}
+                                    data-editing-type="folder"
                                     className="flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-indigo-500/30 dark:bg-[#0b1327] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-400"
                                     autoFocus
                                     aria-label="Edit folder name"
