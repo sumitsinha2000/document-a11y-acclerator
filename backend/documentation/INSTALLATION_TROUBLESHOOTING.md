@@ -56,7 +56,7 @@ __Solution 4: Skip Pillow temporarily__
 
 ```bash
 # Install all packages except Pillow
-pip install Flask Flask-CORS PyPDF2 pdfplumber pytesseract pdf2image fpdf pikepdf psycopg2-binary python-dotenv
+pip install Flask Flask-CORS pypdf pdfplumber pytesseract pdf2image fpdf pikepdf psycopg2-binary python-dotenv
 
 # Try Pillow separately later
 pip install Pillow
