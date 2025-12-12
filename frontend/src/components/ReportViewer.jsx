@@ -413,6 +413,45 @@ export default function ReportViewer({
   const hasIssueDelta = typeof issueDelta === "number" && issueDelta !== 0
   const hasReportedIssuesFixed = reportedIssuesFixed > 0
 
+  const resolvedScanId =
+    reportData.scanId || reportData.id || reportData.scan_id || reportData.filename || reportData.fileName
+  const summarySnapshot = { ...(summary || {}) }
+  summarySnapshot.totalIssues = totalIssuesValue
+  summarySnapshot.totalIssuesRaw = totalIssuesValue
+  summarySnapshot.remainingIssues = remainingIssuesValue
+  summarySnapshot.issuesRemaining = remainingIssuesValue
+  summarySnapshot.issuesFixed = reportedIssuesFixed
+  const partiallyFixedCount = isNumeric(reportData.partiallyFixed)
+    ? reportData.partiallyFixed
+    : isNumeric(reportData.issuesPartiallyFixed)
+      ? reportData.issuesPartiallyFixed
+      : isNumeric(reportData.summary?.issuesPartiallyFixed)
+        ? reportData.summary.issuesPartiallyFixed
+        : null
+  const exportPayload = {
+    scanId: resolvedScanId,
+    filename: reportData.fileName || reportData.filename,
+    status: reportData.status,
+    uploadDate: reportData.uploadDate || reportData.timestamp || reportData.created_at,
+    batchId: reportData.batchId || reportData.folderId,
+    folderId: reportData.batchId || reportData.folderId,
+    groupId: reportData.groupId,
+    groupName: reportData.groupName,
+    folderName: reportData.folderName || reportData.batchName,
+    summary: summarySnapshot,
+    results: reportData.results || {},
+    verapdfStatus,
+    criteriaSummary: reportData.criteriaSummary || {},
+    issues: {
+      total: totalIssuesValue,
+      fixed: reportedIssuesFixed,
+      partiallyFixed: partiallyFixedCount,
+      remaining: remainingIssuesValue,
+    },
+    latestFix: reportData.latestFix || null,
+    appliedFixes: reportData.appliedFixes || null,
+  }
+
   const scanStatus = getScanStatus(reportData)
   const isScanError = scanStatus === "error"
   const scanErrorMessage = isScanError ? getScanErrorMessage(reportData) : null
@@ -637,6 +676,7 @@ export default function ReportViewer({
               scanId={reportData.scanId}
               filename={reportData.fileName || reportData.filename}
               disabled={!canExportReport}
+              exportPayload={exportPayload}
             />
           </div>
           </div>

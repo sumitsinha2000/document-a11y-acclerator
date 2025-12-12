@@ -158,6 +158,31 @@ app.add_middleware(
 
 # serve uploaded files (development/test only; remote storage is canonical)
 mount_static_if_available(app, "/uploads", UPLOAD_FOLDER, "uploads")
+
+
+def _extract_client_export_payload(raw_body: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw_body, dict):
+        return None
+    payload_candidate = raw_body.get("payload")
+    if isinstance(payload_candidate, dict):
+        return payload_candidate
+    return raw_body
+
+
+def _merge_export_payload(base: Optional[Dict[str, Any]], override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(base, dict):
+        base = {}
+    if not isinstance(override, dict):
+        return base
+    merged: Dict[str, Any] = dict(base)
+    for key, value in override.items():
+        if value is None:
+            continue
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_export_payload(merged.get(key), value)
+        else:
+            merged[key] = value
+    return merged
 mount_static_if_available(app, "/fixed", FIXED_FOLDER, "fixed")
 mount_static_if_available(
     app, "/generated_pdfs", app_helpers.GENERATED_PDFS_FOLDER, "generated_pdfs"
@@ -1923,11 +1948,27 @@ async def fix_history(scan_id: str):
 
 
 # === Export endpoint ===
-@app.get("/api/export/{scan_id}")
-async def export_scan(scan_id: str):
+@app.api_route("/api/export/{scan_id}", methods=["GET", "POST"])
+async def export_scan(scan_id: str, request: Request):
     conn = None
     cur = None
     try:
+        requested_format = (request.query_params.get("format") or "json").lower()
+        tz_offset = request.query_params.get("tzOffset")
+        client_offset = None
+        if tz_offset is not None:
+            try:
+                client_offset = int(tz_offset)
+            except ValueError:
+                client_offset = None
+        client_payload = None
+        if request.method != "GET":
+            try:
+                raw_body = await request.json()
+            except (json.JSONDecodeError, ValueError):
+                raw_body = None
+            if raw_body:
+                client_payload = _extract_client_export_payload(raw_body)
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -1964,6 +2005,29 @@ async def export_scan(scan_id: str):
             return JSONResponse({"error": f"Scan {scan_id} not found"}, status_code=404)
 
         export_payload = _build_scan_export_payload(scan_row)
+        if client_payload:
+            export_payload = _merge_export_payload(export_payload, client_payload)
+
+        if requested_format == "pdf":
+            try:
+                pdf_path = await asyncio.to_thread(
+                    pdf_generator.create_accessibility_report_pdf,
+                    export_payload,
+                    client_offset_minutes=client_offset,
+                )
+            except Exception:
+                logger.exception("[Backend] Error generating PDF export for %s", scan_id)
+                return JSONResponse({"error": "Failed to generate PDF report"}, status_code=500)
+
+            download_name = os.path.basename(pdf_path)
+            background = BackgroundTask(os.remove, pdf_path)
+            return FileResponse(
+                pdf_path,
+                media_type="application/pdf",
+                filename=download_name,
+                background=background,
+            )
+
         return SafeJSONResponse(export_payload)
     except Exception:
         logger.exception("[Backend] Error exporting scan %s", scan_id)
