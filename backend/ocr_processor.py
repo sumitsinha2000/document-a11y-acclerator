@@ -4,11 +4,9 @@ Handles optical character recognition for scanned PDFs
 """
 
 import pytesseract
-from PIL import Image
 import pdf2image
-import io
-from typing import Dict, List, Any
-import PyPDF2
+from typing import Dict, Any
+from pypdf import PdfReader
 import pdfplumber
 
 
@@ -23,6 +21,8 @@ class OCRProcessor:
             "hasScannedContent": False,
             "textDetected": False,
             "ocrConfidence": 0,
+            "totalPages": 0,
+            "isEncrypted": False,
             "issues": [],
         }
 
@@ -37,6 +37,23 @@ class OCRProcessor:
             Dictionary with OCR detection results
         """
         try:
+            total_pages = 0
+            is_encrypted = False
+
+            try:
+                reader = PdfReader(pdf_path)
+                is_encrypted = reader.is_encrypted
+
+                if is_encrypted:
+                    try:
+                        reader.decrypt("")
+                    except Exception as decrypt_error:
+                        print(f"[OCR] Info: Could not decrypt PDF metadata: {decrypt_error}")
+
+                total_pages = len(reader.pages)
+            except Exception as metadata_error:
+                print(f"[OCR] Info: Could not read PDF metadata with pypdf: {metadata_error}")
+
             with pdfplumber.open(pdf_path) as pdf:
                 pages_with_text = 0
                 pages_with_images = 0
@@ -106,6 +123,8 @@ class OCRProcessor:
                 self.ocr_results["textDetected"] = text_detected
                 self.ocr_results["ocrConfidence"] = round(ocr_confidence, 2)
                 self.ocr_results["issues"] = []
+                self.ocr_results["totalPages"] = total_pages
+                self.ocr_results["isEncrypted"] = is_encrypted
                 
                 # Add issues if scanned content detected
                 if has_scanned:
@@ -133,6 +152,8 @@ class OCRProcessor:
             self.ocr_results["hasScannedContent"] = False
             self.ocr_results["textDetected"] = True
             self.ocr_results["ocrConfidence"] = 0
+            self.ocr_results["totalPages"] = 0
+            self.ocr_results["isEncrypted"] = False
             self.ocr_results["issues"] = [{
                 "type": "ocr_error",
                 "severity": "low",
@@ -149,4 +170,6 @@ class OCRProcessor:
             "textDetected": self.ocr_results["textDetected"],
             "confidence": self.ocr_results["ocrConfidence"],
             "issueCount": len(self.ocr_results["issues"]),
+            "totalPages": self.ocr_results["totalPages"],
+            "isEncrypted": self.ocr_results["isEncrypted"],
         }
