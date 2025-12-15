@@ -158,8 +158,21 @@
     }
   },
   "fixes": {
-    "automated": [],
-    "estimatedTime": 55,
+    "automated": [
+      {
+        "action": "Enhance RoleMap mappings for accessibility",
+        "category": "structure",
+        "description": "Enhance RoleMap mappings for accessibility",
+        "estimatedTime": 1,
+        "fixType": "fixRoleMap",
+        "location": {
+          "missingMappings": 45
+        },
+        "severity": "medium",
+        "title": "Enhance RoleMap mappings"
+      }
+    ],
+    "estimatedTime": 56,
     "manual": [
       {
         "action": "Fix contrast for 2 element(s)",
@@ -286,6 +299,188 @@
       }
     ],
     "readingOrderIssues": [],
+    "roleMapMissingMappings": [
+      {
+        "from": "/Annotation",
+        "to": "/Span"
+      },
+      {
+        "from": "/Annotations",
+        "to": "/Span"
+      },
+      {
+        "from": "/Comment",
+        "to": "/Note"
+      },
+      {
+        "from": "/Highlight",
+        "to": "/Span"
+      },
+      {
+        "from": "/Underline",
+        "to": "/Span"
+      },
+      {
+        "from": "/StrikeOut",
+        "to": "/Span"
+      },
+      {
+        "from": "/Artifact",
+        "to": "/NonStruct"
+      },
+      {
+        "from": "/Artifacts",
+        "to": "/NonStruct"
+      },
+      {
+        "from": "/Background",
+        "to": "/NonStruct"
+      },
+      {
+        "from": "/Decoration",
+        "to": "/NonStruct"
+      },
+      {
+        "from": "/Watermark",
+        "to": "/NonStruct"
+      },
+      {
+        "from": "/PageNumber",
+        "to": "/NonStruct"
+      },
+      {
+        "from": "/Header",
+        "to": "/NonStruct"
+      },
+      {
+        "from": "/Footer",
+        "to": "/NonStruct"
+      },
+      {
+        "from": "/Chart",
+        "to": "/Figure"
+      },
+      {
+        "from": "/Graph",
+        "to": "/Figure"
+      },
+      {
+        "from": "/Diagram",
+        "to": "/Figure"
+      },
+      {
+        "from": "/Illustration",
+        "to": "/Figure"
+      },
+      {
+        "from": "/Image",
+        "to": "/Figure"
+      },
+      {
+        "from": "/Photo",
+        "to": "/Figure"
+      },
+      {
+        "from": "/Heading",
+        "to": "/H"
+      },
+      {
+        "from": "/Subheading",
+        "to": "/H"
+      },
+      {
+        "from": "/Title",
+        "to": "/H1"
+      },
+      {
+        "from": "/Subtitle",
+        "to": "/H2"
+      },
+      {
+        "from": "/Text",
+        "to": "/P"
+      },
+      {
+        "from": "/Paragraph",
+        "to": "/P"
+      },
+      {
+        "from": "/Body",
+        "to": "/P"
+      },
+      {
+        "from": "/Content",
+        "to": "/Div"
+      },
+      {
+        "from": "/TableHeader",
+        "to": "/TH"
+      },
+      {
+        "from": "/TableData",
+        "to": "/TD"
+      },
+      {
+        "from": "/TableCell",
+        "to": "/TD"
+      },
+      {
+        "from": "/Row",
+        "to": "/TR"
+      },
+      {
+        "from": "/ListItem",
+        "to": "/LI"
+      },
+      {
+        "from": "/BulletList",
+        "to": "/L"
+      },
+      {
+        "from": "/NumberedList",
+        "to": "/L"
+      },
+      {
+        "from": "/Section",
+        "to": "/Sect"
+      },
+      {
+        "from": "/Chapter",
+        "to": "/Part"
+      },
+      {
+        "from": "/Article",
+        "to": "/Art"
+      },
+      {
+        "from": "/FormField",
+        "to": "/Form"
+      },
+      {
+        "from": "/TextField",
+        "to": "/Form"
+      },
+      {
+        "from": "/CheckBox",
+        "to": "/Form"
+      },
+      {
+        "from": "/RadioButton",
+        "to": "/Form"
+      },
+      {
+        "from": "/PushButton",
+        "to": "/Form"
+      },
+      {
+        "from": "/Math",
+        "to": "/Formula"
+      },
+      {
+        "from": "/Equation",
+        "to": "/Formula"
+      }
+    ],
     "structureIssues": [],
     "tableIssues": [],
     "untaggedContent": [],
