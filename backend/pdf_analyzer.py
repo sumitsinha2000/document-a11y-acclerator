@@ -53,6 +53,7 @@ except ImportError:
 
 from backend.utils.compliance_scoring import derive_wcag_score
 from backend.utils.issue_registry import IssueRegistry
+from backend.pdf_structure_standards import COMMON_ROLEMAP_MAPPINGS
 
 # PDF/A validation is intentionally disabled; the analyzer now focuses on WCAG 2.1 and PDF/UA-1.
 
@@ -96,6 +97,7 @@ class PDFAccessibilityAnalyzer:
             "has_struct_tree": None,
             "tables_reviewed": None,
         }
+        self._rolemap_missing_mappings: List[Dict[str, str]] = []
         
         self.pdf_extract_kit = None
         if PDF_EXTRACT_KIT_AVAILABLE:
@@ -134,6 +136,7 @@ class PDFAccessibilityAnalyzer:
             "pdfuaIssues": [],
             "pdfaIssues": [],
         }
+        self._rolemap_missing_mappings = []
 
     def _metadata_text(self, value: Any) -> Optional[str]:
         """Return a clean metadata string or None if value is invalid."""
@@ -461,6 +464,7 @@ class PDFAccessibilityAnalyzer:
             
             self._analyze_with_pypdf2(pdf_path)
             self._analyze_with_pdfplumber(pdf_path)
+            self._detect_rolemap_mapping_gaps(pdf_path)
             self._analyze_contrast_basic(pdf_path)
             
             if self.wcag_validator_available:
@@ -482,6 +486,8 @@ class PDFAccessibilityAnalyzer:
         
         self._consolidate_poor_contrast_issues()
         results = self._canonicalize_and_attach_issue_ids()
+        if self._rolemap_missing_mappings:
+            results["roleMapMissingMappings"] = self._rolemap_missing_mappings
         self.issues = results
         canonical_count = len(results.get("issues", [])) if isinstance(results, dict) else 0
         print(f"[Analyzer] Analysis complete, found {canonical_count} canonical issues")
@@ -754,6 +760,49 @@ class PDFAccessibilityAnalyzer:
         except Exception as e:
             print(f"[Analyzer] Error in pdfplumber analysis: {e}")
             self._record_analysis_error(e)
+
+    def _detect_rolemap_mapping_gaps(self, pdf_path: str) -> None:
+        """Detect missing or non-standard RoleMap mappings without mutating the PDF."""
+        if not PIKEPDF_AVAILABLE or not pikepdf:
+            return
+
+        pdf_doc = None
+        try:
+            pdf_doc = pikepdf.open(pdf_path)
+            struct_root = getattr(pdf_doc.Root, "StructTreeRoot", None)
+            if not struct_root:
+                return
+
+            role_map = getattr(struct_root, "RoleMap", None)
+            missing_mappings: List[Dict[str, str]] = []
+            if role_map is None:
+                missing_mappings = [
+                    {"from": custom, "to": standard}
+                    for custom, standard in COMMON_ROLEMAP_MAPPINGS.items()
+                ]
+            else:
+                normalized_map: Dict[str, str] = {}
+                try:
+                    for key, value in role_map.items():
+                        normalized_map[str(key)] = str(value)
+                except Exception:
+                    normalized_map = {}
+
+                for custom, standard in COMMON_ROLEMAP_MAPPINGS.items():
+                    mapped_value = normalized_map.get(custom)
+                    if mapped_value is None or mapped_value != standard:
+                        missing_mappings.append({"from": custom, "to": standard})
+
+            if missing_mappings:
+                self._rolemap_missing_mappings = missing_mappings
+        except Exception as exc:
+            print(f"[Analyzer] Could not inspect RoleMap mappings: {exc}")
+        finally:
+            if pdf_doc is not None:
+                try:
+                    pdf_doc.close()
+                except Exception:
+                    pass
 
     def _collect_missing_alt_text_issues(
         self,

@@ -321,6 +321,22 @@ def generate_fix_suggestions(issues):
         })
         estimated_time += 1
     
+    rolemap_missing = issues.get("roleMapMissingMappings") or issues.get("roleMapIssues")
+    if rolemap_missing:
+        missing_count = len(rolemap_missing) if isinstance(rolemap_missing, (list, tuple, set)) else 1
+        automated.append({
+            "id": "fix-rolemap-1",
+            "title": "Enhance RoleMap mappings",
+            "description": "Enhance RoleMap mappings for accessibility",
+            "action": "Enhance RoleMap mappings for accessibility",
+            "severity": "medium",
+            "estimatedTime": 1,
+            "category": "structure",
+            "fixType": "fixRoleMap",
+            "location": {"missingMappings": missing_count}
+        })
+        estimated_time += 1
+    
     # Semi-automated fixes (require some user input)
     if not wcag_missing_alt_reported and issues.get("missingAltText") and len(issues["missingAltText"]) > 0:
         # WCAGValidator controls missingAltText so these fixes only appear when 1.1.1 fails.

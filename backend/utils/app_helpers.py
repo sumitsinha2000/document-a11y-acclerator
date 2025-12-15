@@ -33,6 +33,7 @@ from backend.fix_progress_tracker import (
     get_progress_tracker,
     schedule_tracker_cleanup,
 )
+from backend.utils.fix_traceability import count_successful_fixes
 from backend.utils.wcag_mapping import annotate_wcag_mappings, CATEGORY_CRITERIA_MAP
 from backend.utils.criteria_summary import build_criteria_summary
 from backend.utils.compliance_scoring import derive_wcag_score
@@ -685,6 +686,10 @@ def save_scan_to_db(
 def _is_skipped_fix_entry(fix: Any) -> bool:
     if not isinstance(fix, dict):
         return False
+    if fix.get("skipHistory"):
+        return True
+    if fix.get("implicit"):
+        return False
     if fix.get("skipped") is True:
         return True
     success_flag = fix.get("success")
@@ -703,16 +708,7 @@ def _filter_skipped_fixes(fixes: Any) -> List[Dict[str, Any]]:
 
 
 def _count_successful_fix_entries(fixes: Any) -> int:
-    if not isinstance(fixes, list):
-        return 0
-    count = 0
-    for fix in fixes:
-        if isinstance(fix, dict):
-            if fix.get("success", True) is not False:
-                count += 1
-        else:
-            count += 1
-    return count
+    return count_successful_fixes(fixes)
 
 
 def save_fix_history(
@@ -1758,10 +1754,7 @@ def _perform_automated_fix(
         raw_fixes_applied = result.get("fixesApplied") or []
         filtered_fixes_applied = _filter_skipped_fixes(raw_fixes_applied)
         result["fixesApplied"] = filtered_fixes_applied
-        successful_fixes = [
-            fix for fix in filtered_fixes_applied if fix.get("success", True) is not False
-        ]
-        success_count = len(successful_fixes)
+        success_count = count_successful_fixes(filtered_fixes_applied)
         skipped_fix_count = max(len(raw_fixes_applied) - len(filtered_fixes_applied), 0)
 
         scan_results_payload = result.get("scanResults")
