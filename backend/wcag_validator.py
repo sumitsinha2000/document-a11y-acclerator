@@ -15,6 +15,11 @@ import re
 import pdfplumber
 from pdfplumber.utils.geometry import get_bbox_overlap
 
+from backend.navigation_aid_checker import (
+    check_navigation_aids,
+    get_navigation_page_threshold,
+)
+
 logger = logging.getLogger(__name__)
 GENERIC_LINK_TEXTS = {"click here", "here", "link"}
 
@@ -614,6 +619,8 @@ class WCAGValidator:
         self._role_map_cache = None
         self._role_map_cache_initialized = False
         self._page_drawn_image_cache: Dict[str, Set[str]] = {}
+        self.navigation_aid_result: Optional[Dict[str, Any]] = None
+        self.navigation_page_threshold = get_navigation_page_threshold()
     
     def _get_role_map(self):
         """Return the PDF RoleMap dictionary, caching when possible."""
@@ -904,6 +911,7 @@ class WCAGValidator:
             self._validate_reading_order()
             self._validate_sensory_characteristics()
             self._validate_bypass_blocks()
+            self._validate_multiple_ways()
             self._validate_alternative_text()
             self._validate_table_structure()
             self._validate_heading_hierarchy()
@@ -929,7 +937,8 @@ class WCAGValidator:
                     'wcagIssues': len(self.issues['wcag']),
                     'pdfuaIssues': len(self.issues['pdfua']),
                     'validated': True
-                }
+                },
+                'navigationAidCheck': self.navigation_aid_result,
             }
             
             logger.info(f"[WCAGValidator] Validation complete: {results['summary']['totalIssues']} issues found")
@@ -1339,6 +1348,47 @@ class WCAGValidator:
             self.wcag_compliance["A"] = False
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating bypass blocks: {str(e)}")
+
+    def _validate_multiple_ways(self):
+        """Validate WCAG 2.4.5 (Multiple Ways) - Level AA."""
+        pdf_path = getattr(self, "pdf_path", None)
+        if not pdf_path:
+            return
+
+        try:
+            result = check_navigation_aids(
+                pdf_path,
+                length_threshold=self.navigation_page_threshold,
+            )
+            self.navigation_aid_result = result
+        except Exception as exc:
+            logger.debug("[WCAGValidator] Navigation aid check skipped: %s", exc)
+            return
+
+        if result.get("status") != "FAIL":
+            return
+
+        aids = result.get("navigation_aids") or {}
+        context = (
+            "pages={pages}; outline={outline}; toc_links={toc}; page_labels={labels}"
+        ).format(
+            pages=result.get("page_count"),
+            outline="yes" if aids.get("outline") else "no",
+            toc="yes" if aids.get("table_of_contents_links") else "no",
+            labels="yes" if aids.get("page_labels") else "no",
+        )
+
+        self._add_wcag_issue(
+            "Long PDFs (over {threshold} pages) must expose bookmarks, an internal table of contents, or page labels."
+            .format(threshold=self.navigation_page_threshold),
+            "2.4.5",
+            "AA",
+            "high",
+            "Add at least one navigation aid (outline/bookmarks, TOC links, or page labels) so users have multiple ways to locate content.",
+            page=1,
+            context=context,
+        )
+        self.wcag_compliance["AA"] = False
 
     def _has_navigation_entry_point(self) -> bool:
         """Return True if the document exposes an entry point that satisfies WCAG 2.4.1."""

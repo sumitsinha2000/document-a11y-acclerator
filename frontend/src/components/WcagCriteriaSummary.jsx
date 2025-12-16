@@ -48,6 +48,11 @@ const WCAG_CRITERIA_DETAILS = {
     level: "AA",
     summary: "Ensure link text or alternative descriptions clearly explain the destination.",
   },
+  "2.4.5": {
+    name: "Multiple Ways",
+    level: "AA",
+    summary: "Provide bookmarks, internal TOC links, or page labels so long PDFs offer alternate navigation paths.",
+  },
   "2.4.6": {
     name: "Headings and Labels",
     level: "AA",
@@ -80,6 +85,7 @@ const WCAG_ORDER = [
   "2.4.1",
   "2.4.2",
   "2.4.4",
+  "2.4.5",
   "2.4.6",
   "3.1.1",
   "3.3.2",

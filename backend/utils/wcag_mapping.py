@@ -52,6 +52,11 @@ WCAG_CRITERIA_DETAILS: Dict[str, Dict[str, str]] = {
         "level": "AA",
         "summary": "Ensure link text, tooltips, or alt descriptions clearly explain the target destination.",
     },
+    "2.4.5": {
+        "name": "Multiple Ways",
+        "level": "AA",
+        "summary": "Long documents must expose bookmarks, internal TOC links, or page labels so users have alternate navigation paths.",
+    },
     "2.4.6": {
         "name": "Headings and Labels",
         "level": "AA",

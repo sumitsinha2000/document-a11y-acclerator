@@ -1531,6 +1531,9 @@ class PDFAccessibilityAnalyzer:
             validation_results = validator.validate()
             
             print(f"[Analyzer] Validation complete. Results keys: {list(validation_results.keys())}")
+            navigation_check = validation_results.get("navigationAidCheck")
+            if navigation_check is not None:
+                self.issues["navigationAidCheck"] = navigation_check
             
             # Merge WCAG issues
             if validation_results.get("wcagIssues"):
