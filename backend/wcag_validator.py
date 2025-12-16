@@ -902,6 +902,7 @@ class WCAGValidator:
             self._validate_document_title()
             self._validate_structure_tree()
             self._validate_reading_order()
+            self._validate_sensory_characteristics()
             self._validate_bypass_blocks()
             self._validate_alternative_text()
             self._validate_table_structure()
@@ -1238,6 +1239,88 @@ class WCAGValidator:
                 
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating reading order: {str(e)}")
+
+    def _validate_sensory_characteristics(self):
+        """Validate WCAG 1.3.3 (Sensory Characteristics) with simple text heuristics."""
+        try:
+            color_terms = "(?:red|green|blue|yellow|orange|purple|pink|brown|black|white|gray|grey|silver|gold)"
+            direction_terms = "(?:above|below|left|right|top|bottom|upper|lower|next to|on the left|on the right|in the corner)"
+            shape_terms = "(?:circle|square|triangle|diamond|star|arrow|box|icon|symbol|dot|marker|line|bar|bubble)"
+            cue_verbs = "(?:see|refer to|look at|click|select|press|choose|use|follow|notice)"
+
+            pattern_flags = re.IGNORECASE | re.DOTALL
+            patterns = [
+                re.compile(rf"\b{cue_verbs}\b.*?\b{color_terms}\b.*?\b{direction_terms}\b", pattern_flags),
+                re.compile(rf"\b{cue_verbs}\b.*?\b{shape_terms}\b.*?\b{direction_terms}\b", pattern_flags),
+                re.compile(rf"\b{shape_terms}\b.*?\b{direction_terms}\b", pattern_flags),
+                re.compile(rf"\b{direction_terms}\b.*?\b{shape_terms}\b", pattern_flags),
+                re.compile(rf"\b{color_terms}\b.*?\b{direction_terms}\b", pattern_flags),
+                re.compile(r"\bcolor[-\s]?coded\b", pattern_flags),
+                re.compile(rf"\b{cue_verbs}\b.*?\b{color_terms}\b", pattern_flags),
+            ]
+
+            seen_snippets = set()
+            findings = 0
+            max_findings = 20
+
+            with pdfplumber.open(self.pdf_path) as document:
+                for page_num, page in enumerate(document.pages, 1):
+                    try:
+                        text = page.extract_text() or ""
+                    except Exception:
+                        text = ""
+
+                    if not text:
+                        try:
+                            words = page.extract_words()
+                        except Exception:
+                            words = []
+                        if words:
+                            text = " ".join(
+                                str(word.get("text") or "").strip()
+                                for word in words
+                                if word.get("text")
+                            )
+
+                    normalized = " ".join(str(text or "").split())
+                    if not normalized:
+                        continue
+
+                    for pattern in patterns:
+                        if findings >= max_findings:
+                            break
+                        for match in pattern.finditer(normalized):
+                            snippet = self._clean_text_snippet(match.group(0), limit=140)
+                            if not snippet:
+                                continue
+                            key = (page_num, snippet.lower())
+                            if key in seen_snippets:
+                                continue
+                            seen_snippets.add(key)
+
+                            self._add_wcag_issue(
+                                f"Text on page {page_num} may rely on sensory cues like color, shape, or position.",
+                                '1.3.3',
+                                'A',
+                                'medium',
+                                'Provide instructions that do not rely solely on color, shape, or location; include text labels or numbering that work for non-visual users.',
+                                page=page_num,
+                                context=snippet,
+                            )
+                            findings += 1
+                            if findings >= max_findings:
+                                break
+
+                    if findings >= max_findings:
+                        break
+
+            if seen_snippets:
+                self.wcag_compliance['A'] = False
+                self.wcag_compliance['AA'] = False
+                self.wcag_compliance['AAA'] = False
+
+        except Exception as e:
+            logger.error(f"[WCAGValidator] Error validating sensory characteristics: {str(e)}")
 
     def _validate_bypass_blocks(self):
         """Validate WCAG 2.4.1 (Bypass Blocks) - Level A."""
@@ -2660,7 +2743,7 @@ class WCAGValidator:
     
     def _calculate_wcag_score(self) -> int:
         """Calculate WCAG compliance score (0-100)."""
-        total_checks = 16  # Total number of WCAG checks performed
+        total_checks = 17  # Total number of WCAG checks performed
         failed_checks = len(self.issues['wcag'])
         passed_checks = total_checks - min(failed_checks, total_checks)
         return int((passed_checks / total_checks) * 100)

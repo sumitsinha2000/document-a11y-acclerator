@@ -17,6 +17,11 @@ const WCAG_CRITERIA_DETAILS = {
     level: "A",
     summary: "Ensure reading order preserves intended meaning.",
   },
+  "1.3.3": {
+    name: "Sensory Characteristics",
+    level: "A",
+    summary: "Instructions cannot rely only on color, shape, size, visual location, or sound.",
+  },
   "1.4.3": {
     name: "Contrast (Minimum)",
     level: "AA",
@@ -69,6 +74,7 @@ const WCAG_ORDER = [
   "1.1.1",
   "1.3.1",
   "1.3.2",
+  "1.3.3",
   "1.4.3",
   "1.4.6",
   "2.4.1",

@@ -22,6 +22,11 @@ WCAG_CRITERIA_DETAILS: Dict[str, Dict[str, str]] = {
         "level": "A",
         "summary": "Ensure reading order preserves intended meaning.",
     },
+    "1.3.3": {
+        "name": "Sensory Characteristics",
+        "level": "A",
+        "summary": "Instructions must not rely solely on color, shape, size, visual location, or sound cues.",
+    },
     "1.4.3": {
         "name": "Contrast (Minimum)",
         "level": "AA",
