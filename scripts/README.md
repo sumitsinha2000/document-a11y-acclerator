@@ -5,6 +5,7 @@ Complete PostgreSQL database schema creation scripts for the Document A11y Accel
 ## 📋 Overview
 
 These scripts create a complete database schema with:
+
 - 8 tables across 2 schemas (public, neon_auth)
 - Foreign key relationships
 - Indexes for performance optimization
@@ -13,11 +14,15 @@ These scripts create a complete database schema with:
 - Views for data aggregation
 - Sample seed data (optional)
 
+## PDF Parser Note
+
+The backend scanning pipeline has completed its migration from `PyPDF2` to `pypdf`, so any supplemental tooling or scripts referencing PDF metadata should assume the modern `pypdf` APIs used across the codebase.
+
 ## 🚀 Quick Start
 
 ### Option 1: Run All Scripts in Order
 
-\`\`\`bash
+```bash
 # Navigate to scripts directory
 cd scripts
 
@@ -32,11 +37,11 @@ psql -U your_username -d your_database -f 07_create_functions.sql
 psql -U your_username -d your_database -f 08_seed_data.sql
 psql -U your_username -d your_database -f 09_grants_and_permissions.sql
 psql -U your_username -d your_database -f 10_verify_schema.sql
-\`\`\`
+```
 
 ### Option 2: Run All Scripts at Once
 
-\`\`\`bash
+```bash
 # Create a master script
 cat 01_*.sql 02_*.sql 03_*.sql 04_*.sql 05_*.sql 06_*.sql 07_*.sql 08_*.sql 09_*.sql > complete_setup.sql
 
@@ -45,11 +50,11 @@ psql -U your_username -d your_database -f complete_setup.sql
 
 # Verify the setup
 psql -U your_username -d your_database -f 10_verify_schema.sql
-\`\`\`
+```
 
 ### Option 3: Using Docker
 
-\`\`\`bash
+```bash
 # Start PostgreSQL container
 docker run --name doc-a11y-db \
   -e POSTGRES_PASSWORD=your_password \
@@ -64,70 +69,87 @@ sleep 5
 for script in scripts/*.sql; do
   docker exec -i doc-a11y-db psql -U postgres -d doc_a11y_accelerator < "$script"
 done
-\`\`\`
+```
 
 ## 📁 Script Descriptions
 
 ### 01_create_schemas.sql
+
 Creates the `public` and `neon_auth` schemas.
 
 ### 02_create_auth_tables.sql
+
 Creates the `users_sync` table in the `neon_auth` schema for user authentication.
 
 ### 03_create_core_tables.sql
+
 Creates core tables:
+
 - `groups` - Organizational groups
 - `batches` - Batch upload tracking
 - `scans` - Individual document scans (immutable initial data)
 
 ### 04_create_fix_history_table.sql
+
 Creates the `fix_history` table that stores all fix operations applied to documents.
 
 ### 05_create_notes_tables.sql
+
 Creates notes-related tables with Row Level Security:
+
 - `notes` - User notes
 - `paragraphs` - Note paragraphs
 
 ### 06_create_views.sql
+
 Creates the `scan_current_state` view that combines initial scan data with latest fixes.
 
 ### 07_create_functions.sql
+
 Creates functions and triggers:
+
 - `update_updated_at_column()` - Auto-update timestamps
 - `update_batch_statistics()` - Auto-update batch stats
 - `update_group_file_count()` - Auto-update group file counts
 
 ### 08_seed_data.sql
+
 Optional seed data for testing purposes.
 
 ### 09_grants_and_permissions.sql
+
 Sets up database permissions and grants.
 
 ### 10_verify_schema.sql
+
 Verification queries to check the database setup.
 
 ## 🔑 Key Features
 
 ### Foreign Key Relationships
-\`\`\`
+
+```markdown
 groups (1) ──→ (many) batches
 groups (1) ──→ (many) scans
 batches (1) ──→ (many) scans
 scans (1) ──→ (many) fix_history
 notes (1) ──→ (many) paragraphs
-\`\`\`
+```
 
 ### Automatic Updates
+
 - Timestamps auto-update on record changes
 - Batch statistics auto-calculate from scan data
 - Group file counts auto-update when scans are added/removed
 
 ### Row Level Security (RLS)
+
 - Users can only access their own notes
 - Shared notes are accessible to all users
 - Policies enforce data isolation
 
 ### Performance Optimization
+
 - Indexes on foreign keys
 - Indexes on frequently queried columns
 - GIN indexes on JSONB columns for fast JSON queries
@@ -136,7 +158,7 @@ notes (1) ──→ (many) paragraphs
 
 After running all scripts, verify the setup:
 
-\`\`\`sql
+```sql
 -- Check all tables
 SELECT schemaname, tablename 
 FROM pg_tables 
@@ -154,7 +176,7 @@ SELECT schemaname, tablename, policyname
 FROM pg_policies 
 WHERE schemaname IN ('public', 'neon_auth')
 ORDER BY schemaname, tablename;
-\`\`\`
+```
 
 ## 🔧 Configuration
 
@@ -162,58 +184,61 @@ ORDER BY schemaname, tablename;
 
 Update your `.env` file with the database connection string:
 
-\`\`\`env
+```env
 NEON_DATABASE_URL=postgresql://username:password@localhost:5432/doc_a11y_accelerator
 NEON_DATABASE_URL=postgresql://username:password@localhost:5432/doc_a11y_accelerator
-\`\`\`
+```
 
 ### Connection String Format
 
-\`\`\`
+```markdown
 postgresql://[user]:[password]@[host]:[port]/[database]
-\`\`\`
+```
 
 ## 🛠️ Troubleshooting
 
 ### Issue: Permission Denied
 
-\`\`\`bash
+```bash
 # Grant superuser privileges
 psql -U postgres -c "ALTER USER your_username WITH SUPERUSER;"
-\`\`\`
+```
 
 ### Issue: Database Already Exists
 
-\`\`\`bash
+```bash
 # Drop and recreate database
 psql -U postgres -c "DROP DATABASE IF EXISTS doc_a11y_accelerator;"
 psql -U postgres -c "CREATE DATABASE doc_a11y_accelerator;"
-\`\`\`
+```
 
 ### Issue: Extension Not Found
 
-\`\`\`bash
+```bash
 # Install PostgreSQL contrib package
 # Ubuntu/Debian
 sudo apt-get install postgresql-contrib
 
 # macOS
 brew install postgresql
-\`\`\`
+```
 
 ## 📊 Data Architecture
 
 ### Initial Scan Flow
+
 1. Document uploaded → `groups` table
 2. Batch created → `batches` table
 3. Document scanned → `scans` table (immutable initial data)
 
 ### Fix Application Flow
+
 1. Fixes applied → `fix_history` table (new record for each fix)
 2. View updated → `scan_current_state` view (auto-updates)
 3. Batch stats updated → `batches` table (via trigger)
 
 ### Current State Access
+
 - Always read from `scan_current_state` view
 - View combines initial scan + latest fix data
 - Provides real-time current state without modifying original data

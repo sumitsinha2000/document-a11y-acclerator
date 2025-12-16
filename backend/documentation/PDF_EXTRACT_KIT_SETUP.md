@@ -93,7 +93,7 @@ The backend automatically detects PDF-Extract-Kit availability:
   - Better image and alt text detection
   - Layout analysis and element positioning
 
-- **When Not Available**: Falls back to PyPDF2 + pdfplumber
+- **When Not Available**: Falls back to pypdf + pdfplumber
   - Basic metadata and structure checks
   - Simple table and image detection
   - Form field detection via annotations

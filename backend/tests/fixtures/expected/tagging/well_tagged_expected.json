@@ -1,0 +1,415 @@
+{
+  "criteriaSummary": {
+    "pdfua": {
+      "items": [
+        {
+          "code": "ISO 14289-1:7.1",
+          "issueCount": 2,
+          "issues": [
+            {
+              "category": "pdfua",
+              "clause": "ISO 14289-1:7.1",
+              "criterion": null,
+              "description": "Document lacks ViewerPreferences dictionary",
+              "pages": [],
+              "severity": "medium"
+            },
+            {
+              "category": "metadata",
+              "clause": "ISO 14289-1:7.1",
+              "criterion": null,
+              "description": "Document lacks metadata stream",
+              "pages": [],
+              "severity": "high"
+            }
+          ],
+          "level": null,
+          "name": "Document Identification",
+          "status": "doesNotSupport",
+          "summary": "Metadata, tagging, and document title requirements."
+        },
+        {
+          "code": "ISO 14289-1:7.18",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Forms & Alt Text",
+          "status": "supports",
+          "summary": "Interactive elements need names and alternative text."
+        },
+        {
+          "code": "ISO 14289-1:7.18.1",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Annotations",
+          "status": "supports",
+          "summary": "Annotations require Contents text for assistive tech."
+        },
+        {
+          "code": "ISO 14289-1:7.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Structure Tree",
+          "status": "supports",
+          "summary": "Structure element semantics, RoleMap, and reading order."
+        },
+        {
+          "code": "ISO 14289-1:7.3",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Artifacts",
+          "status": "supports",
+          "summary": "Artifacts must be separate from tagged content."
+        },
+        {
+          "code": "ISO 14289-1:7.4",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Headings",
+          "status": "supports",
+          "summary": "Heading hierarchy and nesting rules."
+        },
+        {
+          "code": "ISO 14289-1:7.5",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Tables",
+          "status": "supports",
+          "summary": "Tables require header associations and structure."
+        }
+      ],
+      "statusCounts": {
+        "doesNotSupport": 1,
+        "partiallySupports": 0,
+        "supports": 6
+      }
+    },
+    "wcag": {
+      "items": [
+        {
+          "code": "1.1.1",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Non-text Content",
+          "status": "supports",
+          "summary": "Provide text alternatives for non-text content."
+        },
+        {
+          "code": "1.3.1",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Info and Relationships",
+          "status": "supports",
+          "summary": "Preserve semantics so assistive technology can convey relationships."
+        },
+        {
+          "code": "1.3.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Meaningful Sequence",
+          "status": "supports",
+          "summary": "Ensure reading order preserves intended meaning."
+        },
+        {
+          "code": "1.4.3",
+          "issueCount": 1,
+          "issues": [
+            {
+              "category": "contrast",
+              "clause": null,
+              "criterion": "1.4.3",
+              "description": "Document contrast requires manual review (No analyzable text color data found).",
+              "pages": [],
+              "severity": "info"
+            }
+          ],
+          "level": "AA",
+          "name": "Contrast (Minimum)",
+          "status": "doesNotSupport",
+          "summary": "Text/background contrast must be at least 4.5:1 for body text."
+        },
+        {
+          "code": "1.4.6",
+          "issueCount": 0,
+          "issues": [],
+          "level": "AAA",
+          "name": "Contrast (Enhanced)",
+          "status": "supports",
+          "summary": "Enhanced 7:1 contrast aids users with low vision."
+        },
+        {
+          "code": "2.4.1",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Bypass Blocks",
+          "status": "supports",
+          "summary": "Provide the ability to skip repeated content via clear headings or bookmarks."
+        },
+        {
+          "code": "2.4.2",
+          "issueCount": 1,
+          "issues": [
+            {
+              "category": "metadata",
+              "clause": null,
+              "criterion": "2.4.2",
+              "description": "Document metadata lacks dc:title entry",
+              "pages": [],
+              "severity": "high"
+            }
+          ],
+          "level": "A",
+          "name": "Page Titled",
+          "status": "doesNotSupport",
+          "summary": "Provide descriptive titles so users can identify content."
+        },
+        {
+          "code": "2.4.4",
+          "issueCount": 0,
+          "issues": [],
+          "level": "AA",
+          "name": "Link Purpose (In Context)",
+          "status": "supports",
+          "summary": "Ensure link text, tooltips, or alt descriptions clearly explain the target destination."
+        },
+        {
+          "code": "2.4.6",
+          "issueCount": 0,
+          "issues": [],
+          "level": "AA",
+          "name": "Headings and Labels",
+          "status": "supports",
+          "summary": "Use clear headings/labels for navigation."
+        },
+        {
+          "code": "3.1.1",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Language of Page",
+          "status": "supports",
+          "summary": "Declare the primary language for pronunciation support."
+        },
+        {
+          "code": "3.3.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Labels or Instructions",
+          "status": "supports",
+          "summary": "Provide instructions so users know required input."
+        },
+        {
+          "code": "4.1.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Name, Role, Value",
+          "status": "supports",
+          "summary": "Expose UI semantics programmatically."
+        }
+      ],
+      "statusCounts": {
+        "doesNotSupport": 2,
+        "partiallySupports": 0,
+        "supports": 10
+      }
+    }
+  },
+  "fixes": {
+    "automated": [
+      {
+        "action": "Add document metadata and title",
+        "category": "wcagIssues",
+        "criterion": "2.4.2",
+        "description": "Document metadata lacks dc:title entry",
+        "estimatedTime": 1,
+        "location": {
+          "criterion": "2.4.2"
+        },
+        "severity": "high",
+        "title": "Fix WCAG metadata issue"
+      },
+      {
+        "action": "Add required PDF/UA metadata and structure",
+        "category": "pdfuaIssues",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Document lacks metadata stream",
+        "estimatedTime": 1,
+        "location": {
+          "clause": "ISO 14289-1:7.1"
+        },
+        "severity": "high",
+        "title": "Fix PDF/UA structure issue"
+      },
+      {
+        "action": "Add required PDF/UA metadata and structure",
+        "category": "pdfuaIssues",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Document lacks ViewerPreferences dictionary",
+        "estimatedTime": 1,
+        "location": {
+          "clause": "ISO 14289-1:7.1"
+        },
+        "severity": "medium",
+        "title": "Fix PDF/UA structure issue"
+      }
+    ],
+    "estimatedTime": 8,
+    "manual": [
+      {
+        "action": "Fix contrast for 1 element(s)",
+        "category": "color",
+        "description": "Document contrast requires manual review (No analyzable text color data found).",
+        "estimatedTime": 5,
+        "instructions": "Modify text and background colors to achieve at least 4.5:1 contrast ratio",
+        "location": {
+          "count": 1,
+          "pages": []
+        },
+        "page": 1,
+        "pages": [],
+        "severity": "info",
+        "title": "Improve color contrast"
+      }
+    ],
+    "semiAutomated": []
+  },
+  "results": {
+    "formIssues": [],
+    "issues": [
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "criterion": null,
+        "description": "Document lacks ViewerPreferences dictionary",
+        "pages": [],
+        "pdfuaClause": "ISO 14289-1:7.1",
+        "rawSource": "pdfuaIssues",
+        "severity": "medium"
+      },
+      {
+        "category": "metadata",
+        "clause": "ISO 14289-1:7.1",
+        "criterion": null,
+        "description": "Document lacks metadata stream",
+        "pages": [],
+        "pdfuaClause": "ISO 14289-1:7.1",
+        "rawSource": "pdfuaIssues",
+        "severity": "high"
+      },
+      {
+        "category": "contrast",
+        "clause": null,
+        "criterion": "1.4.3",
+        "description": "Document contrast requires manual review (No analyzable text color data found).",
+        "meta": {
+          "count": 1
+        },
+        "pages": [],
+        "penaltyWeight": 0,
+        "rawSource": "poorContrast",
+        "severity": "info"
+      },
+      {
+        "category": "metadata",
+        "clause": null,
+        "criterion": "2.4.2",
+        "description": "Document metadata lacks dc:title entry",
+        "pages": [],
+        "rawSource": "wcagIssues",
+        "severity": "high"
+      }
+    ],
+    "linkIssues": [],
+    "missingAltText": [],
+    "missingLanguage": [],
+    "missingMetadata": [],
+    "pdfaIssues": [],
+    "pdfuaIssues": [
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Document lacks ViewerPreferences dictionary",
+        "remediation": "Add ViewerPreferences dictionary with DisplayDocTitle=true",
+        "severity": "medium",
+        "specification": "PDF/UA-1 (ISO 14289-1)"
+      },
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Document lacks metadata stream",
+        "remediation": "Add a metadata stream to the document catalog with PDF/UA Identification Schema",
+        "severity": "high",
+        "specification": "PDF/UA-1 (ISO 14289-1)"
+      },
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Document metadata lacks dc:title entry",
+        "remediation": "Add dc:title entry to document metadata stream",
+        "severity": "high",
+        "specification": "PDF/UA-1 (ISO 14289-1)"
+      }
+    ],
+    "poorContrast": [
+      {
+        "count": 1,
+        "description": "Document contrast requires manual review (No analyzable text color data found).",
+        "pages": [],
+        "penaltyWeight": 0,
+        "recommendation": "Manually verify that text meets WCAG 1.4.3/1.4.6 contrast thresholds.",
+        "severity": "info",
+        "wcagCriteria": "1.4.3 Contrast (Minimum) (Level AA) \u2013 Text/background contrast must be at least 4.5:1 for body text.; 1.4.6 Contrast (Enhanced) (Level AAA) \u2013 Enhanced 7:1 contrast aids users with low vision."
+      }
+    ],
+    "readingOrderIssues": [],
+    "structureIssues": [],
+    "tableIssues": [],
+    "untaggedContent": [],
+    "wcagIssues": [
+      {
+        "category": "wcag",
+        "criterion": "2.4.2",
+        "description": "Document metadata lacks dc:title entry",
+        "level": "A",
+        "remediation": "Add dc:title entry to document metadata stream",
+        "severity": "high",
+        "specification": "WCAG 2.1 Level A",
+        "wcagCriteria": "2.4.2 Page Titled (Level A) \u2013 Provide descriptive titles so users can identify content."
+      }
+    ]
+  },
+  "summary": {
+    "complianceScore": 80.21,
+    "highSeverity": 2,
+    "issuesRemaining": 4,
+    "issuesRemainingRaw": 4,
+    "mediumSeverity": 1,
+    "pdfuaCompliance": 70,
+    "remainingIssues": 4,
+    "totalIssues": 4,
+    "totalIssuesRaw": 4,
+    "wcagCompliance": 90.42,
+    "wcagLevels": {
+      "A": false,
+      "AA": true,
+      "AAA": true
+    }
+  },
+  "verapdfStatus": {
+    "isActive": true,
+    "pdfuaCompliance": 80,
+    "totalVeraPDFIssues": 4,
+    "wcagCompliance": 80
+  }
+}

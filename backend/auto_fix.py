@@ -1,17 +1,20 @@
 """
-Auto-Fix Module
-Provides automated remediation suggestions and fixes for accessibility issues
+Legacy Auto-Fix Module
+Provides automated remediation suggestions and fixes for accessibility issues.
+Retained for compatibility while the modern engine powers production flows.
 """
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import pikepdf
 from pathlib import Path
 import datetime
+from backend.fix_suggestions import generate_fix_suggestions
+from backend.utils.fix_traceability import FixTraceabilityFormatter
 
 
 class AutoFixEngine:
     """
-    Generates automated fixes and remediation suggestions for accessibility issues.
+    Legacy automated fix engine kept for compatibility/testing.
     Provides actionable steps to improve PDF accessibility.
     """
 
@@ -168,7 +171,9 @@ class AutoFixEngine:
 
         return fixes
 
-    def apply_automated_fixes(self, pdf_path: str) -> Dict[str, Any]:
+    def apply_automated_fixes(
+        self, pdf_path: str, scan_results: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Apply automated fixes to a PDF while preserving existing structure.
         Uses pikepdf for better PDF structure preservation.
@@ -202,6 +207,17 @@ class AutoFixEngine:
             output_filename = f"{original_name}_fixed_{timestamp}.pdf"
             output_path = input_path.parent / output_filename
 
+            suggestion_payload = {}
+            if scan_results:
+                try:
+                    suggestion_payload = generate_fix_suggestions(scan_results)
+                except Exception as exc:
+                    print(
+                        "[AutoFix] Warning: could not derive fix suggestions for traceability "
+                        f"- {exc}"
+                    )
+            formatter = FixTraceabilityFormatter(suggestion_payload)
+
             fixes_applied = []
 
             with pikepdf.open(pdf_path, allow_overwriting_input=True) as pdf:
@@ -210,19 +226,47 @@ class AutoFixEngine:
                     # Add metadata only if missing
                     if not meta.get("dc:title"):
                         meta["dc:title"] = original_name.replace("_", " ").title()
-                        fixes_applied.append("Added document title")
+                        fixes_applied.append(
+                            formatter.build_entry(
+                                "addTitle",
+                                "Added document title",
+                                success=True,
+                                extra={"metadataField": "title"},
+                            )
+                        )
 
                     if not meta.get("dc:creator"):
                         meta["dc:creator"] = ["Document Author"]
-                        fixes_applied.append("Added author information")
+                        fixes_applied.append(
+                            formatter.build_entry(
+                                "addMetadata",
+                                "Added author information",
+                                success=True,
+                                extra={"metadataField": "author"},
+                            )
+                        )
 
                     if not meta.get("dc:description"):
                         meta["dc:description"] = "Accessibility-enhanced document"
-                        fixes_applied.append("Added document description")
+                        fixes_applied.append(
+                            formatter.build_entry(
+                                "addMetadata",
+                                "Added document description",
+                                success=True,
+                                extra={"metadataField": "description"},
+                            )
+                        )
 
                     if not meta.get("pdf:Keywords"):
                         meta["pdf:Keywords"] = "accessible, PDF, document"
-                        fixes_applied.append("Added document keywords")
+                        fixes_applied.append(
+                            formatter.build_entry(
+                                "addMetadata",
+                                "Added document keywords",
+                                success=True,
+                                extra={"metadataField": "keywords"},
+                            )
+                        )
 
                     # Always update producer and modification date
                     meta["pdf:Producer"] = "PDF Accessibility Accelerator"
@@ -231,12 +275,24 @@ class AutoFixEngine:
                 # Set document language if not present
                 if "/Lang" not in pdf.Root:
                     pdf.Root.Lang = "en-US"
-                    fixes_applied.append("Set document language to en-US")
+                    fixes_applied.append(
+                        formatter.build_entry(
+                            "addLanguage",
+                            "Set document language to en-US",
+                            success=True,
+                        )
+                    )
                     print("[AutoFix] Set document language")
 
                 if "/MarkInfo" not in pdf.Root:
                     pdf.Root.MarkInfo = pikepdf.Dictionary(Marked=True)
-                    fixes_applied.append("Marked document as tagged")
+                    fixes_applied.append(
+                        formatter.build_entry(
+                            "markTagged",
+                            "Marked document as tagged",
+                            success=True,
+                        )
+                    )
                     print("[AutoFix] Marked document as tagged")
 
                 # Save with linearization for better compatibility

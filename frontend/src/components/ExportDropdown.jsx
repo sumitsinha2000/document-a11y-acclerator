@@ -11,7 +11,7 @@ import {
   UTF8_BOM,
 } from "../utils/exportUtils"
 
-export default function ExportDropdown({ scanId, filename, disabled = false }) {
+export default function ExportDropdown({ scanId, filename, disabled = false, exportPayload = null }) {
   const { showError } = useNotification()
   const CSV_MIME = "text/csv;charset=UTF-8"
 
@@ -49,6 +49,15 @@ export default function ExportDropdown({ scanId, filename, disabled = false }) {
     }
   }, [disabled])
 
+  const resolveDownloadName = (baseName, extension, defaultBase) => {
+    const fallback = defaultBase || "accessibility-report"
+    if (typeof baseName !== "string" || baseName.trim().length === 0) {
+      return `${fallback}.${extension}`
+    }
+    const withoutExtension = baseName.replace(/\.[^.]+$/, "")
+    return `${withoutExtension}.${extension}`
+  }
+
   const handleExport = async (format) => {
     if (disabled) {
       return
@@ -57,27 +66,33 @@ export default function ExportDropdown({ scanId, filename, disabled = false }) {
     setIsOpen(false)
 
     try {
+      if (!exportPayload) {
+        throw new Error("Export data is unavailable. Please refresh the dashboard and try again.")
+      }
+
+      const resolvedScanId = exportPayload.scanId || scanId
+
       if (format === "pdf") {
         const tzOffset = new Date().getTimezoneOffset()
-        const response = await axios.get(
-          `${API_BASE_URL}/api/export/${scanId}?format=pdf&tzOffset=${tzOffset}`,
-          { responseType: "blob" }
+        const response = await axios.post(
+          `${API_BASE_URL}/api/export/${resolvedScanId}?format=pdf&tzOffset=${tzOffset}`,
+          exportPayload,
+          { responseType: "blob" },
         )
         const blob = new Blob([response.data], { type: "application/pdf" })
-        const downloadName = `accessibility-report-${scanId}.pdf`
+        const baseFilename = exportPayload.filename || filename
+        const downloadName = resolveDownloadName(baseFilename, "pdf", `accessibility-report-${resolvedScanId}`)
         downloadFile(blob, downloadName)
         return
       }
 
-      const response = await axios.get(`${API_BASE_URL}/api/export/${scanId}`)
-      const data = response.data || {}
-
       if (format === "csv") {
         let csv = `${UTF8_BOM}Issue Category,Severity,Description,Pages,Recommendation,WCAG Criteria\n`
-        const results = data.results || {}
+        const results = exportPayload.results || {}
         Object.entries(results).forEach(([category, issues]) => {
-          issues.forEach((issue) => {
-            const severity = (issue.severity || "medium").toString()
+          const issueList = Array.isArray(issues) ? issues : []
+          issueList.forEach((issue) => {
+            const severity = (issue?.severity || "medium").toString()
             const description = buildDescriptionWithClause(issue)
             const pages = getIssuePagesText(issue)
             const recommendation = getIssueRecommendation(issue)
@@ -96,7 +111,10 @@ export default function ExportDropdown({ scanId, filename, disabled = false }) {
           })
         })
         const dataBlob = new Blob([csv], { type: CSV_MIME })
-        downloadFile(dataBlob, `accessibility-report-${scanId}.csv`)
+        const baseFilename = exportPayload.filename || filename
+        const downloadName = resolveDownloadName(baseFilename, "csv", `accessibility-report-${resolvedScanId}`)
+        downloadFile(dataBlob, downloadName)
+        return
       }
     } catch (error) {
       console.error(`Error exporting ${format}:`, error)

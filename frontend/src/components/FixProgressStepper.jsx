@@ -10,6 +10,8 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
   const [polling, setPolling] = useState(true)
   const [finalResultData, setFinalResultData] = useState(null)
   const hasCompletedRef = useRef(false)
+  const completionPayloadRef = useRef(null)
+  const cancelledRef = useRef(false)
   const dialogRef = useRef(null)
   const closeButtonRef = useRef(null)
   const previouslyFocusedElementRef = useRef(null)
@@ -70,6 +72,8 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
       setFinalResultData(null)
       setPolling(true)
       hasCompletedRef.current = false
+      completionPayloadRef.current = null
+      cancelledRef.current = false
     }
   }, [isOpen, scanId])
 
@@ -191,20 +195,14 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
             }
           }
 
-          if (progressData.status === "completed" || progressData.status === "failed") {
-            if (!hasCompletedRef.current) {
-              hasCompletedRef.current = true
-              setTimeout(() => {
-                console.log("[v0] FixProgressStepper: Calling onComplete with:", {
+            if (progressData.status === "completed" || progressData.status === "failed") {
+              if (!completionPayloadRef.current) {
+                completionPayloadRef.current = {
                   success: progressData.status === "completed",
                   resultData: latestResultData,
-                })
-                if (onComplete) {
-                  onComplete(progressData.status === "completed", latestResultData)
                 }
-              }, 2000)
+              }
             }
-          }
         }
       } catch (error) {
         console.error("[v0] Error polling progress:", error)
@@ -474,7 +472,29 @@ export default function FixProgressStepper({ scanId, isOpen, onClose, onComplete
               )}
             </div>
             <button
-              onClick={onClose}
+              onClick={() => {
+                if (progress.status === "completed") {
+                  if (!hasCompletedRef.current) {
+                    hasCompletedRef.current = true
+                    if (completionPayloadRef.current && onComplete) {
+                      onComplete(
+                        completionPayloadRef.current.success,
+                        completionPayloadRef.current.resultData,
+                      )
+                    }
+                  }
+                } else if (progress.status === "failed") {
+                  if (!hasCompletedRef.current) {
+                    hasCompletedRef.current = true
+                    cancelledRef.current = true
+                  }
+                } else {
+                  cancelledRef.current = true
+                }
+                if (onClose) {
+                  onClose()
+                }
+              }}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
             >
               {progress.status === "completed" ? "Done" : progress.status === "failed" ? "Close" : "Cancel"}

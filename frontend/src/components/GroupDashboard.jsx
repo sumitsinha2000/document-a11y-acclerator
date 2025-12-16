@@ -99,6 +99,7 @@ export default function GroupDashboard({
   const [isUploadAreaScanning, setUploadAreaScanning] = useState(false)
   const [shouldAutoOpenFileDialog, setShouldAutoOpenFileDialog] = useState(false)
   const [ariaLiveMessage, setAriaLiveMessage] = useState("")
+  const [autoOpenedBatchId, setAutoOpenedBatchId] = useState(null)
 
   const isFolderSelected = selectedNode?.type === "batch"
   const groupSummary = deriveGroupSummary(nodeData)
@@ -108,6 +109,57 @@ export default function GroupDashboard({
   const uploadAreaRef = useRef(null)
   const prevUploadSectionOpenRef = useRef(uploadSectionOpen)
   const sidebarRef = useRef(null)
+
+  const refreshSidebarTree = useCallback(async () => {
+    const refreshFn = sidebarRef.current?.refresh
+    if (refreshFn) {
+      await refreshFn()
+    }
+  }, [])
+
+  const describeStaleNode = useCallback((node) => {
+    if (!node) {
+      return "Selection"
+    }
+    const name =
+      node.data?.name ??
+      node.data?.folderName ??
+      node.data?.batchName ??
+      node.data?.groupName ??
+      node.data?.fileName ??
+      node.data?.filename ??
+      node.id ??
+      "Selection"
+    if (node.type === "group") {
+      return `Project "${name}"`
+    }
+    if (node.type === "batch") {
+      return `Folder "${name}"`
+    }
+    if (node.type === "file") {
+      return `File "${name}"`
+    }
+    return name
+  }, [])
+
+  const handleStaleSelection = useCallback(
+    async (node, statusCode) => {
+      if (!node || ![404, 410].includes(statusCode)) {
+        return false
+      }
+      const cacheKey = getCacheKey(node)
+      cacheRef.current.delete(cacheKey)
+      setSelectedNode(null)
+      setNodeData(null)
+      sidebarRef.current?.closeFolderView?.()
+      await refreshSidebarTree()
+      const label = describeStaleNode(node)
+      const reason = statusCode === 404 ? "was not found" : "is unavailable"
+      showSuccess(`${label} ${reason}; refreshed with the latest data.`)
+      return true
+    },
+    [refreshSidebarTree, describeStaleNode, showSuccess]
+  )
 
   const notifyFolderStatusUpdate = useCallback(
     (folderIdOverride, groupIdOverride) => {
@@ -267,6 +319,48 @@ export default function GroupDashboard({
       }
     }
   }, [shouldAutoOpenFileDialog, uploadSectionOpen])
+
+  useEffect(() => {
+    if (!nodeData || nodeData.type !== "batch") {
+      setAutoOpenedBatchId(null)
+      return
+    }
+    const batchId = nodeData.batchId ?? nodeData.folderId ?? selectedNode?.id
+    if (!batchId) {
+      setAutoOpenedBatchId(null)
+      return
+    }
+    const filesCount =
+      nodeData.file_count ??
+      nodeData.totalFiles ??
+      nodeData.total_files ??
+      (Array.isArray(nodeData.scans) ? nodeData.scans.length : 0)
+    const isEmpty = filesCount === 0
+
+    if (!isEmpty) {
+      setAutoOpenedBatchId(null)
+      return
+    }
+
+    if (uploadSectionOpen || isUploadAreaScanning) {
+      return
+    }
+
+    if (autoOpenedBatchId === batchId) {
+      return
+    }
+
+    setAutoOpenedBatchId(batchId)
+    onUploadRequest()
+    setShouldAutoOpenFileDialog(true)
+  }, [
+    nodeData,
+    selectedNode,
+    uploadSectionOpen,
+    isUploadAreaScanning,
+    autoOpenedBatchId,
+    onUploadRequest,
+  ])
 
   useEffect(() => {
     if (!folderNavigationContext?.folderId || !folderNavigationContext?.groupId) {
@@ -525,15 +619,8 @@ export default function GroupDashboard({
         const errorMsg = error.response?.data?.error || error.message
         const statusCode = error.response?.status
 
-        if (node.type === "group" && statusCode === 404) {
-          cacheRef.current.delete(cacheKey)
-          setSelectedNode(null)
-          setNodeData(null)
-          showError("Selected group is no longer available.")
-          return {
-            removedGroupId: node.id,
-            removedGroupName: node.data?.name,
-          }
+        if (await handleStaleSelection(node, statusCode)) {
+          return
         }
 
         const errorPrefix =
@@ -815,17 +902,19 @@ export default function GroupDashboard({
       </div>
       <div className="w-full flex h-full flex-col gap-6 px-4 py-6 lg:flex-row lg:items-start">
           <div className="w-full lg:max-w-sm flex-shrink-0">
-            <GroupTreeSidebar
-              ref={sidebarRef}
-              onNodeSelect={handleNodeSelect}
-              selectedNode={selectedNode}
-              onRefresh={loadInitialData}
-              initialGroupId={initialGroupId}
-              latestUploadContext={latestUploadContext}
-              onUploadContextAcknowledged={onUploadContextAcknowledged}
-              folderNavigationContext={folderNavigationContext}
-              folderStatusUpdateSignal={folderStatusSignal}
-            />
+        <GroupTreeSidebar
+          ref={sidebarRef}
+          onNodeSelect={handleNodeSelect}
+          selectedNode={selectedNode}
+          onRefresh={loadInitialData}
+          onDashboardRefresh={refreshSelectedNodeData}
+          onStaleNode={handleStaleSelection}
+          initialGroupId={initialGroupId}
+          latestUploadContext={latestUploadContext}
+          onUploadContextAcknowledged={onUploadContextAcknowledged}
+          folderNavigationContext={folderNavigationContext}
+          folderStatusUpdateSignal={folderStatusSignal}
+        />
         </div>
 
         <div className="flex-1 lg:min-w-0">

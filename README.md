@@ -29,8 +29,10 @@ The application features a **professional loading screen** that:
 - **Backend**: Python FastAPI, PDF Extract Kit
 - **Database**: Online PostgreSQL database
 - **Deployment**: Vercel
-- **PDF Processing**: PyPDF2 (moving to pypdf), pikepdf, pdfplumber
+- **PDF Processing**: pypdf (metadata/contrast/annotation), pikepdf, pdfplumber
 - **Validation**: Built-in WCAG 2.1 & PDF/UA-1 validator, veraPDF (optional)
+
+The backend and its pytest suites now fully depend on `pypdf` instead of the legacy `PyPDF2` package for metadata, annotation, and structure analysis, completing the migration referenced elsewhere in the repository.
 
 ## Quick Start
 
@@ -121,6 +123,14 @@ Notes:
 - The Accessible University regression (`alt_fallback`) is excluded by default via `pytest.ini`. Run it explicitly with `pytest -v -m alt_fallback --override-ini addopts=`.
 
 More details at [backend/tests/README.md](/backend/tests/README.md)
+
+### Snapshot fixtures
+
+Normalized analyzer payloads under `backend/tests/fixtures/expected/` keep the integration suites stable; the full workflow is documented in [backend/tests/fixtures/expected/README.md](backend/tests/fixtures/expected/README.md).
+
+- Refer to the above README to update snapshots
+
+- `python -m backend.tests.utils.dump_expected_snapshots --pdf <fixture>` for a single PDF. Always review the generated diffs before committing changes so regressions stay caught.
 
 ## Deployment
 

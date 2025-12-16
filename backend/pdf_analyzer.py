@@ -1,6 +1,6 @@
 """
 PDF Accessibility Analyzer Module
-Real implementation using PyPDF2 and pdfplumber
+Real implementation using pypdf and pdfplumber
 Enhanced with PDF-Extract-Kit integration
 """
 
@@ -8,15 +8,22 @@ import json
 import logging
 from collections import defaultdict
 from typing import Dict, List, Any, Optional, Tuple, Set
-import PyPDF2
+
 import pdfplumber
+from pypdf import PdfReader
 
 try:
-    from PyPDF2.generic import ContentStream, TextStringObject, ByteStringObject
+    from pypdf.generic import (
+        ContentStream,
+        TextStringObject,
+        ByteStringObject,
+        IndirectObject,
+    )
 except Exception:
     ContentStream = None
     TextStringObject = None
     ByteStringObject = None
+    IndirectObject = None
 
 try:
     import pikepdf
@@ -46,6 +53,7 @@ except ImportError:
 
 from backend.utils.compliance_scoring import derive_wcag_score
 from backend.utils.issue_registry import IssueRegistry
+from backend.pdf_structure_standards import COMMON_ROLEMAP_MAPPINGS
 
 # PDF/A validation is intentionally disabled; the analyzer now focuses on WCAG 2.1 and PDF/UA-1.
 
@@ -89,6 +97,7 @@ class PDFAccessibilityAnalyzer:
             "has_struct_tree": None,
             "tables_reviewed": None,
         }
+        self._rolemap_missing_mappings: List[Dict[str, str]] = []
         
         self.pdf_extract_kit = None
         if PDF_EXTRACT_KIT_AVAILABLE:
@@ -127,6 +136,7 @@ class PDFAccessibilityAnalyzer:
             "pdfuaIssues": [],
             "pdfaIssues": [],
         }
+        self._rolemap_missing_mappings = []
 
     def _metadata_text(self, value: Any) -> Optional[str]:
         """Return a clean metadata string or None if value is invalid."""
@@ -454,6 +464,7 @@ class PDFAccessibilityAnalyzer:
             
             self._analyze_with_pypdf2(pdf_path)
             self._analyze_with_pdfplumber(pdf_path)
+            self._detect_rolemap_mapping_gaps(pdf_path)
             self._analyze_contrast_basic(pdf_path)
             
             if self.wcag_validator_available:
@@ -475,6 +486,8 @@ class PDFAccessibilityAnalyzer:
         
         self._consolidate_poor_contrast_issues()
         results = self._canonicalize_and_attach_issue_ids()
+        if self._rolemap_missing_mappings:
+            results["roleMapMissingMappings"] = self._rolemap_missing_mappings
         self.issues = results
         canonical_count = len(results.get("issues", [])) if isinstance(results, dict) else 0
         print(f"[Analyzer] Analysis complete, found {canonical_count} canonical issues")
@@ -516,10 +529,10 @@ class PDFAccessibilityAnalyzer:
             self._record_analysis_error(e, fatal=False)
 
     def _analyze_with_pypdf2(self, pdf_path: str):
-        """Analyze PDF using PyPDF2 for metadata and structure"""
+        """Analyze PDF using pypdf for metadata and structure"""
         try:
             with open(pdf_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
+                pdf_reader = PdfReader(file)
 
                 if getattr(pdf_reader, "is_encrypted", False):
                     if not self._try_decrypt_reader(pdf_reader):
@@ -528,9 +541,23 @@ class PDFAccessibilityAnalyzer:
                             fatal=True,
                         )
                         return
-                
-                # Check metadata
-                metadata = pdf_reader.metadata
+
+                metadata = None
+                metadata_obj = None
+                try:
+                    metadata_obj = pdf_reader.metadata
+                except Exception:
+                    metadata_obj = None
+
+                if metadata_obj is not None and hasattr(metadata_obj, "get"):
+                    metadata = metadata_obj
+                else:
+                    try:
+                        metadata_obj = pdf_reader.documentInfo  # type: ignore[attr-defined]
+                    except Exception:
+                        metadata_obj = None
+                    if metadata_obj is not None and hasattr(metadata_obj, "get"):
+                        metadata = metadata_obj
 
                 title = self._metadata_text(metadata.get('/Title')) if metadata else None
                 if not title:
@@ -558,14 +585,13 @@ class PDFAccessibilityAnalyzer:
                         "page": 1,
                         "recommendation": "Add a brief description of the document content",
                     })
-                
-                # Check for language specification
+
                 catalog = pdf_reader.trailer.get("/Root", {})
-                if isinstance(catalog, PyPDF2.generic.IndirectObject):
+                if IndirectObject is not None and isinstance(catalog, IndirectObject):
                     catalog = catalog.get_object()
-                
+
                 lang = catalog.get("/Lang") if isinstance(catalog, dict) else None
-                
+
                 if not lang:
                     self.issues["missingLanguage"].append({
                         "severity": "medium",
@@ -573,13 +599,12 @@ class PDFAccessibilityAnalyzer:
                         "page": 1,
                         "recommendation": "Set the document language in PDF properties (e.g., 'en-US' for English)",
                     })
-                
-                # Check if PDF is tagged
+
                 mark_info = catalog.get("/MarkInfo") if isinstance(catalog, dict) else None
                 is_tagged = False
-                
+
                 if mark_info:
-                    if isinstance(mark_info, PyPDF2.generic.IndirectObject):
+                    if IndirectObject is not None and isinstance(mark_info, IndirectObject):
                         mark_info = mark_info.get_object()
                     is_tagged = mark_info.get("/Marked", False) if isinstance(mark_info, dict) else False
                 self._tagging_state["is_tagged"] = bool(is_tagged)
@@ -591,14 +616,14 @@ class PDFAccessibilityAnalyzer:
                         "pages": list(range(1, len(pdf_reader.pages) + 1)),
                         "recommendation": "Use Adobe Acrobat Pro or similar tool to add tags and define document structure",
                     })
-                
-                print(f"[Analyzer] PyPDF2 analysis: {len(pdf_reader.pages)} pages, tagged: {is_tagged}, lang: {lang}")
-                
+
+                print(f"[Analyzer] pypdf analysis: {len(pdf_reader.pages)} pages, tagged: {is_tagged}, lang: {lang}")
+
         except Exception as e:
-            print(f"[Analyzer] Error in PyPDF2 analysis: {e}")
+            print(f"[Analyzer] Error in pypdf analysis: {e}")
             self._record_analysis_error(e, fatal=True)
 
-    def _try_decrypt_reader(self, reader: PyPDF2.PdfReader) -> bool:
+    def _try_decrypt_reader(self, reader: PdfReader) -> bool:
         """Attempt to decrypt the PDF with empty passwords."""
         passwords = ("", b"")
         for candidate in passwords:
@@ -623,19 +648,18 @@ class PDFAccessibilityAnalyzer:
             self._tagging_state["has_struct_tree"] = False
             try:
                 with open(pdf_path, 'rb') as file:
-                    import PyPDF2
-                    pdf_reader = PyPDF2.PdfReader(file)
+                    pdf_reader = PdfReader(file)
                     
                     # Check if document is tagged and has table structures
                     catalog = pdf_reader.trailer.get("/Root", {})
-                    if isinstance(catalog, PyPDF2.generic.IndirectObject):
+                    if IndirectObject is not None and isinstance(catalog, IndirectObject):
                         catalog = catalog.get_object()
                     
                     # Check MarkInfo
                     mark_info = catalog.get("/MarkInfo") if isinstance(catalog, dict) else None
                     is_tagged = False
                     if mark_info:
-                        if isinstance(mark_info, PyPDF2.generic.IndirectObject):
+                        if IndirectObject is not None and isinstance(mark_info, IndirectObject):
                             mark_info = mark_info.get_object()
                         is_tagged = mark_info.get("/Marked", False) if isinstance(mark_info, dict) else False
                     
@@ -736,6 +760,49 @@ class PDFAccessibilityAnalyzer:
         except Exception as e:
             print(f"[Analyzer] Error in pdfplumber analysis: {e}")
             self._record_analysis_error(e)
+
+    def _detect_rolemap_mapping_gaps(self, pdf_path: str) -> None:
+        """Detect missing or non-standard RoleMap mappings without mutating the PDF."""
+        if not PIKEPDF_AVAILABLE or not pikepdf:
+            return
+
+        pdf_doc = None
+        try:
+            pdf_doc = pikepdf.open(pdf_path)
+            struct_root = getattr(pdf_doc.Root, "StructTreeRoot", None)
+            if not struct_root:
+                return
+
+            role_map = getattr(struct_root, "RoleMap", None)
+            missing_mappings: List[Dict[str, str]] = []
+            if role_map is None:
+                missing_mappings = [
+                    {"from": custom, "to": standard}
+                    for custom, standard in COMMON_ROLEMAP_MAPPINGS.items()
+                ]
+            else:
+                normalized_map: Dict[str, str] = {}
+                try:
+                    for key, value in role_map.items():
+                        normalized_map[str(key)] = str(value)
+                except Exception:
+                    normalized_map = {}
+
+                for custom, standard in COMMON_ROLEMAP_MAPPINGS.items():
+                    mapped_value = normalized_map.get(custom)
+                    if mapped_value is None or mapped_value != standard:
+                        missing_mappings.append({"from": custom, "to": standard})
+
+            if missing_mappings:
+                self._rolemap_missing_mappings = missing_mappings
+        except Exception as exc:
+            print(f"[Analyzer] Could not inspect RoleMap mappings: {exc}")
+        finally:
+            if pdf_doc is not None:
+                try:
+                    pdf_doc.close()
+                except Exception:
+                    pass
 
     def _collect_missing_alt_text_issues(
         self,
@@ -938,12 +1005,12 @@ class PDFAccessibilityAnalyzer:
         if self._analysis_errors:
             return
         if ContentStream is None:
-            self._ensure_manual_contrast_notice("PyPDF2 ContentStream helper unavailable")
+            self._ensure_manual_contrast_notice("pypdf ContentStream helper unavailable")
             return
 
         try:
             with open(pdf_path, 'rb') as file_handle:
-                reader = PyPDF2.PdfReader(file_handle)
+                reader = PdfReader(file_handle)
                 total_checked = 0
                 for page_num, page in enumerate(reader.pages, start=1):
                     checked, _flagged = self._scan_page_for_low_contrast(page, reader, page_num)

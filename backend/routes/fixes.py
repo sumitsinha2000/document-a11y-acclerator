@@ -66,6 +66,32 @@ router = APIRouter(prefix="/api", tags=["fixes"])
 report_pdf_generator = PDFGenerator()
 
 
+def _extract_client_export_payload(raw_body: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw_body, dict):
+        return None
+    payload_candidate = raw_body.get("payload")
+    if isinstance(payload_candidate, dict):
+        return payload_candidate
+    return raw_body
+
+
+def _merge_export_payload(base: Optional[Dict[str, Any]], override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(base, dict):
+        base = {}
+    if not isinstance(override, dict):
+        return base
+
+    merged: Dict[str, Any] = dict(base)
+    for key, value in override.items():
+        if value is None:
+            continue
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_export_payload(merged.get(key), value)
+        else:
+            merged[key] = value
+    return merged
+
+
 @router.post("/batch/{batch_id}/fix-file/{scan_id}")
 async def apply_batch_fix(batch_id: str, scan_id: str):
     status, payload = await asyncio.to_thread(
@@ -1561,7 +1587,7 @@ async def fix_history(scan_id: str):
 
 
 # === Export endpoint ===
-@router.get("/export/{scan_id}")
+@router.api_route("/export/{scan_id}", methods=["GET", "POST"])
 async def export_scan(scan_id: str, request: Request):
     conn = None
     cur = None
@@ -1574,6 +1600,15 @@ async def export_scan(scan_id: str, request: Request):
                 client_offset = int(tz_offset)
             except ValueError:
                 client_offset = None
+        client_payload = None
+        if request.method != "GET":
+            try:
+                raw_body = await request.json()
+            except (json.JSONDecodeError, ValueError):
+                raw_body = None
+            if raw_body:
+                client_payload = _extract_client_export_payload(raw_body)
+
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -1610,6 +1645,8 @@ async def export_scan(scan_id: str, request: Request):
             return JSONResponse({"error": f"Scan {scan_id} not found"}, status_code=404)
 
         export_payload = _build_scan_export_payload(scan_row)
+        if client_payload:
+            export_payload = _merge_export_payload(export_payload, client_payload)
 
         if requested_format == "pdf":
             try:

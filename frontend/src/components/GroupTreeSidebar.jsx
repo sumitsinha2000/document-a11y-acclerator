@@ -25,16 +25,18 @@ const STATUS_BADGE_STYLES = {
   error:
     "border-rose-100 bg-rose-50 text-rose-900 dark:border-rose-700/60 dark:bg-rose-900/20 dark:text-rose-100",
 };
-const SELECTED_STATUS_BADGE_CLASSES = "border-white bg-white/30 text-white";
+const SELECTED_STATUS_BADGE_CLASSES =
+  "border-white/90 bg-white text-slate-800 dark:border-slate-200/80 dark:bg-slate-800 dark:text-white";
 const TREE_ITEM_FOCUS_CLASSES =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950";
 const FOCUSABLE_ELEMENTS_SELECTOR = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
 
-const ENTITY_NAME_MIN_LENGTH = 3;
+const ENTITY_NAME_MIN_LENGTH = 2;
 const ENTITY_NAME_MAX_LENGTH = 50;
+const ENTITY_NAME_PATTERN = /^[A-Za-z0-9 ()_.-]+$/;
 const sanitizeInputValue = (value) => {
-  return (value ?? "").replace(/[^A-Za-z0-9 ]+/g, "")
-}
+  return (value ?? "").replace(/[^A-Za-z0-9 ()_.-]+/g, "");
+};
 
 const validateEntityName = (value, options = {}) => {
   const { label = "Name", minLength = ENTITY_NAME_MIN_LENGTH, maxLength = ENTITY_NAME_MAX_LENGTH } = options;
@@ -60,6 +62,13 @@ const validateEntityName = (value, options = {}) => {
       message: `${label} must be ${maxLength} characters or fewer.`,
     };
   }
+  if (!ENTITY_NAME_PATTERN.test(trimmed)) {
+    return {
+      isValid: false,
+      trimmed,
+      message: `${label} may only include letters, numbers, spaces, parentheses, periods, underscores, and hyphens.`,
+    };
+  }
   return {
     isValid: true,
     trimmed,
@@ -67,19 +76,21 @@ const validateEntityName = (value, options = {}) => {
   };
 };
 
-const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
-  {
-    onNodeSelect,
-    selectedNode,
-    onRefresh,
-    initialGroupId,
-    latestUploadContext = null,
-    onUploadContextAcknowledged = () => {},
-    folderNavigationContext = null,
-    folderStatusUpdateSignal = null,
-  },
-  ref,
-) {
+  const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
+    {
+      onNodeSelect,
+      selectedNode,
+      onRefresh,
+      onDashboardRefresh,
+      onStaleNode,
+      initialGroupId,
+      latestUploadContext = null,
+      onUploadContextAcknowledged = () => {},
+      folderNavigationContext = null,
+      folderStatusUpdateSignal = null,
+    },
+    ref,
+  ) {
   const [groups, setGroups] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [loading, setLoading] = useState(true);
@@ -114,6 +125,23 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
   const [refreshingGroupId, setRefreshingGroupId] = useState(null);
   const [deletingFileIds, setDeletingFileIds] = useState(() => new Set());
   const [refreshingFolderCounts, setRefreshingFolderCounts] = useState({});
+  const editingTreeItemIdRef = useRef(null);
+  const focusEditedTreeItem = useCallback(() => {
+    const treeId = editingTreeItemIdRef.current;
+    if (!treeId) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (!treeId) {
+        return;
+      }
+      const element = document.querySelector(`[data-tree-id="${treeId}"]`);
+      if (element instanceof HTMLElement) {
+        focusTreeItem(element);
+      }
+    });
+    editingTreeItemIdRef.current = null;
+  }, []);
   const handledFolderNavigationRef = useRef(null);
   const folderStatusRefreshKeyRef = useRef(null);
   const treeContainerRef = useRef(null);
@@ -412,6 +440,25 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     ) {
       return;
     }
+
+    const activeElement =
+      typeof document !== "undefined" ? document.activeElement : null;
+    const editingInputType =
+      activeElement instanceof HTMLElement ? activeElement.dataset?.editingType : null;
+    const editingInProgress = Boolean(editingGroupId || editingBatchId);
+    if (editingInProgress || editingInputType) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (editingInputType === "group" || editingGroupId) {
+          cancelGroupEdit();
+        } else if (editingInputType === "folder" || editingBatchId) {
+          cancelBatchEdit();
+        }
+      }
+      return;
+    }
+
     const navigationKeys = ["ArrowDown", "ArrowUp", "Home", "End", "ArrowLeft", "ArrowRight"];
     if (!navigationKeys.includes(event.key)) {
       return;
@@ -423,8 +470,6 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     }
 
     event.preventDefault();
-    const activeElement =
-      typeof document !== "undefined" ? document.activeElement : null;
     const currentIndex = items.indexOf(activeElement);
     let targetIndex = 0;
     const treeItemElement =
@@ -1017,6 +1062,27 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     }
   };
 
+  const triggerDashboardRefresh = useCallback(() => {
+    if (onDashboardRefresh) {
+      onDashboardRefresh();
+      return;
+    }
+    if (onRefresh) {
+      onRefresh();
+    }
+  }, [onDashboardRefresh, onRefresh]);
+
+  const reportStaleNode = useCallback(
+    async (node, statusCode) => {
+      if (!onStaleNode || ![404, 410].includes(statusCode)) {
+        return false;
+      }
+      await onStaleNode(node, statusCode);
+      return true;
+    },
+    [onStaleNode]
+  );
+
   const toggleSection = (groupId, section, groupName, label) => {
     const normalizedId = normalizeId(groupId);
     setSectionStates((prev) => {
@@ -1076,16 +1142,13 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
         name: trimmedName,
       });
 
-      if (response?.data?.group) {
-        setStatusMessage(`Project "${trimmedName}" created`);
-        setNewProjectName("");
-        await fetchGroups();
-        return;
-      }
-
-      setStatusMessage("Project created");
+      const successMessage = response?.data?.group
+        ? `Project "${trimmedName}" created`
+        : "Project created";
+      setStatusMessage(successMessage);
       setNewProjectName("");
       await fetchGroups();
+      triggerDashboardRefresh();
     } catch (error) {
       const errMessage =
         error?.response?.data?.error ||
@@ -1110,9 +1173,18 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     ensureProjectView();
   };
 
-  useImperativeHandle(ref, () => ({
-    closeFolderView,
-  }), [closeFolderView]);
+  const refreshSidebarView = async () => {
+    await fetchGroups();
+  };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      closeFolderView,
+      refresh: refreshSidebarView,
+    }),
+    [closeFolderView, refreshSidebarView]
+  );
 
   const openFolderView = async (group, batch) => {
     const normalizedBatchId = normalizeId(batch.batchId || batch.id);
@@ -1152,6 +1224,22 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       syncFolderCountWithSidebar(group.id, folderMeta.folderId, accurateCount);
     } catch (folderError) {
       console.error("[GroupTreeSidebar] Failed to load folder files:", folderError);
+      const statusCode = folderError?.response?.status;
+      const staleNode = {
+        type: "batch",
+        id: folderMeta.folderId,
+        data: {
+          batchId: folderMeta.folderId,
+          folderId: folderMeta.folderId,
+          groupId: folderMeta.groupId,
+          groupName: folderMeta.groupName,
+          folderName: folderMeta.folderName,
+        },
+      };
+      if (await reportStaleNode(staleNode, statusCode)) {
+        setFolderFilesError(null);
+        return;
+      }
       setFolderFilesError(folderError?.response?.data?.error || "Failed to load folder files");
     } finally {
       setFolderFilesLoading(false);
@@ -1584,6 +1672,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
         ...prev,
         [key]: "",
       }));
+      triggerDashboardRefresh();
     } catch (folderError) {
       console.error("[GroupTreeSidebar] Failed to create folder:", folderError);
       setStatusMessage(folderError?.response?.data?.error || "Failed to create folder");
@@ -1598,11 +1687,13 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     setEditingGroupId(group.id);
     setEditingGroupName(group.name || "");
     setDeletingGroupId(null);
+    editingTreeItemIdRef.current = buildTreeItemId("group", group.id);
   };
 
   const cancelGroupEdit = () => {
     setEditingGroupId(null);
     setEditingGroupName("");
+    focusEditedTreeItem();
   };
 
   const saveGroupEdit = async (event) => {
@@ -1612,14 +1703,39 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     if (!editingGroupId) {
       return;
     }
-    const trimmedName = editingGroupName.trim();
-    if (!trimmedName) {
-      setStatusMessage("Project name is required");
+    const validation = validateEntityName(editingGroupName, { label: "Project name" });
+    if (!validation.isValid) {
+      const message = validation.message;
+      showDialog({
+        title: "Invalid project name",
+        message,
+        closeText: "Okay",
+      });
+      setStatusMessage(message);
       return;
     }
 
+    const trimmedName = validation.trimmed;
     const normalizedId = normalizeId(editingGroupId);
+    const normalizedName = trimmedName.toLowerCase();
     const currentGroup = groups.find((group) => normalizeId(group.id) === normalizedId);
+    const duplicate =
+      normalizedName &&
+      groups.some(
+        (group) =>
+          normalizeId(group.id) !== normalizedId &&
+          (group.name || "").trim().toLowerCase() === normalizedName
+      );
+    if (duplicate) {
+      const message = `Project "${trimmedName}" already exists`;
+      showDialog({
+        title: "Duplicate project name",
+        message,
+        closeText: "Got it",
+      });
+      setStatusMessage(message);
+      return;
+    }
     try {
       const response = await axios.put(`${API_BASE_URL}/api/groups/${editingGroupId}`, {
         name: trimmedName,
@@ -1639,6 +1755,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       );
       setStatusMessage(`${trimmedName} updated`);
       cancelGroupEdit();
+      triggerDashboardRefresh();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to update group:", error);
       setStatusMessage(error?.response?.data?.error || "Failed to update project");
@@ -1649,12 +1766,15 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     setEditingBatchId(batch.batchId);
     setEditingBatchGroupId(groupId);
     setEditingBatchName(batch.name || "");
+    const identifier = batch.batchId ?? batch.id;
+    editingTreeItemIdRef.current = buildTreeItemId("folder", identifier);
   };
 
   const cancelBatchEdit = () => {
     setEditingBatchId(null);
     setEditingBatchGroupId(null);
     setEditingBatchName("");
+    focusEditedTreeItem();
   };
 
   const saveBatchEdit = async (event) => {
@@ -1664,27 +1784,56 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
     if (!editingBatchId) {
       return;
     }
-    const trimmedName = editingBatchName.trim();
-    if (!trimmedName) {
-      setStatusMessage("Folder name is required");
+    const validation = validateEntityName(editingBatchName, { label: "Folder name" });
+    if (!validation.isValid) {
+      const message = validation.message;
+      showDialog({
+        title: "Invalid folder name",
+        message,
+        closeText: "Okay",
+      });
+      setStatusMessage(message);
       return;
     }
+
+    const folderName = validation.trimmed;
     const normalizedBatchId = normalizeId(editingBatchId);
     const normalizedGroupId = normalizeId(editingBatchGroupId);
+    const existingFolders = groupBatches[normalizedGroupId] || [];
+    const normalizedNewFolderName = folderName.toLowerCase();
+    const folderExists = existingFolders.some((batch) => {
+      const batchId = normalizeId(batch.batchId ?? batch.id);
+      if (!batchId || batchId === normalizedBatchId) {
+        return false;
+      }
+      const name = (batch.name || batch.folderName || "").toLowerCase().trim();
+      return name && name === normalizedNewFolderName;
+    });
+    if (folderExists) {
+      const message = `Folder "${folderName}" already exists`;
+      showDialog({
+        title: "Duplicate folder",
+        message,
+        closeText: "Got it",
+      });
+      setStatusMessage(message);
+      return;
+    }
     try {
       await axios.patch(`${API_BASE_URL}/api/folders/${editingBatchId}/rename`, {
-        folderName: trimmedName,
+        folderName,
       });
       setGroupBatches((prev) => {
         const next = { ...prev };
         const list = (next[normalizedGroupId] || []).map((batch) =>
-          normalizeId(batch.batchId) === normalizedBatchId ? { ...batch, name: trimmedName } : batch
+          normalizeId(batch.batchId) === normalizedBatchId ? { ...batch, name: folderName } : batch
         );
         next[normalizedGroupId] = list;
         return next;
       });
-      setStatusMessage(`${trimmedName} renamed`);
+      setStatusMessage(`${folderName} renamed`);
       cancelBatchEdit();
+      triggerDashboardRefresh();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to rename folder:", error);
       setStatusMessage(error?.response?.data?.error || "Failed to rename folder");
@@ -1722,6 +1871,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       setStatusMessage(`${projectName} deleted`);
       showSuccess(`Deleted project "${projectName}"`);
       setPendingDeleteGroup(null);
+      triggerDashboardRefresh();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete group:", error);
       const message = error?.response?.data?.error || "Failed to delete project";
@@ -1808,6 +1958,7 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
       showSuccess(`Deleted folder "${batchName}"`);
       void ensureDashboardReflectsFolderDeletion(groupId, batchId);
       setPendingDeleteFolder(null);
+      triggerDashboardRefresh();
     } catch (error) {
       console.error("[GroupTreeSidebar] Failed to delete folder:", error);
       const message = error?.response?.data?.error || "Failed to delete folder";
@@ -2053,9 +2204,11 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                       {fileName}
                     </p>
                     <span
-                      className={`mt-2 inline-flex rounded-full border px-3 py-0.5 text-[11px] font-semibold uppercase tracking-wide transition ${
+                      className={`mt-2 inline-flex rounded-full border px-3 py-0.5 text-[11px] font-semibold uppercase tracking-wide align-middle transition ${
                         selected ? SELECTED_STATUS_BADGE_CLASSES : badgeColorClasses
                       }`}
+                      role="status"
+                      aria-label={`File status: ${statusInfo.label}`}
                     >
                       {statusInfo.label.toUpperCase()}
                     </span>
@@ -2241,8 +2394,12 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                       <input
                         type="text"
                         value={editingGroupName}
-                        onChange={(event) => setEditingGroupName(event.target.value)}
-                        className="flex-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-indigo-500/40 dark:bg-gray-950 dark:text-gray-100"
+                        onChange={(event) => {
+                          const sanitized = sanitizeInputValue(event.target.value);
+                          setEditingGroupName(sanitized);
+                        }}
+                        data-editing-type="group"
+                        className="flex-1 min-w-0 rounded-md border border-indigo-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-indigo-500/40 dark:bg-gray-950 dark:text-gray-100"
                         autoFocus
                         aria-label="Edit project name"
                         autoComplete="off"
@@ -2439,8 +2596,12 @@ const GroupTreeSidebar = forwardRef(function GroupTreeSidebar(
                                   <input
                                     type="text"
                                     value={editingBatchName}
-                                    onChange={(event) => setEditingBatchName(event.target.value)}
-                                    className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-indigo-500/30 dark:bg-[#0b1327] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-400"
+                                    onChange={(event) => {
+                                      const sanitized = sanitizeInputValue(event.target.value);
+                                      setEditingBatchName(sanitized);
+                                    }}
+                                    data-editing-type="folder"
+                                    className="flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-indigo-500/30 dark:bg-[#0b1327] dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-indigo-400"
                                     autoFocus
                                     aria-label="Edit folder name"
                                     autoComplete="off"

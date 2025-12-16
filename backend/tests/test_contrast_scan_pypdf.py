@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Dict, List
 
-import PyPDF2
+from pypdf import PdfReader
 import pytest
 
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
@@ -56,7 +56,7 @@ def _extract_fixture_keyword(pdf_path: Path) -> str:
     Used to ensure the contrast issue exposes a sample from the actual text.
     """
     try:
-        reader = PyPDF2.PdfReader(str(pdf_path))
+        reader = PdfReader(str(pdf_path))
     except Exception as exc:
         pytest.skip(f"Unable to read fixture text from {pdf_path}: {exc}")
 

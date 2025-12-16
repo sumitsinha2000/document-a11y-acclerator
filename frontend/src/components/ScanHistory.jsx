@@ -84,7 +84,22 @@ export default function ScanHistory({ scans, onSelectScan, onBack }) {
                       : "Date unavailable"}
                   </p>
                   {isError && errorMessage && (
-                    <p className="text-xs text-rose-700 dark:text-rose-300 mt-1">{errorMessage}</p>
+                    <div
+                      className="mt-1 flex items-center gap-2 text-xs text-rose-700 dark:text-rose-200"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <svg
+                        className="w-4 h-4 text-rose-600 dark:text-rose-300"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+                      </svg>
+                      <p>{errorMessage}</p>
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center gap-3">

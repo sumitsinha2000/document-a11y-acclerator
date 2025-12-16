@@ -70,7 +70,6 @@ const buildFallbackSummary = (results) => {
       : Array.isArray(results?.pdfuaIssues)
         ? results.pdfuaIssues
         : []
-  if (!source.length) return null
 
   const grouped = new Map()
   const seenIds = new Set()
@@ -88,10 +87,6 @@ const buildFallbackSummary = (results) => {
     }
     grouped.get(normalized).push(issue)
   })
-
-  if (!grouped.size) {
-    return null
-  }
 
   const seen = new Set()
   const items = []
