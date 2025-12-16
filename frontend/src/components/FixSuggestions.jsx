@@ -1,6 +1,5 @@
-import { useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import axios from "axios"
-import PDFEditor from "./PDFEditor"
 import { formatTimeEstimate } from "../utils/timeFormat"
 import AIRemediationPanel from "./AIRemediationPanel"
 import FixProgressStepper from "./FixProgressStepper"
@@ -20,8 +19,8 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const [applyingAI, setApplyingAI] = useState(false)
   const [applyingTraditionalSemi, setApplyingTraditionalSemi] = useState(false)
   const [applyingAISemi, setApplyingAISemi] = useState(false)
-  const [showEditor, setShowEditor] = useState(false)
   const [showAIPanel, setShowAIPanel] = useState(false)
+  const [showPdfPreview, setShowPdfPreview] = useState(false)
   const [showProgressStepper, setShowProgressStepper] = useState(false)
   const [currentFixType, setCurrentFixType] = useState("")
 
@@ -182,57 +181,57 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
     }
   }
 
-  const handleFixApplied = async (
-    appliedFix,
-    newSummary,
-    newResults,
-    newVerapdfStatus = null,
-    newFixSuggestions = null,
-    newCriteriaSummary = null,
-  ) => {
-    console.log("[v0] FixSuggestions - Fix applied in editor:", appliedFix)
-    console.log("[v0] FixSuggestions - New summary received:", newSummary)
-    console.log("[v0] FixSuggestions - New results received:", newResults)
+  // const handleFixApplied = async (
+  //   appliedFix,
+  //   newSummary,
+  //   newResults,
+  //   newVerapdfStatus = null,
+  //   newFixSuggestions = null,
+  //   newCriteriaSummary = null,
+  // ) => {
+  //   console.log("[v0] FixSuggestions - Fix applied in editor:", appliedFix)
+  //   console.log("[v0] FixSuggestions - New summary received:", newSummary)
+  //   console.log("[v0] FixSuggestions - New results received:", newResults)
 
-    showAlert(setAlertModal)(
-      "Manual Fix Applied",
-      "Manual fix applied successfully! The PDF has been updated with your changes.",
-      "success",
-    )
+  //   showAlert(setAlertModal)(
+  //     "Manual Fix Applied",
+  //     "Manual fix applied successfully! The PDF has been updated with your changes.",
+  //     "success",
+  //   )
 
-    if (onRefresh) {
-      console.log("[v0] FixSuggestions - Calling onRefresh with new data...")
-      try {
-        await onRefresh(
-          newSummary,
-          newResults,
-          newVerapdfStatus,
-          newFixSuggestions,
-          newCriteriaSummary,
-        )
-        console.log("[v0] FixSuggestions - onRefresh completed successfully")
-      } catch (error) {
-        console.error("[v0] FixSuggestions - Error during refresh:", error)
-      }
-    } else {
-      console.warn("[v0] FixSuggestions - No onRefresh callback provided")
-    }
-  }
+  //   if (onRefresh) {
+  //     console.log("[v0] FixSuggestions - Calling onRefresh with new data...")
+  //     try {
+  //       await onRefresh(
+  //         newSummary,
+  //         newResults,
+  //         newVerapdfStatus,
+  //         newFixSuggestions,
+  //         newCriteriaSummary,
+  //       )
+  //       console.log("[v0] FixSuggestions - onRefresh completed successfully")
+  //     } catch (error) {
+  //       console.error("[v0] FixSuggestions - Error during refresh:", error)
+  //     }
+  //   } else {
+  //     console.warn("[v0] FixSuggestions - No onRefresh callback provided")
+  //   }
+  // }
 
-  const handleEditorClose = async () => {
-    console.log("[v0] FixSuggestions - Editor closing, refreshing data...")
-    setShowEditor(false)
+  // const handleEditorClose = async () => {
+  //   console.log("[v0] FixSuggestions - Editor closing, refreshing data...")
+  //   setShowEditor(false)
 
-    if (onRefresh) {
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 300))
-        await onRefresh()
-        console.log("[v0] FixSuggestions - Data refreshed after editor close")
-      } catch (error) {
-        console.error("[v0] FixSuggestions - Error refreshing after editor close:", error)
-      }
-    }
-  }
+  //   if (onRefresh) {
+  //     try {
+  //       await new Promise((resolve) => setTimeout(resolve, 300))
+  //       await onRefresh()
+  //       console.log("[v0] FixSuggestions - Data refreshed after editor close")
+  //     } catch (error) {
+  //       console.error("[v0] FixSuggestions - Error refreshing after editor close:", error)
+  //     }
+  //   }
+  // }
 
   const processProgressOutcome = async (outcome) => {
     if (!outcome) {
@@ -332,6 +331,28 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
   const hasSemiAutomated = validSemiAutomated.length > 0
   const hasManual = validManual.length > 0
   const hasAnyFixes = hasAutomated || hasSemiAutomated || hasManual
+
+  const pdfPreviewUrl = useMemo(
+    () => (scanId ? API_ENDPOINTS.previewPdf(scanId) : null),
+    [scanId],
+  )
+  const canOpenPdf = Boolean(
+    pdfPreviewUrl && (typeof filename === "string" ? filename.toLowerCase().endsWith(".pdf") : true),
+  )
+
+  const handleOpenPdf = useCallback(() => {
+    if (!canOpenPdf || !pdfPreviewUrl) {
+      showAlert(setAlertModal)(
+        "PDF not ready",
+        "Upload, scan, or remediate a PDF to enable preview.",
+        "info",
+      )
+      return
+    }
+
+    setShowPdfPreview(true)
+  }, [canOpenPdf, pdfPreviewUrl, setAlertModal])
+
   if (!fixes) {
     return (
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 text-center border border-gray-200 dark:border-gray-700">
@@ -406,12 +427,16 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
           {(hasSemiAutomated || hasManual) && (
             <span className="relative inline-flex group">
               <button
-                onClick={() => setShowEditor(true)}
-                disabled
-                aria-disabled="true"
-                aria-describedby={tooltipId("pdf-editor-tooltip")}
-                className="px-4 py-2 bg-slate-200 text-slate-500 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none cursor-not-allowed"
-                aria-label="PDF editor currently unavailable"
+                onClick={handleOpenPdf}
+                disabled={!canOpenPdf}
+                aria-disabled={!canOpenPdf}
+                aria-describedby={!canOpenPdf ? tooltipId("pdf-editor-tooltip") : undefined}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 focus:outline-none ${
+                  canOpenPdf
+                    ? "bg-blue-600 text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+                    : "bg-slate-200 text-slate-500 cursor-not-allowed"
+                }`}
+                aria-label={canOpenPdf ? "Open PDF in a new tab" : "PDF preview currently unavailable"}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path
@@ -421,15 +446,17 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
                     d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                   />
                 </svg>
-                Open PDF Editor
+                Open PDF
               </button>
-              <span
-                id={tooltipId("pdf-editor-tooltip")}
-                role="tooltip"
-                className="pointer-events-none absolute left-1/2 bottom-full mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-3 py-1 text-lg font-medium text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
-              >
-                PDF editor is currently unavailable
-              </span>
+              {!canOpenPdf && (
+                <span
+                  id={tooltipId("pdf-editor-tooltip")}
+                  role="tooltip"
+                  className="pointer-events-none absolute left-1/2 bottom-full mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-3 py-1 text-lg font-medium text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+                >
+                  PDF preview will be available after a PDF is uploaded, scanned, or remediated.
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -437,15 +464,55 @@ export default function FixSuggestions({ scanId, fixes, filename, onRefresh }) {
 
       {showAIPanel && <AIRemediationPanel scanId={scanId} onClose={() => setShowAIPanel(false)} />}
 
-      {showEditor && (
-        <PDFEditor
-          key={`editor-${scanId}-${JSON.stringify(fixes)}`}
-          scanId={scanId}
-          filename={filename}
-          fixes={fixes}
-          onClose={handleEditorClose}
-          onFixApplied={handleFixApplied}
-        />
+      {showPdfPreview && pdfPreviewUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="PDF preview dialog"
+        >
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-2xl w-full max-w-5xl h-[80vh] flex flex-col border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <div>
+                <h4 className="text-base font-semibold text-gray-900 dark:text-white">PDF Preview</h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  View-only. Use the new tab link if the embedded preview is blocked.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={pdfPreviewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  Open in new tab
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setShowPdfPreview(false)}
+                  className="p-2 rounded-md text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+                  aria-label="Close PDF preview"
+                >
+                  <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path
+                      fillRule="evenodd"
+                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 border-b border-gray-200 dark:border-gray-700">
+              <iframe
+                title="PDF preview"
+                src={pdfPreviewUrl}
+                className="w-full h-full rounded-b-lg"
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" role="region" aria-label="Fix suggestions by type">

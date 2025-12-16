@@ -4,13 +4,14 @@ import asyncio
 import json
 import logging
 import uuid
+from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from backend.multi_tier_storage import upload_file_with_fallback
+from backend.multi_tier_storage import stream_remote_file, upload_file_with_fallback
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.utils.wcag_mapping import annotate_wcag_mappings
 from backend.utils.criteria_summary import build_criteria_summary
@@ -131,6 +132,60 @@ async def get_scans():
     except Exception as e:
         logger.exception("doca11y-backend:get_scans DB error")
         return JSONResponse({"scans": [], "error": str(e)}, status_code=500)
+
+
+@router.get("/scans/{scan_id}/pdf")
+async def fetch_scan_pdf(scan_id: str):
+    """
+    Serve a PDF for the given scan/document identifier.
+    """
+    scan_record = _fetch_scan_record(scan_id)
+
+    resolved_path = _resolve_scan_file_path(scan_id, scan_record)
+
+    download_name = (
+        (scan_record.get("filename") if scan_record else None) or f"{scan_id}.pdf"
+    )
+    if download_name and not str(download_name).lower().endswith(".pdf"):
+        download_name = f"{Path(download_name).stem}.pdf"
+
+    if resolved_path and resolved_path.exists():
+        return FileResponse(
+            str(resolved_path),
+            media_type="application/pdf",
+            filename=download_name,
+            headers={"Content-Disposition": f'inline; filename="{download_name}"'},
+        )
+
+    remote_reference: Optional[str] = None
+    if scan_record:
+        remote_reference = scan_record.get("file_path") or scan_record.get("path")
+        parsed_results = _parse_scan_results_json(scan_record.get("scan_results"))
+        if isinstance(parsed_results, dict):
+            remote_reference = remote_reference or parsed_results.get("filePath")
+            remote_reference = remote_reference or parsed_results.get("file_path")
+            remote_reference = remote_reference or parsed_results.get("path")
+
+    if remote_reference:
+        try:
+            remote_stream = stream_remote_file(str(remote_reference))
+            return StreamingResponse(
+                remote_stream,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'inline; filename="{download_name}"'},
+            )
+        except FileNotFoundError:
+            logger.warning(
+                "[Backend] Remote PDF not found for %s (identifier=%s)",
+                scan_id,
+                remote_reference,
+            )
+        except Exception:
+            logger.exception(
+                "[Backend] Failed to stream remote PDF for %s", scan_id
+            )
+
+    raise HTTPException(status_code=404, detail="PDF file not found")
 
 
 @router.post("/scan")

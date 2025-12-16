@@ -20,7 +20,7 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
   const pageRef = useRef(null)
 
   useEffect(() => {
-    setPdfUrl(`${API_BASE_URL}/api/pdf-file/${scanId}`)
+    setPdfUrl(`${API_BASE_URL}/api/scans/${scanId}/pdf`)
     console.log("[v0] PDFEditor - Received fixes:", fixes)
     console.log("[v0] PDFEditor - Semi-automated fixes:", fixes?.semiAutomated)
     console.log("[v0] PDFEditor - Manual fixes:", fixes?.manual)
@@ -102,7 +102,7 @@ export default function PDFEditor({ scanId, filename, fixes, onClose, onFixAppli
         },
       ])
 
-      setPdfUrl(`${API_BASE_URL}/api/pdf-file/${scanId}?t=${Date.now()}`)
+      setPdfUrl(`${API_BASE_URL}/api/scans/${scanId}/pdf?t=${Date.now()}`)
 
       if (onFixApplied) {
         console.log("[v0] PDFEditor - Calling onFixApplied callback with new data...")
