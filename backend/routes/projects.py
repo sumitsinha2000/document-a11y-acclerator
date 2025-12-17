@@ -1,4 +1,4 @@
-"""Routes for group management."""
+"""Routes for project management (backed by legacy group tables)."""
 
 import logging
 import uuid
@@ -23,11 +23,11 @@ from backend.utils.app_helpers import (
     update_group_file_count,
 )
 
-logger = logging.getLogger("doca11y-groups")
+logger = logging.getLogger("doca11y-projects")
 
-router = APIRouter(prefix="/api/groups", tags=["groups"])
+router = APIRouter(prefix="/api/projects", tags=["projects"])
 
-MAX_GROUP_NAME_LENGTH = 50
+MAX_PROJECT_NAME_LENGTH = 50
 DEFAULT_CATEGORY_KEY = "other"
 
 
@@ -86,13 +86,13 @@ def _accumulate_canonical_issue_stats(
     return handled
 
 
-class GroupPayload(BaseModel):
+class ProjectPayload(BaseModel):
     name: str
     description: Optional[str] = ""
 
 
 @router.get("")
-async def get_groups():
+async def get_projects():
     try:
         rows = execute_query(
             """
@@ -104,17 +104,17 @@ async def get_groups():
             fetch=True,
         )
         groups = rows or []
-        logger.info("[Backend] Returning %d groups", len(groups))
+        logger.info("[Backend] Returning %d projects", len(groups))
         return SafeJSONResponse({"groups": groups})
     except Exception as e:
-        logger.exception("doca11y-backend:get_groups DB error")
+        logger.exception("doca11y-backend:get_projects DB error")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @router.get("/{group_id}/details")
-async def get_group_details(group_id: str):
+async def get_project_details(group_id: str):
     """
-    Returns group-level summary with total files, issues, and compliance averages.
+    Returns project-level summary with total files, issues, and compliance averages.
     Used by GroupDashboard.jsx
     """
     try:
@@ -130,7 +130,7 @@ async def get_group_details(group_id: str):
         )
         if not group_rows:
             return JSONResponse(
-                {"error": f"Group {group_id} not found"}, status_code=404
+                {"error": f"Project {group_id} not found"}, status_code=404
             )
 
         scans = (
@@ -243,13 +243,13 @@ async def get_group_details(group_id: str):
 
         return SafeJSONResponse(response)
     except Exception:
-        logger.exception("doca11y-backend:get_group_details DB error")
-        return JSONResponse({"error": "Failed to fetch group details"}, status_code=500)
+        logger.exception("doca11y-backend:get_project_details DB error")
+        return JSONResponse({"error": "Failed to fetch project details"}, status_code=500)
 
 
 @router.get("/{group_id}/files")
-async def get_group_files(group_id: str):
-    """Get all files/scans for a specific group"""
+async def get_project_files(group_id: str):
+    """Get all files/scans for a specific project"""
     try:
         query = """
             SELECT id, filename, status, upload_date,
@@ -290,13 +290,13 @@ async def get_group_files(group_id: str):
 
         return SafeJSONResponse({"files": files})
     except Exception as e:
-        logger.exception("doca11y-backend:get_group_files error")
+        logger.exception("doca11y-backend:get_project_files error")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @router.get("/{group_id}")
-async def get_group(group_id: str):
-    """Get group details with all scans"""
+async def get_project(group_id: str):
+    """Get project details with all scans"""
     try:
         update_group_file_count(group_id)
         query = """
@@ -310,7 +310,7 @@ async def get_group(group_id: str):
         rows = execute_query(query, (group_id,), fetch=True) or []
 
         if not rows:
-            return JSONResponse({"error": "Group not found"}, status_code=404)
+            return JSONResponse({"error": "Project not found"}, status_code=404)
 
         group = dict(rows[0])
         scans_query = """
@@ -324,28 +324,28 @@ async def get_group(group_id: str):
 
         return SafeJSONResponse({"group": group})
     except Exception:
-        logger.exception("doca11y-backend:get_group DB error")
+        logger.exception("doca11y-backend:get_project DB error")
         return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("")
-async def create_group(payload: GroupPayload):
-    """Create a new group"""
+async def create_project(payload: ProjectPayload):
+    """Create a new project"""
     name = payload.name.strip()
     description = (payload.description or "").strip()
 
     if not name:
-        return JSONResponse({"error": "Group name is required"}, status_code=400)
+        return JSONResponse({"error": "Project name is required"}, status_code=400)
 
-    if len(name) > MAX_GROUP_NAME_LENGTH:
+    if len(name) > MAX_PROJECT_NAME_LENGTH:
         return JSONResponse(
-            {"error": f"Group name must be {MAX_GROUP_NAME_LENGTH} characters or fewer"},
+            {"error": f"Project name must be {MAX_PROJECT_NAME_LENGTH} characters or fewer"},
             status_code=400,
         )
 
     if not NAME_REGEX.match(name):
         return JSONResponse(
-            {"error": f"Group name {NAME_ALLOWED_MESSAGE}"},
+            {"error": f"Project name {NAME_ALLOWED_MESSAGE}"},
             status_code=400,
         )
 
@@ -366,7 +366,7 @@ async def create_group(payload: GroupPayload):
         )
         if cur.fetchone():
             return JSONResponse(
-                {"error": "A group with this name already exists"}, status_code=409
+                {"error": "A project with this name already exists"}, status_code=409
             )
 
         cur.execute(
@@ -382,19 +382,19 @@ async def create_group(payload: GroupPayload):
 
         if result:
             group = dict(result)
-            logger.info("[Backend] ✓ Created group: %s (%s)", name, group_id)
+            logger.info("[Backend] ✓ Created project: %s (%s)", name, group_id)
             return SafeJSONResponse({"group": group}, status_code=201)
 
         conn.rollback()
         return JSONResponse({"error": "Failed to create group"}, status_code=500)
     except psycopg2.IntegrityError as e:
-        logger.exception("doca11y-backend:create_group integrity error: %s", e)
+        logger.exception("doca11y-backend:create_project integrity error: %s", e)
         conn.rollback()
         return JSONResponse(
-            {"error": "A group with this name already exists"}, status_code=409
+            {"error": "A project with this name already exists"}, status_code=409
         )
     except Exception as e:
-        logger.exception("doca11y-backend:create_group error: %s", e)
+        logger.exception("doca11y-backend:create_project error: %s", e)
         if conn:
             conn.rollback()
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -406,23 +406,23 @@ async def create_group(payload: GroupPayload):
 
 
 @router.put("/{group_id}")
-async def update_group(group_id: str, payload: GroupPayload):
-    """Update group details"""
+async def update_project(group_id: str, payload: ProjectPayload):
+    """Update project details"""
     name = payload.name.strip()
     description = (payload.description or "").strip()
 
     if not name:
-        return JSONResponse({"error": "Group name is required"}, status_code=400)
+        return JSONResponse({"error": "Project name is required"}, status_code=400)
 
-    if len(name) > MAX_GROUP_NAME_LENGTH:
+    if len(name) > MAX_PROJECT_NAME_LENGTH:
         return JSONResponse(
-            {"error": f"Group name must be {MAX_GROUP_NAME_LENGTH} characters or fewer"},
+            {"error": f"Project name must be {MAX_PROJECT_NAME_LENGTH} characters or fewer"},
             status_code=400,
         )
 
     if not NAME_REGEX.match(name):
         return JSONResponse(
-            {"error": f"Group name {NAME_ALLOWED_MESSAGE}"},
+            {"error": f"Project name {NAME_ALLOWED_MESSAGE}"},
             status_code=400,
         )
 
@@ -433,7 +433,7 @@ async def update_group(group_id: str, payload: GroupPayload):
         cur = conn.cursor()
         cur.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
         if not cur.fetchone():
-            return JSONResponse({"error": "Group not found"}, status_code=404)
+            return JSONResponse({"error": "Project not found"}, status_code=404)
 
         cur.execute(
             """
@@ -445,7 +445,7 @@ async def update_group(group_id: str, payload: GroupPayload):
         )
         if cur.fetchone():
             return JSONResponse(
-                {"error": "A group with this name already exists"}, status_code=409
+                {"error": "A project with this name already exists"}, status_code=409
             )
 
         cur.execute(
@@ -462,7 +462,7 @@ async def update_group(group_id: str, payload: GroupPayload):
 
         if result:
             group = dict(result)
-            logger.info("[Backend] ✓ Updated group: %s (%s)", name, group_id)
+            logger.info("[Backend] ✓ Updated project: %s (%s)", name, group_id)
             return SafeJSONResponse({"group": group})
 
         conn.rollback()
@@ -471,10 +471,10 @@ async def update_group(group_id: str, payload: GroupPayload):
         if conn:
             conn.rollback()
         return JSONResponse(
-            {"error": "A group with this name already exists"}, status_code=409
+            {"error": "A project with this name already exists"}, status_code=409
         )
     except Exception as e:
-        logger.exception("doca11y-backend:update_group error: %s", e)
+        logger.exception("doca11y-backend:update_project error: %s", e)
         if conn:
             conn.rollback()
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -486,14 +486,14 @@ async def update_group(group_id: str, payload: GroupPayload):
 
 
 @router.delete("/{group_id}")
-async def delete_group(group_id: str):
-    """Delete a group along with all related batches, scans, and files."""
+async def delete_project(group_id: str):
+    """Delete a project along with all related batches, scans, and files."""
     try:
         rows = execute_query(
             "SELECT id, name FROM groups WHERE id = %s", (group_id,), fetch=True
         )
         if not rows:
-            return JSONResponse({"error": "Group not found"}, status_code=404)
+            return JSONResponse({"error": "Project not found"}, status_code=404)
 
         group_name = rows[0].get("name")
 
@@ -520,7 +520,7 @@ async def delete_group(group_id: str):
                 result = _delete_scan_with_files(scan["id"])
             except LookupError:
                 logger.warning(
-                    "[Backend] Scan %s already missing while deleting group %s",
+                    "[Backend] Scan %s already missing while deleting project %s",
                     scan["id"],
                     group_id,
                 )
@@ -538,7 +538,7 @@ async def delete_group(group_id: str):
                 deleted_files += batch_result.get("deletedFiles", 0) or 0
             except LookupError:
                 logger.warning(
-                    "[Backend] Batch %s missing scans while deleting group %s",
+                    "[Backend] Batch %s missing scans while deleting project %s",
                     batch_id,
                     group_id,
                 )
@@ -549,7 +549,7 @@ async def delete_group(group_id: str):
 
         execute_query("DELETE FROM groups WHERE id = %s", (group_id,), fetch=False)
         logger.info(
-            "[Backend] ✓ Deleted group %s with %d scans, %d batches, %d files",
+            "[Backend] ✓ Deleted project %s with %d scans, %d batches, %d files",
             group_id,
             deleted_scans,
             deleted_batches,
@@ -558,7 +558,7 @@ async def delete_group(group_id: str):
         return SafeJSONResponse(
             {
                 "success": True,
-                "message": "Group and associated content deleted successfully",
+                "message": "Project and associated content deleted successfully",
                 "groupName": group_name,
                 "deletedScans": deleted_scans,
                 "deletedBatches": deleted_batches,
@@ -568,5 +568,5 @@ async def delete_group(group_id: str):
     except LookupError as exc:
         return JSONResponse({"error": str(exc)}, status_code=404)
     except Exception as e:
-        logger.exception("doca11y-backend:delete_group error: %s", e)
+        logger.exception("doca11y-backend:delete_project error: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)

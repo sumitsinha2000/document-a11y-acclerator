@@ -17,7 +17,10 @@ const API_BASE_URL = sanitize(rawBaseUrl) || sanitize(DEFAULT_API_BASE_URL)
 
 export const API_ENDPOINTS = {
   upload: `${API_BASE_URL}/api/upload`,
-  groups: `${API_BASE_URL}/api/groups`,
+  projects: `${API_BASE_URL}/api/projects`,
+  project: (projectId) => `${API_BASE_URL}/api/projects/${projectId}`,
+  projectDetails: (projectId) => `${API_BASE_URL}/api/projects/${projectId}/details`,
+  projectFiles: (projectId) => `${API_BASE_URL}/api/projects/${projectId}/files`,
   health: `${API_BASE_URL}/api/health`,
   scan: `${API_BASE_URL}/api/scan`,
   scanBatch: `${API_BASE_URL}/api/scan-batch`,

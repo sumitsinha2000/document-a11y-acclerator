@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import axios from "axios"
 import { useNotification } from "../contexts/NotificationContext"
-import API_BASE_URL from "../config/api";
+import { API_ENDPOINTS } from "../config/api";
 import { parseBackendDate } from "../utils/dates"
 
 export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
@@ -45,7 +45,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
   const fetchGroups = async () => {
     try {
       setLoading(true)
-      const response = await axios.get(`${API_BASE_URL}/api/groups`)
+      const response = await axios.get(API_ENDPOINTS.projects)
       setGroups(response.data.groups || [])
       setError(null)
     } catch (err) {
@@ -70,7 +70,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
     setFormError(null)
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/groups`, {
+      const response = await axios.post(API_ENDPOINTS.projects, {
         name: formData.name.trim(),
         description: formData.description.trim(),
       })
@@ -109,7 +109,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
     setFormError(null)
 
     try {
-      const response = await axios.put(`${API_BASE_URL}/api/groups/${editingGroup.id}`, {
+      const response = await axios.put(API_ENDPOINTS.project(editingGroup.id), {
         name: formData.name.trim(),
         description: formData.description.trim(),
       })
@@ -157,7 +157,7 @@ export default function GroupMaster({ onBack, onOpenGroupDashboard }) {
     }
 
     try {
-      const response = await axios.delete(`${API_BASE_URL}/api/groups/${groupId}`)
+      const response = await axios.delete(API_ENDPOINTS.project(groupId))
       const data = response?.data || {}
       setGroups(groups.filter((g) => g.id !== groupId))
       const scanCount = data.deletedScans ?? 0

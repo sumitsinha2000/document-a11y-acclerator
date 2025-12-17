@@ -19,9 +19,9 @@
 - `NotificationContainer.jsx` imports and renders Toast and ConfirmDialog components
 - App.jsx renders `NotificationContainer` as a sibling to `AppContent`
 
-### 2. Groups Not Fetching
+### 2. Projects Not Fetching
 
-**Error:** 404 errors when trying to fetch groups from `/api/groups`
+**Error:** 404 errors when trying to fetch projects from `/api/projects`
 
 **Root Cause:**
 
@@ -111,15 +111,15 @@ Result: Clean dependency chain → No initialization errors
    - Toast should appear in top-right corner
    - Confirm dialogs should work when triggered
 
-3. **Verify groups handling:**
+3. **Verify projects handling:**
    - Navigate to Upload page
    - Should see group selector
    - If backend is unavailable, should see friendly error message
-   - If backend is available, should fetch and display groups
+   - If backend is available, should fetch and display projects
 
 ## Next Steps
 
-### To Enable Groups Functionality
+### To Enable Projects Functionality
 
 1. Deploy your backend API (see BACKEND_SETUP_REQUIRED.md)
 2. Set `VITE_API_URL` environment variable in Vercel
@@ -140,7 +140,7 @@ Open <http://localhost:5173> and check browser console for errors.
 - All "use client" directives have been removed (they're Next.js-specific)
 - LoadingScreen component no longer needs to be commented out
 - The app should now load without any initialization errors
-- Groups will show "Backend Not Available" message until backend is deployed
+- Projects will show "Backend Not Available" message until backend is deployed
 
 ## Related Files
 

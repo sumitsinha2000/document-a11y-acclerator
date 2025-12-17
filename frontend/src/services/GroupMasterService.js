@@ -1,5 +1,5 @@
 import axios from "axios"
-import API_BASE_URL from "../config/api"
+import { API_ENDPOINTS } from "../config/api"
 
 /**
  * GroupMasterService - Dedicated service for managing groups independently
@@ -7,7 +7,7 @@ import API_BASE_URL from "../config/api"
  */
 class GroupMasterService {
   constructor() {
-    this.baseUrl = `${API_BASE_URL}/api/groups`
+    this.baseUrl = API_ENDPOINTS.projects
     this.cache = new Map()
     this.listeners = new Set()
   }

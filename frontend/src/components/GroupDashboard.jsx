@@ -5,7 +5,7 @@ import GroupTreeSidebar from "./GroupTreeSidebar"
 import { BatchInsightPanel, GroupInsightPanel } from "./DashboardInsights"
 import UploadArea from "./UploadArea"
 import ReportViewer from "./ReportViewer"
-import API_BASE_URL from "../config/api"
+import API_BASE_URL, { API_ENDPOINTS } from "../config/api"
 import { parseBackendDate } from "../utils/dates"
 import { normalizeScanSummary, normalizeScans } from "../utils/compliance"
 import { getScanStatus, isScannedStatus } from "../utils/statuses"
@@ -384,7 +384,7 @@ export default function GroupDashboard({
   const loadInitialData = async () => {
     try {
       setInitialLoading(true)
-      await axios.get(`${API_BASE_URL}/api/groups`)
+      await axios.get(API_ENDPOINTS.projects)
     } catch (error) {
       console.error("[v0] Error loading initial data:", error)
       showError("Failed to load initial data")
@@ -555,7 +555,7 @@ export default function GroupDashboard({
 
     try {
       if (node.type === "group") {
-        const response = await axios.get(`${API_BASE_URL}/api/groups/${node.id}/details`)
+        const response = await axios.get(API_ENDPOINTS.projectDetails(node.id))
         const groupDetails = response.data
 
         cacheAndUpdate({

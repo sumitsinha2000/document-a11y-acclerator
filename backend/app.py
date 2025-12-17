@@ -51,7 +51,7 @@ from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.auto_fix_engine import AutoFixEngine
 from backend.routes import (
     health_router,
-    groups_router,
+    projects_router,
     folders_router,
     scans_router,
     fixes_router,
@@ -190,7 +190,7 @@ mount_static_if_available(
 )
 
 app.include_router(health_router)
-app.include_router(groups_router)
+app.include_router(projects_router)
 app.include_router(folders_router)
 app.include_router(scans_router)
 app.include_router(fixes_router)

@@ -7,9 +7,9 @@ The frontend application is successfully deployed to Vercel, but the backend API
 ## Errors You're Seeing
 
 - `GET /api/scans 404 (Not Found)`
-- `GET /api/groups 404 (Not Found)`
+- `GET /api/projects 404 (Not Found)`
 - `Error fetching scan history: AxiosError`
-- `Error fetching groups: AxiosError`
+- `Error fetching projects: AxiosError`
 
 ## Why This Is Happening
 
@@ -74,11 +74,11 @@ If you need to create a backend from scratch:
    - `POST /api/scan` - Scan single document
    - `POST /api/scan-batch` - Scan multiple documents
    - `GET /api/scans` - Get all scans
-   - `GET /api/groups` - Get all groups
-   - `POST /api/groups` - Create new group
-   - `GET /api/groups/:id` - Get group details
-   - `PUT /api/groups/:id` - Update group
-   - `DELETE /api/groups/:id` - Delete group
+   - `GET /api/projects` - Get all projects
+   - `POST /api/projects` - Create new project
+   - `GET /api/projects/:id` - Get project details
+   - `PUT /api/projects/:id` - Update project
+   - `DELETE /api/projects/:id` - Delete project
    - And other endpoints listed in `frontend/src/config/api.js`
 
 3. **Deploy and configure as in Option 1**

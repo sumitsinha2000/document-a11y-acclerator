@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle } from "react";
 import axios from "axios";
-import API_BASE_URL from "../config/api";
+import API_BASE_URL, { API_ENDPOINTS } from "../config/api";
 import { resolveEntityStatus } from "../utils/statuses";
 import { useNotification } from "../contexts/NotificationContext";
 const normalizeId = (id) => (id === null || id === undefined ? "" : String(id));
@@ -646,7 +646,7 @@ const validateEntityName = (value, options = {}) => {
       setLoading(true);
       setError(null);
 
-      const response = await axios.get(`${API_BASE_URL}/api/groups`);
+      const response = await axios.get(API_ENDPOINTS.projects);
       const fetchedGroupsRaw = response.data.groups || [];
 
       const normalizedGroups = fetchedGroupsRaw.map((group) => ({
@@ -796,7 +796,7 @@ const validateEntityName = (value, options = {}) => {
     const normalizedId = normalizeId(groupId);
 
     try {
-      const filesResponse = await axios.get(`${API_BASE_URL}/api/groups/${groupId}/files`);
+      const filesResponse = await axios.get(API_ENDPOINTS.projectFiles(groupId));
       const files = filesResponse.data.files || [];
 
       setGroupFiles((prev) => ({
@@ -1138,7 +1138,7 @@ const validateEntityName = (value, options = {}) => {
     setNewProjectError("");
     setIsCreatingProject(true);
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/groups`, {
+      const response = await axios.post(API_ENDPOINTS.projects, {
         name: trimmedName,
       });
 
@@ -1737,7 +1737,7 @@ const validateEntityName = (value, options = {}) => {
       return;
     }
     try {
-      const response = await axios.put(`${API_BASE_URL}/api/groups/${editingGroupId}`, {
+      const response = await axios.put(API_ENDPOINTS.project(editingGroupId), {
         name: trimmedName,
         description: currentGroup?.description || "",
       });
@@ -1865,7 +1865,7 @@ const validateEntityName = (value, options = {}) => {
     setDeletingGroupId(pendingDeleteGroup.id);
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/groups/${pendingDeleteGroup.id}`);
+      await axios.delete(API_ENDPOINTS.project(pendingDeleteGroup.id));
       removeGroupById(pendingDeleteGroup.id, pendingDeleteGroup?.name);
       void ensureDashboardReflectsGroupDeletion(pendingDeleteGroup.id);
       setStatusMessage(`${projectName} deleted`);
