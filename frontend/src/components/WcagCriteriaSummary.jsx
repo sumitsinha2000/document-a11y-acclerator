@@ -43,6 +43,11 @@ const WCAG_CRITERIA_DETAILS = {
     level: "A",
     summary: "Provide descriptive titles so users can identify content.",
   },
+  "2.4.3": {
+    name: "Focus Order",
+    level: "A",
+    summary: "Ensure focus moves in a logical, predictable order across interactive elements.",
+  },
   "2.4.4": {
     name: "Link Purpose (In Context)",
     level: "AA",
@@ -89,6 +94,7 @@ const WCAG_ORDER = [
   "1.4.6",
   "2.4.1",
   "2.4.2",
+  "2.4.3",
   "2.4.4",
   "2.4.5",
   "2.4.6",

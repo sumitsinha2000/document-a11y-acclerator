@@ -114,7 +114,7 @@ def _extract_structure_refs(entry: Any) -> Tuple[List[int], List[Any]]:
     Returns lists of MCIDs and OBJR references discovered anywhere under the /K subtree.
     """
     mcids: Set[int] = set()
-    obj_refs: Set[Any] = set()
+    obj_refs: List[Any] = []
 
     def _walk(value: Any) -> None:
         value = _resolve_pdf_object(value)
@@ -146,9 +146,14 @@ def _extract_structure_refs(entry: Any) -> Tuple[List[int], List[Any]]:
 
             if value_type == "/OBJR" and "/Obj" in value:
                 try:
-                    obj_refs.add(value.Obj)
+                    obj_refs.append(value.Obj)
                 except Exception:
                     pass
+            elif value_type == "/Annot":
+                obj_refs.append(value)
+            elif "/Subtype" in value and "/Rect" in value:
+                # Best-effort: treat inline annotation dictionaries as references
+                obj_refs.append(value)
 
             # Recurse into nested /K if present
             nested = value.get("/K")
@@ -909,6 +914,7 @@ class WCAGValidator:
             self._validate_document_title()
             self._validate_structure_tree()
             self._validate_reading_order()
+            self._validate_focus_order()
             self._validate_sensory_characteristics()
             self._validate_bypass_blocks()
             self._validate_multiple_ways()
@@ -1308,6 +1314,311 @@ class WCAGValidator:
                 
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating reading order: {str(e)}")
+
+    def _validate_focus_order(self):
+        """Validate WCAG 2.4.3 (Focus Order) - Level A."""
+        try:
+            pdf = self.pdf
+            if pdf is None:
+                logger.debug("[WCAGValidator] Skipping focus order validation; PDF not loaded.")
+                return
+
+            structured_order, structured_pages = self._collect_structured_focus_order()
+
+            # 🔹 Cross-page structure order check (keep as-is)
+            if structured_pages and self._sequence_has_inversion(structured_pages):
+                pages_involved = sorted(set(structured_pages))
+                self._add_wcag_issue(
+                    "Focus order in the structure tree jumps between pages, making navigation unpredictable.",
+                    "2.4.3",
+                    "A",
+                    "medium",
+                    "Ensure focus progresses in page order and does not return to earlier pages.",
+                    pages=pages_involved,
+                )
+                self.wcag_compliance["A"] = False
+
+            # 🔹 Per-page validation
+            for page_num, page in enumerate(pdf.pages, 1):
+                elements = self._collect_interactive_elements_on_page(page, page_num)
+                if len(elements) < 2:
+                    continue
+
+                try:
+                    tabs_entry = page.get("/Tabs")
+                except Exception:
+                    tabs_entry = None
+                tabs_value = str(tabs_entry) if tabs_entry is not None else ""
+
+                struct_sequence = structured_order.get(page_num, [])
+
+                # ======================================================
+                # 🔴 CRITICAL FIX: Untagged PDF + No /Tabs detection
+                # ======================================================
+                if not struct_sequence and not tabs_value:
+                    # Annotation order (actual tabbing order)
+                    annot_order = sorted(
+                        elements, key=lambda e: e.get("annot_index", 0)
+                    )
+
+                    # Visual order (expected)
+                    visual_order = sorted(
+                        elements, key=self._focus_row_key
+                    )
+
+                    annot_keys = [e["key"] for e in annot_order if e.get("key")]
+                    visual_keys = [e["key"] for e in visual_order if e.get("key")]
+
+                    if annot_keys != visual_keys:
+                        context = self._summarize_focus_elements(elements)
+                        self._add_wcag_issue(
+                            f"Interactive elements on page {page_num} receive focus in an order "
+                            "that does not match the visual reading order.",
+                            "2.4.3",
+                            "A",
+                            "high",
+                            "Define /Tabs or tag the document so focus follows a logical visual order.",
+                            page=page_num,
+                            context=context,
+                        )
+                        self.wcag_compliance["A"] = False
+                        continue  # 🔴 Important: do not double-report
+
+                # ======================================================
+                # Existing logic (Tabs / structure based)
+                # ======================================================
+                actual_order = self._derive_focus_order(elements, tabs_value, struct_sequence)
+                expected_order = self._sort_expected_focus(elements)
+
+                expected_index = {
+                    element["key"]: idx
+                    for idx, element in enumerate(expected_order)
+                    if element.get("key") is not None
+                }
+
+                positions = [
+                    expected_index.get(element.get("key"))
+                    for element in actual_order
+                    if expected_index.get(element.get("key")) is not None
+                ]
+
+                if self._sequence_has_inversion(positions):
+                    context = self._summarize_focus_elements(elements)
+                    self._add_wcag_issue(
+                        f"Interactive elements on page {page_num} receive focus in a non-linear order.",
+                        "2.4.3",
+                        "A",
+                        "high",
+                        "Define a logical tab order (left-to-right, top-to-bottom) using /Tabs or structure.",
+                        page=page_num,
+                        context=context,
+                    )
+                    self.wcag_compliance["A"] = False
+
+                # 🔹 Structure vs annotation mismatch (keep)
+                annot_order_keys = [
+                    element.get("key")
+                    for element in sorted(elements, key=lambda item: item.get("annot_index", 0))
+                    if element.get("key") is not None
+                ]
+
+                struct_keys_on_page = [
+                    key for key in struct_sequence if key in annot_order_keys
+                ]
+
+                if len(struct_keys_on_page) >= 2:
+                    annot_index_map = {key: idx for idx, key in enumerate(annot_order_keys)}
+                    struct_positions = [annot_index_map.get(key) for key in struct_keys_on_page]
+
+                    if self._sequence_has_inversion(struct_positions):
+                        context = self._summarize_focus_elements(elements)
+                        self._add_wcag_issue(
+                            f"Structure order and annotation order differ on page {page_num}.",
+                            "2.4.3",
+                            "A",
+                            "medium",
+                            "Align annotation order with the structure tree or define /Tabs.",
+                            page=page_num,
+                            context=context,
+                        )
+                        self.wcag_compliance["A"] = False
+
+        except Exception as e:
+            logger.error(f"[WCAGValidator] Error validating focus order: {str(e)}")
+        
+    def _collect_interactive_elements_on_page(
+        self, page: Any, page_num: int
+    ) -> List[Dict[str, Any]]:
+        """Return interactive (/Widget and /Link) annotations for a page."""
+        elements: List[Dict[str, Any]] = []
+        annots = getattr(page, "Annots", None)
+        if not annots:
+            return elements
+
+        for index, annot in enumerate(_iter_array_items(annots)):
+            resolved = _resolve_pdf_object(annot)
+            if not isinstance(resolved, pikepdf.Dictionary):
+                continue
+
+            try:
+                subtype = str(resolved.get("/Subtype") or "").lstrip("/")
+            except Exception:
+                subtype = ""
+
+            if subtype not in ("Widget", "Link"):
+                continue
+
+            rect = self._rect_to_tuple(resolved.get("/Rect"))
+            key = _object_key(resolved) or _object_key(annot) or f"{page_num}:{index}"
+            elements.append(
+                {
+                    "key": key,
+                    "rect": rect,
+                    "type": subtype,
+                    "annot_index": index,
+                }
+            )
+
+        return elements
+
+    def _rect_to_tuple(self, rect_entry: Any) -> Optional[Tuple[float, float, float, float]]:
+        """Normalize a /Rect array to (x0, y0, x1, y1)."""
+        coords: List[float] = []
+        for value in _array_to_list(rect_entry):
+            try:
+                coords.append(float(value))
+            except Exception:
+                return None
+
+        if len(coords) != 4:
+            return None
+
+        x0, y0, x1, y1 = coords
+        return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+    def _collect_structured_focus_order(self) -> Tuple[Dict[int, List[str]], List[int]]:
+        """Return structure-based focus order keyed by page and a global page sequence."""
+        structured: Dict[int, List[str]] = defaultdict(list)
+        page_sequence: List[int] = []
+
+        def _visitor(element: pikepdf.Dictionary, page_ref: Any):
+            page_num = self._determine_page_number(page_ref, element)
+            if page_num is None:
+                return
+
+            _, obj_refs = _extract_structure_refs(element.get("/K"))
+            if not obj_refs:
+                return
+
+            ordered = structured[page_num]
+            for obj_ref in obj_refs:
+                key = _object_key(obj_ref)
+                if not key:
+                    continue
+                if key not in ordered:
+                    ordered.append(key)
+                page_sequence.append(page_num)
+
+        self._traverse_structure(_visitor)
+        return structured, page_sequence
+
+    def _sort_expected_focus(self, elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Sort elements in the expected left-to-right, top-to-bottom order."""
+        return sorted(elements, key=self._focus_row_key)
+
+    def _focus_row_key(self, element: Dict[str, Any]) -> Tuple[float, float]:
+        rect = element.get("rect")
+        if not rect:
+            return (float("inf"), float("inf"))
+        x0, _y0, _x1, y1 = rect
+        return (-y1, x0)
+
+    def _focus_column_key(self, element: Dict[str, Any]) -> Tuple[float, float]:
+        rect = element.get("rect")
+        if not rect:
+            return (float("inf"), float("inf"))
+        x0, _y0, _x1, y1 = rect
+        return (x0, -y1)
+
+    def _derive_focus_order(
+        self,
+        elements: List[Dict[str, Any]],
+        tabs_value: str,
+        struct_sequence: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Determine actual focus order for a page."""
+        normalized_tabs = tabs_value.strip() if tabs_value else ""
+        if normalized_tabs.startswith("/"):
+            normalized_tabs = normalized_tabs
+        else:
+            normalized_tabs = f"/{normalized_tabs}" if normalized_tabs else ""
+
+        if normalized_tabs == "/R":
+            return sorted(elements, key=self._focus_row_key)
+        if normalized_tabs == "/C":
+            return sorted(elements, key=self._focus_column_key)
+        if normalized_tabs == "/S":
+            ordered = self._merge_structured_focus(struct_sequence, elements)
+            if ordered:
+                return ordered
+
+        if struct_sequence:
+            merged = self._merge_structured_focus(struct_sequence, elements)
+            if merged:
+                return merged
+
+        return sorted(elements, key=self._focus_row_key)
+
+    def _merge_structured_focus(
+        self, struct_sequence: List[str], elements: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Apply a structure-based order to the page's elements."""
+        if not struct_sequence:
+            return []
+
+        by_key = {element.get("key"): element for element in elements if element.get("key")}
+        ordered: List[Dict[str, Any]] = []
+        seen: Set[str] = set()
+
+        for key in struct_sequence:
+            if key in seen:
+                continue
+            element = by_key.get(key)
+            if element is None:
+                continue
+            ordered.append(element)
+            seen.add(key)
+
+        if len(ordered) < len(elements):
+            remaining = [element for element in elements if element.get("key") not in seen]
+            ordered.extend(sorted(remaining, key=self._focus_row_key))
+
+        return ordered
+
+    def _sequence_has_inversion(self, positions: List[Optional[int]]) -> bool:
+        """Return True if a numeric sequence drops below a prior value."""
+        max_seen = -1
+        for pos in positions:
+            if pos is None:
+                continue
+            if pos < max_seen:
+                return True
+            max_seen = pos
+        return False
+
+    def _summarize_focus_elements(self, elements: List[Dict[str, Any]]) -> Optional[str]:
+        """Return a short summary of interactive element types on a page."""
+        counts: Dict[str, int] = defaultdict(int)
+        for element in elements:
+            element_type = element.get("type")
+            if element_type:
+                counts[element_type] += 1
+
+        if not counts:
+            return None
+
+        parts = [f"{key}:{value}" for key, value in sorted(counts.items())]
+        return ", ".join(parts)
 
     def _validate_sensory_characteristics(self):
         """Validate WCAG 1.3.3 (Sensory Characteristics) with simple text heuristics."""

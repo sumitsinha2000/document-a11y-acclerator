@@ -47,6 +47,11 @@ WCAG_CRITERIA_DETAILS: Dict[str, Dict[str, str]] = {
         "level": "A",
         "summary": "Provide descriptive titles so users can identify content.",
     },
+    "2.4.3": {
+        "name": "Focus Order",
+        "level": "A",
+        "summary": "Ensure focus moves in a logical, predictable order across interactive elements.",
+    },
     "2.4.4": {
         "name": "Link Purpose (In Context)",
         "level": "AA",
