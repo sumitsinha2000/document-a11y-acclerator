@@ -32,7 +32,7 @@ def _patch_scan_side_effects(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         scans_routes, "save_scan_to_db", lambda scan_id, *_args, **_kwargs: scan_id
     )
     monkeypatch.setattr(scans_routes, "update_group_file_count", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(scans_routes, "NEON_DATABASE_URL", None)
+    monkeypatch.setattr(scans_routes, "DATABASE_URL", None)
 
 
 def _invoke_scan(

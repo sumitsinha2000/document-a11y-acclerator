@@ -24,7 +24,7 @@ from backend.pdf_generator import PDFGenerator
 from backend.services.multi_tier_storage import has_backblaze_storage, stream_remote_file
 from backend.utils.app_helpers import (
     FIXED_FOLDER,
-    NEON_DATABASE_URL,
+    DATABASE_URL,
     UPLOAD_FOLDER,
     FILE_STATUS_LABELS,
     SafeJSONResponse,
@@ -1209,7 +1209,7 @@ async def apply_manual_fix(request: Request):
         scan_data = {}
         # attempt DB lookup for scan metadata if available
         try:
-            if NEON_DATABASE_URL:
+            if DATABASE_URL:
                 rows = execute_query(
                     "SELECT * FROM scans WHERE id=%s",
                     (scan_id,),

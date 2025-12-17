@@ -72,7 +72,7 @@ LEGACY_STATUS_CODE_MAP: Dict[str, str] = {
 
 SUMMARY_PENDING_STATUSES = {"queued", "pending", "uploading", "processing"}
 
-NEON_DATABASE_URL = os.getenv('NEON_DATABASE_URL')
+DATABASE_URL = os.getenv('DATABASE_URL')
 DB_SCHEMA = os.getenv('DB_SCHEMA', 'public')
 
 def _sanitize_string(value: str) -> str:
@@ -266,10 +266,10 @@ def get_db_connection():
     Synchronous psycopg2 connection as in original file.
     Keep using RealDictCursor for compatibility.
     """
-    if not NEON_DATABASE_URL:
+    if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL not set")
     try:
-        conn = psycopg2.connect(NEON_DATABASE_URL, cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
         logger.exception("Database connection failed: ", e)
@@ -1290,7 +1290,7 @@ def _fetch_scan_record(scan_id: str) -> Optional[Dict[str, Any]]:
     """
     Retrieve a scan row by its primary id. Returns None if no record exists.
     """
-    if not NEON_DATABASE_URL:
+    if not DATABASE_URL:
         return None
 
     rows = execute_query(
@@ -1327,7 +1327,7 @@ def _resolve_scan_file_path(
     """
     Try common filename patterns to find the uploaded PDF on disk.
     """
-    if not scan_record and NEON_DATABASE_URL:
+    if not scan_record and DATABASE_URL:
         scan_record = _fetch_scan_record(scan_id)
 
     remote_candidates: List[Tuple[str, str]] = []
@@ -2202,7 +2202,7 @@ def set_generated_pdfs_folder(path: str) -> None:
 
 __all__ = [
     "SafeJSONResponse",
-    "NEON_DATABASE_URL",
+    "DATABASE_URL",
     "UPLOAD_FOLDER",
     "FIXED_FOLDER",
     "mount_static_if_available",

@@ -185,8 +185,7 @@ ORDER BY schemaname, tablename;
 Update your `.env` file with the database connection string:
 
 ```env
-NEON_DATABASE_URL=postgresql://username:password@localhost:5432/doc_a11y_accelerator
-NEON_DATABASE_URL=postgresql://username:password@localhost:5432/doc_a11y_accelerator
+DATABASE_URL=postgresql://username:password@localhost:5432/doc_a11y_accelerator
 ```
 
 ### Connection String Format

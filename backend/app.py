@@ -60,7 +60,7 @@ from backend.routes import (
 import backend.utils.app_helpers as app_helpers
 from backend.utils.app_helpers import (
     SafeJSONResponse,
-    NEON_DATABASE_URL,
+    DATABASE_URL,
     UPLOAD_FOLDER,
     FIXED_FOLDER,
     mount_static_if_available,
@@ -245,11 +245,10 @@ async def upload_file(
             "result": dict(result),
         }
         logger.info(
-            "[API] Upload received: filename=%s, group_id=%s (type=%s), NEON_DATABASE_URL=%s",
+            "[API] Upload received: filename=%s, group_id=%s (type=%s)",
             file.filename,
             group_id,
             type(group_id),
-            bool(NEON_DATABASE_URL),
         )
 
         folder_record = None
@@ -270,7 +269,7 @@ async def upload_file(
                     status_code=400,
                 )
 
-        if group_id and NEON_DATABASE_URL:
+        if group_id and DATABASE_URL:
             logger.info("[API] saving scan metadata for %s", file.filename)
 
             placeholder = build_placeholder_scan_payload(file.filename)
@@ -1589,7 +1588,7 @@ async def apply_manual_fix(request: Request):
         scan_data = {}
         # attempt DB lookup for scan metadata if available
         try:
-            if NEON_DATABASE_URL:
+            if DATABASE_URL:
                 rows = execute_query(
                     "SELECT * FROM scans WHERE id=%s",
                     (scan_id,),

@@ -17,7 +17,7 @@ from backend.utils.wcag_mapping import annotate_wcag_mappings
 from backend.utils.criteria_summary import build_criteria_summary
 from backend.utils.app_helpers import (
     SafeJSONResponse,
-    NEON_DATABASE_URL,
+    DATABASE_URL,
     FILE_STATUS_LABELS,
     build_placeholder_scan_payload,
     build_verapdf_status,
@@ -301,7 +301,7 @@ async def scan_pdf(
                     "[Backend] Failed to refresh statistics for batch %s after scan",
                     folder_id,
                 )
-        if group_id and NEON_DATABASE_URL:
+        if group_id and DATABASE_URL:
             try:
                 update_group_file_count(group_id)
             except Exception:
@@ -611,7 +611,7 @@ async def scan_batch(
 
 @router.post("/scan/{scan_id}/start")
 async def start_deferred_scan(scan_id: str):
-    if not NEON_DATABASE_URL:
+    if not DATABASE_URL:
         return JSONResponse({"error": "Database not configured"}, status_code=500)
 
     scan_record = _fetch_scan_record(scan_id)
