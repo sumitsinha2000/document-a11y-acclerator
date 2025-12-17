@@ -32,6 +32,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.background import BackgroundTask
 from werkzeug.utils import secure_filename
 from psycopg2.extras import RealDictCursor
 
@@ -41,7 +42,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # Local application imports
-from backend.multi_tier_storage import (
+from backend.services.multi_tier_storage import (
     upload_file_with_fallback,
     has_backblaze_storage,
     stream_remote_file,

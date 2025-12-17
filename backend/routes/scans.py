@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from backend.multi_tier_storage import stream_remote_file, upload_file_with_fallback
+from backend.services.multi_tier_storage import stream_remote_file, upload_file_with_fallback
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.utils.wcag_mapping import annotate_wcag_mappings
 from backend.utils.criteria_summary import build_criteria_summary

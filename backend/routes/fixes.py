@@ -21,7 +21,7 @@ from werkzeug.utils import secure_filename
 
 from backend.auto_fix_engine import AutoFixEngine
 from backend.pdf_generator import PDFGenerator
-from backend.multi_tier_storage import has_backblaze_storage, stream_remote_file
+from backend.services.multi_tier_storage import has_backblaze_storage, stream_remote_file
 from backend.utils.app_helpers import (
     FIXED_FOLDER,
     NEON_DATABASE_URL,

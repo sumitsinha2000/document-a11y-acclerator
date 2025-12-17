@@ -622,9 +622,23 @@ class AutoFixEngine:
             
             if tracker:
                 tracker.start_step(step_id)
-            
-            temp_path = f"{pdf_path}.temp"
-            
+
+            filename_hint = scan_data.get("filename") or pdf_path.name
+            original_stem = Path(filename_hint).stem or pdf_path.stem
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename = f"{original_stem}_fixed_{timestamp}.pdf"
+            fixed_output_path = pdf_path.parent / output_filename
+
+            temp_fd, temp_name = tempfile.mkstemp(
+                prefix=f"{original_stem}_",
+                suffix=".tmp.pdf",
+                dir=str(pdf_path.parent),
+            )
+            os.close(temp_fd)
+            if os.path.exists(temp_name):
+                os.remove(temp_name)
+            temp_path = Path(temp_name)
+
             pdf = pikepdf.open(pdf_path, allow_overwriting_input=False)
             print("[AutoFixEngine] ✓ PDF opened successfully")
             
@@ -996,11 +1010,11 @@ class AutoFixEngine:
                 tracker.start_step(step_id)
             
             print("[AutoFixEngine] ========== SAVING PDF ==========")
-            print("[AutoFixEngine] Applied {len(fixes_applied)} fixes, now saving...")
-            print("[AutoFixEngine] Saving to temp file: {temp_path}")
+            print(f"[AutoFixEngine] Applied {len(fixes_applied)} fixes, now saving...")
+            print(f"[AutoFixEngine] Saving to temp file: {temp_path}")
             
             pdf.save(
-                temp_path,
+                str(temp_path),
                 linearize=True,
                 object_stream_mode=pikepdf.ObjectStreamMode.preserve,
                 compress_streams=True,
@@ -1012,8 +1026,11 @@ class AutoFixEngine:
             
             pdf.close()
             pdf = None
-            
-            fixed_output_path = Path(temp_path)
+
+            if fixed_output_path.exists():
+                fixed_output_path.unlink()
+            shutil.move(str(temp_path), str(fixed_output_path))
+            print(f"[AutoFixEngine] ✓ Fixed PDF saved: {fixed_output_path}")
             if tracker:
                 tracker.complete_step(step_id, f"PDF saved ({temp_size} bytes)")
 
@@ -1050,6 +1067,7 @@ class AutoFixEngine:
                 'success': True,
                 'fixedFile': fixed_output_path.name,
                 'fixedTempPath': str(fixed_output_path),
+                'tempOutputPath': str(temp_path),
                 'fixesApplied': fixes_applied,
                 'successCount': success_count,
                 'message': f'Successfully applied {success_count} automated fixes',

@@ -24,11 +24,11 @@ from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 import threading
 
-from backend.multi_tier_storage import download_remote_file, upload_file_with_fallback, delete_remote_file
+from backend.services.multi_tier_storage import download_remote_file, upload_file_with_fallback, delete_remote_file
 from backend.pdf_analyzer import PDFAccessibilityAnalyzer
 from backend.fix_suggestions import generate_fix_suggestions
 from backend.auto_fix_engine import AutoFixEngine
-from backend.fix_progress_tracker import (
+from backend.services.fix_progress_tracker import (
     create_progress_tracker,
     get_progress_tracker,
     schedule_tracker_cleanup,

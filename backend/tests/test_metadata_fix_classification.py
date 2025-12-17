@@ -3,6 +3,8 @@ Tests that metadata-related fixes are routed to the correct buckets so guided re
 for author/subject information only appears in the semi-automated list.
 """
 
+import pytest
+
 from backend.auto_fix import AutoFixEngine as LegacyAutoFixEngine
 from backend.auto_fix_engine import AutoFixEngine as ModernAutoFixEngine
 
@@ -44,7 +46,8 @@ def test_legacy_auto_fix_honors_metadata_guidance() -> None:
         ]
     }
 
-    fixes = engine.generate_fixes(issues)
+    with pytest.warns(DeprecationWarning):
+        fixes = engine.generate_fixes(issues)
     automated = fixes.get("automated", [])
     semi = fixes.get("semiAutomated", [])
 
