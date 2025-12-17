@@ -979,6 +979,66 @@ class WCAGValidator:
                     'Add a metadata stream to the document catalog with PDF/UA Identification Schema'
                 )
                 self.pdfua_compliance = False
+            else:
+                has_pdfua_identifier = False
+                duplicate_pdfua_identifier = False
+                invalid_pdfua_value = False
+                try:
+                    # The catalog Metadata stream must carry the PDF/UA identification schema.
+                    with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
+                        part_value = str(meta.get('pdfuaid:part') or '').strip()
+                        if part_value:
+                            has_pdfua_identifier = True
+                            if part_value != "1":
+                                invalid_pdfua_value = True
+                except Exception as e:
+                    logger.error(f"[WCAGValidator] Error validating PDF/UA identifier: {e}")
+
+                # Detect duplicates by reading raw XMP (pikepdf metadata view will not expose dupes).
+                try:
+                    metadata_obj = getattr(pdf.Root, "Metadata", None)
+                    if metadata_obj:
+                        if hasattr(metadata_obj, "get_object"):
+                            try:
+                                metadata_obj = metadata_obj.get_object()
+                            except Exception:
+                                pass
+                        raw_xmp = metadata_obj.read_bytes()
+                        import xml.etree.ElementTree as ET  # Local import to avoid global dependency
+                        ns = {"pdfuaid": "http://www.aiim.org/pdfua/ns/id/"}
+                        root = ET.fromstring(raw_xmp.decode("utf-8", errors="ignore"))
+                        pdfua_parts = root.findall(".//pdfuaid:part", ns)
+                        if len(pdfua_parts) > 1:
+                            duplicate_pdfua_identifier = True
+                        if pdfua_parts and any((elem.text or "").strip() != "1" for elem in pdfua_parts):
+                            invalid_pdfua_value = True
+                except Exception as e:
+                    logger.debug(f"[WCAGValidator] Could not parse XMP for duplicate PDF/UA identifiers: {e}")
+
+                if not has_pdfua_identifier:
+                    self._add_pdfua_issue(
+                        'Metadata stream missing PDF/UA identification (pdfuaid:part)',
+                        'ISO 14289-1:7.1',
+                        'high',
+                        'Add <pdfuaid:part>1</pdfuaid:part> to the XMP metadata stream and reference it from the catalog /Metadata entry'
+                    )
+                    self.pdfua_compliance = False
+                if duplicate_pdfua_identifier:
+                    self._add_pdfua_issue(
+                        'Metadata stream contains multiple PDF/UA identification entries',
+                        'ISO 14289-1:7.1',
+                        'high',
+                        'Ensure only a single <pdfuaid:part>1</pdfuaid:part> appears in XMP metadata'
+                    )
+                    self.pdfua_compliance = False
+                if invalid_pdfua_value:
+                    self._add_pdfua_issue(
+                        'Metadata stream has invalid PDF/UA identification value',
+                        'ISO 14289-1:7.1',
+                        'high',
+                        'Set <pdfuaid:part> to "1" to claim PDF/UA-1 conformance'
+                    )
+                    self.pdfua_compliance = False
             
             # Rule 7.1-2: Check if document is tagged
             if '/MarkInfo' not in pdf.Root:

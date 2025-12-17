@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Tuple
 
 import pikepdf
 from pikepdf import Dictionary, Name, Stream
@@ -80,6 +80,45 @@ def _build_pdfua_xmp(
 <?xpacket end="w"?>"""
     return packet.encode("utf-8")
 
+def _write_catalog_metadata(pdf: pikepdf.Pdf, metadata_packet: bytes) -> Tuple[bool, bool]:
+    """
+    Attach or update the catalog /Metadata stream with the supplied XMP packet.
+
+    Returns a tuple of (stream_updated, stream_created) to help downstream callers
+    avoid double-counting changes.
+    """
+    stream_updated = False
+    stream_created = False
+
+    try:
+        existing_ref = getattr(pdf.Root, "Metadata", None)
+        existing_stream = None
+        if existing_ref is not None:
+            try:
+                existing_stream = existing_ref.get_object()
+            except Exception:
+                existing_stream = existing_ref
+        if isinstance(existing_stream, Stream):
+            existing_stream.write(metadata_packet)
+            # Ensure the stream dictionary advertises the XMP type/subtype so PDF/UA validators see it.
+            sd = existing_stream.stream_dict
+            if Name("/Type") not in sd:
+                sd[Name("/Type")] = Name("/Metadata")
+            if Name("/Subtype") not in sd:
+                sd[Name("/Subtype")] = Name("/XML")
+            stream_updated = True
+            return stream_updated, stream_created
+    except Exception:
+        # Fall through to create a fresh stream
+        pass
+
+    metadata_stream = Stream(pdf, metadata_packet)
+    metadata_stream.stream_dict = Dictionary(Type=Name("/Metadata"), Subtype=Name("/XML"))
+    pdf.Root.Metadata = pdf.make_indirect(metadata_stream)
+    stream_updated = True
+    stream_created = True
+    return stream_updated, stream_created
+
 
 def ensure_pdfua_metadata_stream(pdf: pikepdf.Pdf, title: str) -> bool:
     """
@@ -111,17 +150,25 @@ def ensure_pdfua_metadata_stream(pdf: pikepdf.Pdf, title: str) -> bool:
 
     # Try to set dc:title and PDF/UA identifiers via XMP.
     metadata_packet: Optional[bytes] = None
+    rebuilt_packet = False
+    metadata_changed = False
     try:
         with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
+            # Ensure the PDF/UA identification schema is registered so <pdfuaid:part> serializes correctly.
+            try:
+                meta.register_namespace("pdfuaid", "http://www.aiim.org/pdfua/ns/id/")
+            except Exception:
+                pass
+
             if not meta.get("dc:title") or not str(meta.get("dc:title")).strip():
                 meta["dc:title"] = safe_title
-                changed = True
+                metadata_changed = True
             if not meta.get("pdfuaid:part"):
                 meta["pdfuaid:part"] = "1"
-                changed = True
+                metadata_changed = True
             if not meta.get("pdfuaid:conformance"):
                 meta["pdfuaid:conformance"] = "A"
-                changed = True
+                metadata_changed = True
             if docinfo_author and not _has_metadata_value(meta.get("dc:creator")):
                 meta["dc:creator"] = [docinfo_author]
                 changed = True
@@ -139,21 +186,21 @@ def ensure_pdfua_metadata_stream(pdf: pikepdf.Pdf, title: str) -> bool:
     except Exception:
         metadata_packet = None
 
-    # If the catalog still lacks /Metadata, attach a stream so validators see it.
-    if "/Metadata" not in pdf.Root:
-        if metadata_packet is None:
-            metadata_packet = _build_pdfua_xmp(
+    if metadata_packet is None:
+        # Build a minimal, standards-compliant packet when we cannot read/serialize existing XMP.
+        metadata_packet = _build_pdfua_xmp(
                 safe_title,
                 docinfo_author or None,
                 docinfo_subject or None,
                 docinfo_keywords or None,
             )
-        elif isinstance(metadata_packet, str):
-            metadata_packet = metadata_packet.encode("utf-8")
+        rebuilt_packet = True
+    elif isinstance(metadata_packet, str):
+        metadata_packet = metadata_packet.encode("utf-8")
 
-        metadata_stream = Stream(pdf, metadata_packet)
-        metadata_stream.stream_dict = Dictionary(Type=Name("/Metadata"), Subtype=Name("/XML"))
-        pdf.Root.Metadata = pdf.make_indirect(metadata_stream)
-        changed = True
+    should_write_stream = metadata_changed or "/Metadata" not in pdf.Root or rebuilt_packet
+    if should_write_stream and metadata_packet is not None:
+        stream_written, stream_created = _write_catalog_metadata(pdf, metadata_packet)
+        return changed or metadata_changed or stream_written or stream_created
 
-    return changed
+    return changed or metadata_changed

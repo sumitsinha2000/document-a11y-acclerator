@@ -76,6 +76,7 @@ def generate_fix_suggestions(issues):
     automated = []
     semi_automated = []
     manual = []
+    compliance_flags = {"pdfuaIdentifierMissing": False}
     estimated_time = 0
     
     processed_issues = set()
@@ -177,6 +178,7 @@ def generate_fix_suggestions(issues):
             severity = issue.get("severity", "high")
             description = issue.get("description", "")
             clause = issue.get("clause", "")
+            desc_lower = description.lower()
             
             issue_key = f"pdfua-{clause}-{description}"
             if issue_key in processed_issues:
@@ -184,7 +186,23 @@ def generate_fix_suggestions(issues):
             processed_issues.add(issue_key)
             
             # Determine if fix can be automated based on issue description
-            if any(keyword in description.lower() for keyword in ["metadata stream", "viewerpreferences", "suspects"]):
+            if "pdfuaid" in desc_lower or "pdf/ua identification" in desc_lower:
+                compliance_flags["pdfuaIdentifierMissing"] = True
+                automated.append({
+                    "id": "pdfua-identifier",
+                    "title": "Add PDF/UA identifier to XMP metadata",
+                    "description": description,
+                    "action": "Add pdfuaid namespace with <pdfuaid:part>1</pdfuaid:part> to the metadata stream",
+                    "severity": severity,
+                    "estimatedTime": 1,
+                    "category": "pdfuaIssues",
+                    "clause": clause,
+                    "fixType": "addMetadata",
+                    "location": {"clause": clause}
+                })
+                estimated_time += 1
+                continue
+            if any(keyword in desc_lower for keyword in ["metadata stream", "viewerpreferences", "suspects"]):
                 automated.append({
                     "id": f"pdfua-{clause}",
                     "title": "Fix PDF/UA structure issue",
@@ -472,5 +490,6 @@ def generate_fix_suggestions(issues):
         "automated": automated,
         "semiAutomated": semi_automated,
         "manual": manual,
-        "estimatedTime": estimated_time
+        "estimatedTime": estimated_time,
+        "complianceFlags": compliance_flags
     }
