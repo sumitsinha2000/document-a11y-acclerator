@@ -132,6 +132,15 @@
           "summary": "Declare the primary language for pronunciation support."
         },
         {
+          "code": "3.1.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": "AA",
+          "name": "Language of Parts",
+          "status": "notEvaluated",
+          "summary": "Identify language changes within the document for correct pronunciation."
+        },
+        {
           "code": "3.3.2",
           "issueCount": 0,
           "issues": [],
@@ -152,6 +161,7 @@
       ],
       "statusCounts": {
         "doesNotSupport": 2,
+        "notEvaluated": 1,
         "partiallySupports": 0,
         "supports": 10
       }
@@ -218,6 +228,9 @@
     "semiAutomated": []
   },
   "results": {
+    "criteriaStatusOverrides": {
+      "3.1.2": "notEvaluated"
+    },
     "formIssues": [],
     "issues": [
       {
@@ -487,7 +500,7 @@
     "wcagIssues": []
   },
   "summary": {
-    "complianceScore": 93.75,
+    "complianceScore": 94.23,
     "highSeverity": 0,
     "issuesRemaining": 2,
     "issuesRemainingRaw": 2,
@@ -497,7 +510,7 @@
     "remainingIssues": 2,
     "totalIssues": 2,
     "totalIssuesRaw": 2,
-    "wcagCompliance": 87.5,
+    "wcagCompliance": 88.46,
     "wcagLevels": {
       "A": true,
       "AA": true,

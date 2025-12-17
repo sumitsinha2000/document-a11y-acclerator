@@ -17,6 +17,7 @@ SEVERITY_SCORES = {
 }
 
 STATUS_FAIL = "doesNotSupport"
+STATUS_NOT_EVAL = "notEvaluated"
 STATUS_PARTIAL = "partiallySupports"
 STATUS_PASS = "supports"
 
@@ -33,6 +34,7 @@ WCAG_CRITERIA_ORDER = [
     "2.4.5",
     "2.4.6",
     "3.1.1",
+    "3.1.2",
     "3.3.2",
     "4.1.2",
 ]
@@ -108,6 +110,9 @@ def _build_wcag_criteria(results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         WCAG_CRITERIA_ORDER,
         default_name="WCAG Criterion",
     )
+    overrides = results.get("criteriaStatusOverrides")
+    if isinstance(overrides, dict) and overrides:
+        _apply_status_overrides(items, overrides)
     return {
         "items": items,
         "statusCounts": _count_statuses(items),
@@ -317,6 +322,23 @@ def _build_items(
     return items
 
 
+def _apply_status_overrides(items: List[Dict[str, Any]], overrides: Dict[str, str]) -> None:
+    """Update per-criterion statuses based on analyzer-provided overrides."""
+    if not isinstance(overrides, dict):
+        return
+    for item in items:
+        code = item.get("code")
+        if not code:
+            continue
+        override = overrides.get(code)
+        if not isinstance(override, str):
+            continue
+        normalized = override.strip()
+        if not normalized:
+            continue
+        item["status"] = normalized
+
+
 def _determine_status(issues: List[Dict[str, Any]]) -> str:
     if not issues:
         return STATUS_PASS
@@ -331,6 +353,9 @@ def _count_statuses(items: List[Dict[str, Any]]) -> Dict[str, int]:
     }
     for item in items:
         status = item.get("status")
-        if status in counts:
-            counts[status] += 1
+        if not status:
+            continue
+        if status not in counts:
+            counts[status] = 0
+        counts[status] += 1
     return counts

@@ -63,6 +63,11 @@ const WCAG_CRITERIA_DETAILS = {
     level: "A",
     summary: "Declare the primary language for pronunciation support.",
   },
+  "3.1.2": {
+    name: "Language of Parts",
+    level: "AA",
+    summary: "Identify language changes within the document for correct pronunciation.",
+  },
   "3.3.2": {
     name: "Labels or Instructions",
     level: "A",
@@ -88,6 +93,7 @@ const WCAG_ORDER = [
   "2.4.5",
   "2.4.6",
   "3.1.1",
+  "3.1.2",
   "3.3.2",
   "4.1.2",
 ]

@@ -42,7 +42,17 @@ except ImportError:
     print("[Analyzer] PDF-Extract-Kit processor not available")
 
 try:
-    from backend.wcag_validator import WCAGValidator, build_figure_alt_lookup, has_figure_alt_text
+    from backend.wcag_validator import (
+        WCAGValidator,
+        _build_properties_lookup,
+        _extract_mcid_from_bdc_operands,
+        _iter_structure_children,
+        _normalize_operator_name,
+        _object_key,
+        _resolve_pdf_object,
+        build_figure_alt_lookup,
+        has_figure_alt_text,
+    )
     WCAG_VALIDATOR_AVAILABLE = True
 except ImportError:
     WCAG_VALIDATOR_AVAILABLE = False
@@ -54,6 +64,14 @@ except ImportError:
 from backend.utils.compliance_scoring import derive_wcag_score
 from backend.utils.issue_registry import IssueRegistry
 from backend.pdf_structure_standards import COMMON_ROLEMAP_MAPPINGS
+from backend.utils.language_detection import (
+    collect_script_hints,
+    detect_script_hint,
+    is_valid_lang_tag,
+    lang_matches_script,
+    normalize_lang_value,
+)
+from backend.utils.pdf_stream_utils import detect_raw_marked_content_languages
 
 # PDF/A validation is intentionally disabled; the analyzer now focuses on WCAG 2.1 and PDF/UA-1.
 
@@ -98,6 +116,7 @@ class PDFAccessibilityAnalyzer:
             "tables_reviewed": None,
         }
         self._rolemap_missing_mappings: List[Dict[str, str]] = []
+        self._criteria_status_overrides: Dict[str, str] = {}
         
         self.pdf_extract_kit = None
         if PDF_EXTRACT_KIT_AVAILABLE:
@@ -182,11 +201,18 @@ class PDFAccessibilityAnalyzer:
             return "subject"
         return None
 
+    def _normalize_struct_type(self, struct_type: Any) -> str:
+        """Return a readable structure type without leading slashes."""
+        if struct_type is None:
+            return "StructElem"
+        text = str(struct_type)
+        return text[1:] if text.startswith("/") else text
+
     def _kind_from_wcag_criterion(self, criterion: Optional[str], description: str) -> str:
         """Map WCAG criterion to an internal category for canonical issues."""
         code = (criterion or "").strip()
         desc_lower = description.lower()
-        if code == "3.1.1":
+        if code in {"3.1.1", "3.1.2"}:
             return "language"
         if code in {"1.4.3", "1.4.6"}:
             return "contrast"
@@ -262,6 +288,15 @@ class PDFAccessibilityAnalyzer:
             if "invalid" in desc_lower:
                 return "language-invalid"
             return "language-missing"
+        if criterion == "3.1.2":
+            if "invalid" in desc_lower:
+                struct_type = issue.get("structureType") or "structelem"
+                return f"language-part-invalid-{struct_type}"
+            if "override" in desc_lower or "language override" in desc_lower:
+                script_hint = issue.get("scriptHint")
+                if script_hint:
+                    return f"language-override-{script_hint.lower()}"
+                return "language-override"
 
         if bucket == "untaggedContent" or (
             clause and "14289-1:7.1" in clause and "tag" in desc_lower
@@ -454,6 +489,7 @@ class PDFAccessibilityAnalyzer:
             "has_struct_tree": None,
             "tables_reviewed": None,
         }
+        self._criteria_status_overrides = {}
         
         try:
             if self.pdf_extract_kit and self.pdf_extract_kit.is_available():
@@ -465,6 +501,7 @@ class PDFAccessibilityAnalyzer:
             self._analyze_with_pypdf2(pdf_path)
             self._analyze_with_pdfplumber(pdf_path)
             self._detect_rolemap_mapping_gaps(pdf_path)
+            self._detect_language_of_parts(pdf_path)
             self._analyze_contrast_basic(pdf_path)
             
             if self.wcag_validator_available:
@@ -488,6 +525,8 @@ class PDFAccessibilityAnalyzer:
         results = self._canonicalize_and_attach_issue_ids()
         if self._rolemap_missing_mappings:
             results["roleMapMissingMappings"] = self._rolemap_missing_mappings
+        if self._criteria_status_overrides:
+            results["criteriaStatusOverrides"] = dict(self._criteria_status_overrides)
         self.issues = results
         canonical_count = len(results.get("issues", [])) if isinstance(results, dict) else 0
         print(f"[Analyzer] Analysis complete, found {canonical_count} canonical issues")
@@ -803,6 +842,555 @@ class PDFAccessibilityAnalyzer:
                     pdf_doc.close()
                 except Exception:
                     pass
+
+    def _extract_text_from_operands(self, operands: Any) -> Optional[str]:
+        """Return normalized text from a Tj/TJ operand list."""
+        if operands is None:
+            return None
+
+        samples: List[str] = []
+
+        def _normalize(value: Any) -> Optional[str]:
+            if value is None:
+                return None
+            if isinstance(value, str):
+                return value
+            if PIKEPDF_AVAILABLE and hasattr(pikepdf, "String") and isinstance(value, getattr(pikepdf, "String")):
+                try:
+                    decoded = value.decode()
+                    if decoded:
+                        return decoded
+                except Exception:
+                    try:
+                        return str(value)
+                    except Exception:
+                        return None
+            if TextStringObject is not None and isinstance(value, TextStringObject):
+                return str(value)
+            if ByteStringObject is not None and isinstance(value, ByteStringObject):
+                for encoding in ("utf-16-be", "utf-8"):
+                    try:
+                        decoded = bytes(value).decode(encoding, errors="ignore")
+                        if decoded:
+                            return decoded
+                    except Exception:
+                        continue
+            if hasattr(value, "decode"):
+                for encoding in ("utf-16-be", "utf-8"):
+                    try:
+                        decoded = value.decode(encoding, errors="ignore")
+                        if decoded:
+                            return decoded
+                    except Exception:
+                        continue
+            return None
+
+        def _append(value: Any) -> None:
+            snippet = _normalize(value)
+            if snippet:
+                cleaned = " ".join(snippet.split())
+                if cleaned:
+                    samples.append(cleaned)
+
+        try:
+            op_list = list(operands) if isinstance(operands, (list, tuple)) else [operands]
+        except Exception:
+            op_list = [operands]
+
+        for operand in op_list:
+            if isinstance(operand, (list, tuple)):
+                for entry in operand:
+                    _append(entry)
+            else:
+                _append(operand)
+
+        if not samples:
+            return None
+
+        combined = " ".join(samples).strip()
+        return combined or None
+
+    def _extract_direct_mcids(self, entry: Any) -> List[int]:
+        """Collect MCIDs directly referenced under an element's /K entry."""
+        mcids: List[int] = []
+
+        def _walk(value: Any) -> None:
+            value = _resolve_pdf_object(value)
+            if value is None:
+                return
+            if isinstance(value, int):
+                mcids.append(int(value))
+                return
+            if isinstance(value, pikepdf.Dictionary):
+                if value.get("/S"):
+                    return
+                if "/MCID" in value:
+                    try:
+                        mcids.append(int(value.get("/MCID")))
+                    except Exception:
+                        pass
+                nested = value.get("/K")
+                if nested is not None:
+                    _walk(nested)
+                return
+            if isinstance(value, (list, pikepdf.Array)):
+                for item in value:
+                    _walk(item)
+
+        _walk(entry)
+        return mcids
+
+    def _build_mcid_text_lookup(self, pdf_doc: Any) -> Dict[str, Dict[int, str]]:
+        """Return mapping of page object keys -> MCID -> concatenated text."""
+        lookup: Dict[str, Dict[int, str]] = {}
+        if not hasattr(pikepdf, "parse_content_stream"):
+            return lookup
+
+        try:
+            for page in pdf_doc.pages:
+                page_key = _object_key(page)
+                if not page_key:
+                    continue
+
+                mcid_stack: List[Optional[int]] = []
+
+                def _active_mcid() -> Optional[int]:
+                    for value in reversed(mcid_stack):
+                        if value is not None:
+                            return value
+                    return None
+
+                text_by_mcid: Dict[int, List[str]] = defaultdict(list)
+                properties_lookup = _build_properties_lookup(page)
+
+                try:
+                    operations = pikepdf.parse_content_stream(page)
+                except Exception:
+                    continue
+
+                try:
+                    for operands, operator in operations:
+                        op_name = _normalize_operator_name(operator)
+                        if op_name in ("BDC", "BMC"):
+                            mcid_value = (
+                                _extract_mcid_from_bdc_operands(operands, properties_lookup)
+                                if op_name == "BDC"
+                                else None
+                            )
+                            mcid_stack.append(mcid_value)
+                        elif op_name == "EMC":
+                            if mcid_stack:
+                                mcid_stack.pop()
+                        elif op_name in ("Tj", "TJ"):
+                            active = _active_mcid()
+                            if active is None:
+                                continue
+                            text = self._extract_text_from_operands(operands)
+                            if text:
+                                text_by_mcid[active].append(text)
+                except Exception:
+                    continue
+
+                if text_by_mcid:
+                    lookup[page_key] = {
+                        mcid: " ".join(segments) for mcid, segments in text_by_mcid.items()
+                    }
+        except Exception as exc:
+            print(f"[Analyzer] Could not build MCID text lookup: {exc}")
+
+        return lookup
+
+    def _collect_structure_text(
+        self,
+        element: Any,
+        page_key: Optional[str],
+        mcid_text_lookup: Dict[str, Dict[int, str]],
+    ) -> Optional[str]:
+        """Collect text associated with a structure element from alt/actual text and MCIDs."""
+        if element is None:
+            return None
+
+        texts: List[str] = []
+        for attr in ("/ActualText", "/Alt"):
+            value = None
+            try:
+                value = element.get(attr)
+            except Exception:
+                value = None
+            if value:
+                normalized = str(value).strip()
+                if normalized:
+                    texts.append(normalized)
+
+        mcids = self._extract_direct_mcids(element.get("/K"))
+        if mcids and page_key:
+            page_map = mcid_text_lookup.get(page_key, {})
+            for mcid in mcids:
+                snippet = page_map.get(mcid)
+                if snippet:
+                    texts.append(snippet)
+
+        if not texts:
+            return None
+
+        combined = " ".join(texts).strip()
+        return combined or None
+
+    def _shorten_text_sample(self, text: str, limit: int = 120) -> str:
+        """Return a trimmed text sample for issue context."""
+        cleaned = " ".join(text.split())
+        if len(cleaned) <= limit:
+            return cleaned
+        return cleaned[: limit - 1].rstrip() + "…"
+
+    def _record_language_part_issue(
+        self,
+        *,
+        page: Optional[int],
+        struct_type: str,
+        lang_value: Optional[str],
+        script_hint: Optional[str],
+        description: str,
+        severity: str = "medium",
+        text_sample: Optional[str] = None,
+    ) -> None:
+        """Append a WCAG 3.1.2 issue with consistent metadata."""
+        issue: Dict[str, Any] = {
+            "severity": severity,
+            "criterion": "3.1.2",
+            "level": "AA",
+            "category": "wcag",
+            "description": description,
+            "structureType": struct_type,
+        }
+        if page:
+            issue["page"] = page
+            issue["pages"] = [page]
+        if lang_value:
+            issue["lang"] = lang_value
+        if script_hint:
+            issue["scriptHint"] = script_hint
+        if text_sample:
+            issue["textSample"] = text_sample
+
+        self.issues["wcagIssues"].append(issue)
+
+    def _read_document_language(self, catalog: Any) -> Optional[str]:
+        """Return a validated document-level /Lang value when present."""
+        try:
+            getter = getattr(catalog, "get", None)
+            lang_value = normalize_lang_value(getter("/Lang")) if callable(getter) else None
+            if is_valid_lang_tag(lang_value):
+                return lang_value
+        except Exception:
+            return None
+        return None
+
+    def _build_pypdf_properties_lookup(self, page: Any) -> Dict[str, Any]:
+        """Return mapping of property resource names to dictionaries (pypdf)."""
+        properties: Dict[str, Any] = {}
+        resources = page.get("/Resources") if hasattr(page, "get") else None
+        if IndirectObject is not None and isinstance(resources, IndirectObject):
+            resources = resources.get_object()
+
+        if isinstance(resources, dict):
+            props_dict = resources.get("/Properties") or resources.get("Properties")
+            if IndirectObject is not None and isinstance(props_dict, IndirectObject):
+                props_dict = props_dict.get_object()
+            if isinstance(props_dict, dict):
+                for key, value in props_dict.items():
+                    key_str = str(key)
+                    properties[key_str] = value
+                    properties[key_str.lstrip("/")] = value
+        return properties
+
+    def _extract_lang_from_bdc_operands(self, operands: Any, properties_lookup: Dict[str, Any]) -> Optional[str]:
+        """Pull /Lang value from BDC operands or referenced Properties dictionary."""
+        try:
+            op_list = list(operands) if isinstance(operands, (list, tuple)) else [operands]
+        except Exception:
+            op_list = [operands]
+
+        if len(op_list) < 2:
+            return None
+
+        properties_entry = op_list[1]
+        resolved = _resolve_pdf_object(properties_entry)
+
+        lookup_candidates: List[Any] = [resolved]
+        if resolved is not None:
+            try:
+                lookup_candidates.append(properties_lookup.get(str(resolved)))
+                lookup_candidates.append(properties_lookup.get(str(resolved).lstrip("/")))
+            except Exception:
+                pass
+
+        for candidate in lookup_candidates:
+            candidate = _resolve_pdf_object(candidate)
+            if isinstance(candidate, dict):
+                lang_value = candidate.get("/Lang") or candidate.get("Lang")
+                normalized = normalize_lang_value(lang_value)
+                if normalized:
+                    return normalized
+        return None
+
+    def _iter_page_operations(self, page: Any, pdf_reader: PdfReader) -> List[Any]:
+        """Return the parsed content stream operations for a page."""
+        if ContentStream is None:
+            return []
+        try:
+            contents = page.get_contents()
+            if contents is None:
+                return []
+            stream = ContentStream(contents, pdf_reader)
+            return list(getattr(stream, "operations", []))
+        except Exception:
+            return []
+
+    def _active_lang_from_stack(self, lang_stack: List[Optional[str]]) -> Optional[str]:
+        """Return the innermost non-empty language on the stack."""
+        for value in reversed(lang_stack):
+            if value:
+                return value
+        return None
+
+    def _detect_language_of_parts_from_structure(self, pdf_doc: Any, doc_lang: Optional[str]) -> None:
+        """Detect WCAG 3.1.2 issues using the structure tree when available."""
+        struct_root = getattr(pdf_doc.Root, "StructTreeRoot", None)
+        if not struct_root:
+            return
+
+        page_index_lookup: Dict[str, int] = {}
+        for index, page in enumerate(pdf_doc.pages, start=1):
+            key = _object_key(page)
+            if key:
+                page_index_lookup[key] = index
+
+        mcid_text_lookup = self._build_mcid_text_lookup(pdf_doc)
+
+        def _walk(element: Any, inherited_lang: Optional[str] = None, current_page_key: Optional[str] = None):
+            element = _resolve_pdf_object(element)
+            if element is None:
+                return
+
+            if isinstance(element, pikepdf.Dictionary):
+                page_ref = element.get("/Pg") if hasattr(element, "get") else None
+                page_key = _object_key(page_ref) or current_page_key
+                struct_type = self._normalize_struct_type(element.get("/S"))
+
+                raw_lang = element.get("/Lang") if hasattr(element, "get") else None
+                lang_value = normalize_lang_value(raw_lang)
+                lang_valid = is_valid_lang_tag(lang_value) if lang_value else False
+                active_lang = lang_value if lang_valid else (inherited_lang or doc_lang)
+                page_number = page_index_lookup.get(page_key) if page_key else None
+
+                if lang_value and not lang_valid:
+                    self._record_language_part_issue(
+                        page=page_number,
+                        struct_type=struct_type,
+                        lang_value=lang_value,
+                        script_hint=None,
+                        description=f"{struct_type} element has an invalid /Lang value ('{lang_value}')",
+                        severity="medium",
+                    )
+
+                if not lang_value:
+                    text_content = self._collect_structure_text(element, page_key, mcid_text_lookup)
+                    script_hint = detect_script_hint(text_content)
+                    if script_hint and not lang_matches_script(active_lang, script_hint):
+                        sample = self._shorten_text_sample(text_content) if text_content else None
+                        self._record_language_part_issue(
+                            page=page_number,
+                            struct_type=struct_type,
+                            lang_value=None,
+                            script_hint=script_hint,
+                            description=(
+                                f"{struct_type} contains {script_hint} text without a /Lang override"
+                            ),
+                            severity="medium",
+                            text_sample=sample,
+                        )
+
+                children = element.get("/K")
+                if children is not None:
+                    for child in _iter_structure_children(children):
+                        _walk(child, active_lang, page_key)
+                return
+
+            if isinstance(element, (list, pikepdf.Array)):
+                for child in element:
+                    _walk(child, inherited_lang, current_page_key)
+
+        _walk(struct_root, doc_lang, None)
+
+    def _detect_language_of_parts_from_streams(self, pdf_path: str, doc_lang: Optional[str]) -> None:
+        """Detect WCAG 3.1.2 issues directly from content streams, even when untagged."""
+        if ContentStream is None:
+            return
+
+        try:
+            reader = PdfReader(pdf_path)
+            if getattr(reader, "is_encrypted", False):
+                if not self._try_decrypt_reader(reader):
+                    return
+        except Exception as exc:
+            print(f"[Analyzer] Could not open PDF for language stream scan: {exc}")
+            return
+
+        catalog = reader.trailer.get("/Root", {}) if hasattr(reader, "trailer") else {}
+        if IndirectObject is not None and isinstance(catalog, IndirectObject):
+            catalog = catalog.get_object()
+
+        if doc_lang is None:
+            doc_lang = self._read_document_language(catalog)
+        if doc_lang and not is_valid_lang_tag(doc_lang):
+            doc_lang = None
+
+        try:
+            plumber_pdf = pdfplumber.open(pdf_path)
+        except Exception:
+            plumber_pdf = None
+
+        seen_invalid_overrides: Set[Tuple[int, str]] = set()
+        seen_missing_overrides: Set[Tuple[int, str]] = set()
+        text_samples_examined = 0
+
+        try:
+            for page_index, page in enumerate(reader.pages, start=1):
+                properties_lookup = self._build_pypdf_properties_lookup(page)
+                lang_stack: List[Optional[str]] = [doc_lang]
+                page_has_override = False
+                page_script_hints: Set[str] = set()
+
+                for operands, operator in self._iter_page_operations(page, reader):
+                    op_name = _normalize_operator_name(operator)
+                    if op_name == "BDC":
+                        lang_value = self._extract_lang_from_bdc_operands(operands, properties_lookup)
+                        lang_valid = is_valid_lang_tag(lang_value) if lang_value else False
+                        if lang_value and not lang_valid:
+                            key = (page_index, lang_value)
+                            if key not in seen_invalid_overrides:
+                                self._record_language_part_issue(
+                                    page=page_index,
+                                    struct_type="Content",
+                                    lang_value=lang_value,
+                                    script_hint=None,
+                                    description=f"Marked-content span has an invalid /Lang value ('{lang_value}')",
+                                    severity="medium",
+                                )
+                                seen_invalid_overrides.add(key)
+                        if lang_valid:
+                            page_has_override = True
+                        lang_stack.append(lang_value if lang_valid else None)
+                    elif op_name == "BMC":
+                        lang_stack.append(None)
+                    elif op_name == "EMC":
+                        if len(lang_stack) > 1:
+                            lang_stack.pop()
+                    elif op_name in ("Tj", "TJ"):
+                        text = self._extract_text_from_operands(operands)
+                        if not text:
+                            continue
+                        text_samples_examined += 1
+                        script_hint = detect_script_hint(text)
+                        if not script_hint:
+                            continue
+                        page_script_hints.add(script_hint)
+                        active_lang = self._active_lang_from_stack(lang_stack)
+                        if lang_matches_script(active_lang, script_hint):
+                            continue
+                        key = (page_index, script_hint)
+                        if key in seen_missing_overrides:
+                            continue
+                        sample = self._shorten_text_sample(text)
+                        self._record_language_part_issue(
+                            page=page_index,
+                            struct_type="Content",
+                            lang_value=active_lang or doc_lang,
+                            script_hint=script_hint,
+                            description=(
+                                f"Page {page_index} contains {script_hint} text without a /Lang override"
+                            ),
+                            severity="medium",
+                            text_sample=sample,
+                        )
+                        seen_missing_overrides.add(key)
+
+                if not page_has_override:
+                    raw_langs = detect_raw_marked_content_languages(page)
+                    if any(is_valid_lang_tag(lang) for lang in raw_langs):
+                        page_has_override = True
+
+                if not page_script_hints:
+                    fallback_text: Optional[str] = None
+                    if plumber_pdf:
+                        try:
+                            fallback_text = plumber_pdf.pages[page_index - 1].extract_text() or ""
+                        except Exception:
+                            fallback_text = ""
+                    if fallback_text:
+                        fallback_hints = collect_script_hints(fallback_text)
+                        if fallback_hints:
+                            text_samples_examined += 1
+                            if not page_has_override:
+                                for script_hint in fallback_hints:
+                                    if lang_matches_script(doc_lang, script_hint):
+                                        continue
+                                    key = (page_index, script_hint)
+                                    if key in seen_missing_overrides:
+                                        continue
+                                    sample = self._shorten_text_sample(fallback_text)
+                                    self._record_language_part_issue(
+                                        page=page_index,
+                                        struct_type="Content",
+                                        lang_value=doc_lang,
+                                        script_hint=script_hint,
+                                        description=(
+                                            f"Page {page_index} contains {script_hint} text without a /Lang override"
+                                        ),
+                                        severity="medium",
+                                        text_sample=sample,
+                                    )
+                                    seen_missing_overrides.add(key)
+        finally:
+            if plumber_pdf is not None:
+                try:
+                    plumber_pdf.close()
+                except Exception:
+                    pass
+
+        if text_samples_examined == 0:
+            self._criteria_status_overrides.setdefault("3.1.2", "notEvaluated")
+
+    def _detect_language_of_parts(self, pdf_path: str) -> None:
+        """
+        Detect WCAG 3.1.2 language-of-parts issues.
+
+        We run both structure-tree and stream-level passes. The stream-level pass runs even
+        for untagged PDFs so that reports never claim “supports” simply because tagging
+        metadata is absent.
+        """
+        if self._analysis_errors:
+            return
+
+        doc_lang: Optional[str] = None
+        pdf_doc = None
+
+        if PIKEPDF_AVAILABLE and pikepdf:
+            try:
+                pdf_doc = pikepdf.open(pdf_path)
+                doc_lang = self._read_document_language(getattr(pdf_doc, "Root", {}))
+                self._detect_language_of_parts_from_structure(pdf_doc, doc_lang)
+            except Exception as exc:
+                print(f"[Analyzer] Could not evaluate language of parts (structure): {exc}")
+            finally:
+                if pdf_doc is not None:
+                    try:
+                        pdf_doc.close()
+                    except Exception:
+                        pass
+
+        self._detect_language_of_parts_from_streams(pdf_path, doc_lang)
 
     def _collect_missing_alt_text_issues(
         self,
