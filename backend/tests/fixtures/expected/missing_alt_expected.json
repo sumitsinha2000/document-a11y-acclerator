@@ -39,6 +39,15 @@
           "summary": "Metadata, tagging, and document title requirements."
         },
         {
+          "code": "ISO 14289-1:7.11",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Fonts",
+          "status": "supports",
+          "summary": "CID fonts must expose ToUnicode maps and CIDToGID mappings."
+        },
+        {
           "code": "ISO 14289-1:7.18",
           "issueCount": 0,
           "issues": [],
@@ -96,7 +105,7 @@
       "statusCounts": {
         "doesNotSupport": 1,
         "partiallySupports": 0,
-        "supports": 6
+        "supports": 7
       }
     },
     "wcag": {
@@ -216,6 +225,15 @@
           "summary": "Provide descriptive titles so users can identify content."
         },
         {
+          "code": "2.4.3",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Focus Order",
+          "status": "supports",
+          "summary": "Ensure focus moves in a logical, predictable order across interactive elements."
+        },
+        {
           "code": "2.4.4",
           "issueCount": 0,
           "issues": [],
@@ -295,7 +313,7 @@
         "doesNotSupport": 5,
         "notEvaluated": 1,
         "partiallySupports": 0,
-        "supports": 9
+        "supports": 10
       }
     }
   },
@@ -339,6 +357,9 @@
         "title": "Set document language"
       }
     ],
+    "complianceFlags": {
+      "pdfuaIdentifierMissing": false
+    },
     "estimatedTime": 58,
     "manual": [
       {
@@ -647,7 +668,7 @@
     ]
   },
   "summary": {
-    "complianceScore": 67.0,
+    "complianceScore": 67.81,
     "highSeverity": 6,
     "issuesRemaining": 8,
     "issuesRemainingRaw": 8,
@@ -656,7 +677,7 @@
     "remainingIssues": 8,
     "totalIssues": 8,
     "totalIssuesRaw": 8,
-    "wcagCompliance": 74.0,
+    "wcagCompliance": 75.62,
     "wcagLevels": {
       "A": false,
       "AA": false,

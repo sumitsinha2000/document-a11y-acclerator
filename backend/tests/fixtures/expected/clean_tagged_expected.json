@@ -1,5 +1,95 @@
 {
   "criteriaSummary": {
+    "pdfua": {
+      "items": [
+        {
+          "code": "ISO 14289-1:7.1",
+          "issueCount": 1,
+          "issues": [
+            {
+              "category": "metadata",
+              "clause": "ISO 14289-1:7.1",
+              "criterion": null,
+              "description": "Metadata stream has invalid PDF/UA identification value",
+              "pages": [],
+              "severity": "high"
+            }
+          ],
+          "level": null,
+          "name": "Document Identification",
+          "status": "doesNotSupport",
+          "summary": "Metadata, tagging, and document title requirements."
+        },
+        {
+          "code": "ISO 14289-1:7.11",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Fonts",
+          "status": "supports",
+          "summary": "CID fonts must expose ToUnicode maps and CIDToGID mappings."
+        },
+        {
+          "code": "ISO 14289-1:7.18",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Forms & Alt Text",
+          "status": "supports",
+          "summary": "Interactive elements need names and alternative text."
+        },
+        {
+          "code": "ISO 14289-1:7.18.1",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Annotations",
+          "status": "supports",
+          "summary": "Annotations require Contents text for assistive tech."
+        },
+        {
+          "code": "ISO 14289-1:7.2",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Structure Tree",
+          "status": "supports",
+          "summary": "Structure element semantics, RoleMap, and reading order."
+        },
+        {
+          "code": "ISO 14289-1:7.3",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Artifacts",
+          "status": "supports",
+          "summary": "Artifacts must be separate from tagged content."
+        },
+        {
+          "code": "ISO 14289-1:7.4",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Headings",
+          "status": "supports",
+          "summary": "Heading hierarchy and nesting rules."
+        },
+        {
+          "code": "ISO 14289-1:7.5",
+          "issueCount": 0,
+          "issues": [],
+          "level": null,
+          "name": "Tables",
+          "status": "supports",
+          "summary": "Tables require header associations and structure."
+        }
+      ],
+      "statusCounts": {
+        "doesNotSupport": 1,
+        "partiallySupports": 0,
+        "supports": 7
+      }
+    },
     "wcag": {
       "items": [
         {
@@ -114,6 +204,15 @@
           "summary": "Provide descriptive titles so users can identify content."
         },
         {
+          "code": "2.4.3",
+          "issueCount": 0,
+          "issues": [],
+          "level": "A",
+          "name": "Focus Order",
+          "status": "supports",
+          "summary": "Ensure focus moves in a logical, predictable order across interactive elements."
+        },
+        {
           "code": "2.4.4",
           "issueCount": 0,
           "issues": [],
@@ -181,12 +280,25 @@
         "doesNotSupport": 2,
         "notEvaluated": 1,
         "partiallySupports": 0,
-        "supports": 12
+        "supports": 13
       }
     }
   },
   "fixes": {
     "automated": [
+      {
+        "action": "Add pdfuaid namespace with <pdfuaid:part>1</pdfuaid:part> to the metadata stream",
+        "category": "pdfuaIssues",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Metadata stream has invalid PDF/UA identification value",
+        "estimatedTime": 1,
+        "fixType": "addMetadata",
+        "location": {
+          "clause": "ISO 14289-1:7.1"
+        },
+        "severity": "high",
+        "title": "Add PDF/UA identifier to XMP metadata"
+      },
       {
         "action": "Enhance RoleMap mappings for accessibility",
         "category": "structure",
@@ -200,7 +312,10 @@
         "title": "Enhance RoleMap mappings"
       }
     ],
-    "estimatedTime": 56,
+    "complianceFlags": {
+      "pdfuaIdentifierMissing": true
+    },
+    "estimatedTime": 57,
     "manual": [
       {
         "action": "Fix contrast for 2 element(s)",
@@ -251,6 +366,16 @@
     },
     "formIssues": [],
     "issues": [
+      {
+        "category": "metadata",
+        "clause": "ISO 14289-1:7.1",
+        "criterion": null,
+        "description": "Metadata stream has invalid PDF/UA identification value",
+        "pages": [],
+        "pdfuaClause": "ISO 14289-1:7.1",
+        "rawSource": "pdfuaIssues",
+        "severity": "high"
+      },
       {
         "category": "contrast",
         "clause": null,
@@ -307,7 +432,16 @@
       "threshold": 2
     },
     "pdfaIssues": [],
-    "pdfuaIssues": [],
+    "pdfuaIssues": [
+      {
+        "category": "pdfua",
+        "clause": "ISO 14289-1:7.1",
+        "description": "Metadata stream has invalid PDF/UA identification value",
+        "remediation": "Set <pdfuaid:part> to \"1\" to claim PDF/UA-1 conformance",
+        "severity": "high",
+        "specification": "PDF/UA-1 (ISO 14289-1)"
+      }
+    ],
     "poorContrast": [
       {
         "count": 2,
@@ -529,17 +663,16 @@
     "wcagIssues": []
   },
   "summary": {
-    "complianceScore": 95.0,
-    "highSeverity": 0,
-    "issuesRemaining": 2,
-    "issuesRemainingRaw": 2,
+    "complianceScore": 90.31,
+    "highSeverity": 1,
+    "issuesRemaining": 3,
+    "issuesRemainingRaw": 3,
     "mediumSeverity": 1,
-    "pdfuaCompliance": 100,
-    "pdfuaLevels": true,
-    "remainingIssues": 2,
-    "totalIssues": 2,
-    "totalIssuesRaw": 2,
-    "wcagCompliance": 90.0,
+    "pdfuaCompliance": 90,
+    "remainingIssues": 3,
+    "totalIssues": 3,
+    "totalIssuesRaw": 3,
+    "wcagCompliance": 90.62,
     "wcagLevels": {
       "A": true,
       "AA": true,
@@ -548,8 +681,8 @@
   },
   "verapdfStatus": {
     "isActive": true,
-    "pdfuaCompliance": 100,
-    "totalVeraPDFIssues": 2,
+    "pdfuaCompliance": 90,
+    "totalVeraPDFIssues": 3,
     "wcagCompliance": 80
   }
 }
