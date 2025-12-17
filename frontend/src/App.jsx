@@ -385,7 +385,7 @@ function AppContent() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-900 overflow-x-hidden max-w-full">
+    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 overflow-x-hidden max-w-full">
       {/* Top Navigation Bar */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm flex-shrink-0">
         <div className="px-4 sm:px-6 lg:px-8 max-w-full">
