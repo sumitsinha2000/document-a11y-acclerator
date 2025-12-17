@@ -22,6 +22,10 @@ const CLAUSE_DETAILS = {
     name: "Tables",
     summary: "Tables require header associations and structure.",
   },
+  "ISO 14289-1:7.11": {
+    name: "Fonts",
+    summary: "CID fonts must expose ToUnicode maps and CIDToGID mappings.",
+  },
   "ISO 14289-1:7.18": {
     name: "Forms & Alt Text",
     summary: "Interactive elements need names and alternative text.",
@@ -38,6 +42,7 @@ const CLAUSE_ORDER = [
   "ISO 14289-1:7.3",
   "ISO 14289-1:7.4",
   "ISO 14289-1:7.5",
+  "ISO 14289-1:7.11",
   "ISO 14289-1:7.18",
   "ISO 14289-1:7.18.1",
 ]
@@ -138,13 +143,31 @@ const enrichWithMetadata = (data) => {
   return { ...data, items: enrichedItems }
 }
 
+const FONT_MAPPING_TOOLTIP =
+  "This check applies only to complex (CID) fonts that need an explicit Unicode mapping for screen readers. Files using simpler fonts may not fail this rule. If an empty mapping still allows readable text extraction, it can pass - this matches how standard PDF/UA tools interpret the requirement."
+
+const addFontMappingTooltip = (data) => {
+  if (!data || !Array.isArray(data.items)) {
+    return data
+  }
+  return {
+    ...data,
+    items: data.items.map((item) =>
+      item.code === "ISO 14289-1:7.11" ? { ...item, infoTooltip: FONT_MAPPING_TOOLTIP } : item,
+    ),
+  }
+}
+
 export default function PdfUaCriteriaSummary({ criteriaSummary, results }) {
   const data = useMemo(() => {
+    let baseData = null
     if (criteriaSummary && Array.isArray(criteriaSummary.items)) {
-      return enrichWithMetadata(criteriaSummary)
+      baseData = enrichWithMetadata(criteriaSummary)
     }
-    const fallback = buildFallbackSummary(results)
-    return enrichWithMetadata(fallback)
+    if (!baseData) {
+      baseData = enrichWithMetadata(buildFallbackSummary(results))
+    }
+    return addFontMappingTooltip(baseData)
   }, [criteriaSummary, results])
 
   if (!data) {

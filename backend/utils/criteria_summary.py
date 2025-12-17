@@ -60,6 +60,10 @@ PDFUA_CLAUSE_DETAILS: Dict[str, Dict[str, str]] = {
         "name": "Tables",
         "summary": "Tables require header associations and structure.",
     },
+    "ISO 14289-1:7.11": {
+        "name": "Fonts",
+        "summary": "CID fonts must expose ToUnicode maps and CIDToGID mappings.",
+    },
     "ISO 14289-1:7.18": {
         "name": "Forms & Alt Text",
         "summary": "Interactive elements need names and alternative text.",
@@ -76,6 +80,7 @@ PDFUA_CLAUSE_ORDER = [
     "ISO 14289-1:7.3",
     "ISO 14289-1:7.4",
     "ISO 14289-1:7.5",
+    "ISO 14289-1:7.11",
     "ISO 14289-1:7.18",
     "ISO 14289-1:7.18.1",
 ]

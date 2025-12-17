@@ -6,6 +6,7 @@ Enhanced with PDF-Extract-Kit integration
 
 import json
 import logging
+import re
 from collections import defaultdict
 from typing import Dict, List, Any, Optional, Tuple, Set
 
@@ -283,6 +284,12 @@ class PDFAccessibilityAnalyzer:
         description: str,
     ) -> Optional[str]:
         """Build an 'extra' token to keep issueIds stable but collision-free."""
+        if issue.get("extra") is not None:
+            try:
+                return str(issue.get("extra"))
+            except Exception:
+                return None
+
         desc_lower = description.lower()
         if criterion == "3.1.1" or bucket == "missingLanguage":
             if "invalid" in desc_lower:
@@ -500,6 +507,7 @@ class PDFAccessibilityAnalyzer:
             
             self._analyze_with_pypdf2(pdf_path)
             self._analyze_with_pdfplumber(pdf_path)
+            self._check_pdfua_font_mappings(pdf_path)
             self._detect_rolemap_mapping_gaps(pdf_path)
             self._detect_language_of_parts(pdf_path)
             self._analyze_contrast_basic(pdf_path)
@@ -1391,6 +1399,428 @@ class PDFAccessibilityAnalyzer:
                         pass
 
         self._detect_language_of_parts_from_streams(pdf_path, doc_lang)
+
+    def _has_pdf_value(self, value: Any) -> bool:
+        """Return True when a PDF object/value exists and is not explicitly null."""
+        if value is None:
+            return False
+        try:
+            objtype = getattr(value, "objtype", None)
+            if objtype and str(objtype).lower() == "null":
+                return False
+        except Exception:
+            pass
+        return True
+
+    def _read_cmap_stream_text(self, cmap_obj: Any) -> Optional[str]:
+        """Return decoded text from a ToUnicode CMap stream if available."""
+        if cmap_obj is None:
+            return None
+
+        candidates: List[Any] = []
+        resolver = globals().get("_resolve_pdf_object")
+        try:
+            resolved = resolver(cmap_obj) if callable(resolver) else cmap_obj
+            if resolved is not None:
+                candidates.append(resolved)
+        except Exception:
+            candidates.append(cmap_obj)
+        else:
+            candidates.append(cmap_obj)
+
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            for attr in ("read_bytes", "get_data", "getData", "get_data", "getvalue"):
+                func = getattr(candidate, attr, None)
+                if callable(func):
+                    try:
+                        data = func()
+                        if data:
+                            return data.decode("latin-1", errors="ignore")
+                    except Exception:
+                        continue
+            try:
+                data_bytes = bytes(candidate)
+                if data_bytes:
+                    return data_bytes.decode("latin-1", errors="ignore")
+            except Exception:
+                continue
+        return None
+
+    def _is_valid_unicode_token(self, token: str) -> bool:
+        """Return True when the captured CMap token represents a Unicode codepoint."""
+        normalized = token.replace(" ", "").strip()
+        if not normalized:
+            return False
+        if "notdef" in normalized.lower():
+            return False
+
+        try:
+            if len(normalized) > 6:
+                chunks = [normalized[i : i + 4] for i in range(0, len(normalized), 4)]
+                for chunk in chunks:
+                    if not chunk:
+                        continue
+                    value = int(chunk, 16)
+                    if 0 < value <= 0x10FFFF:
+                        return True
+                return False
+
+            value = int(normalized, 16)
+            return 0 < value <= 0x10FFFF
+        except ValueError:
+            return False
+
+    def _extract_cmap_targets(self, cmap_text: str) -> Tuple[List[str], int]:
+        """Return destination tokens and a count of .notdef-like mappings."""
+        targets: List[str] = []
+        notdef_count = 0
+        patterns = (
+            ("bfchar", r"beginbfchar(.*?)endbfchar"),
+            ("bfrange", r"beginbfrange(.*?)endbfrange"),
+        )
+
+        for kind, pattern in patterns:
+            for match in re.finditer(pattern, cmap_text, flags=re.IGNORECASE | re.DOTALL):
+                segment = match.group(1) or ""
+                for line in segment.splitlines():
+                    line_lower = line.lower()
+                    tokens = re.findall(r"<([^>]+)>", line)
+                    if not tokens:
+                        if "notdef" in line_lower:
+                            notdef_count += 1
+                        continue
+
+                    dest_tokens: List[str] = []
+                    if kind == "bfchar":
+                        if len(tokens) >= 2:
+                            dest_tokens = tokens[1:]
+                    else:
+                        if len(tokens) >= 3:
+                            dest_tokens = tokens[2:]
+                        elif len(tokens) > 1:
+                            dest_tokens = tokens[1:]
+
+                    if not dest_tokens and "notdef" in line_lower:
+                        notdef_count += 1
+                        continue
+
+                    for token in dest_tokens:
+                        if "notdef" in token.lower():
+                            notdef_count += 1
+                        targets.append(token)
+
+        return targets, notdef_count
+
+    def _analyze_cmap_text(self, cmap_text: Optional[str]) -> Dict[str, Any]:
+        """Return best-effort metadata about a ToUnicode CMap."""
+        analysis: Dict[str, Any] = {
+            "meaningful": None,
+            "reason": None,
+            "mappingCount": 0,
+            "validMappings": 0,
+        }
+
+        if cmap_text is None:
+            analysis["reason"] = "unreadable"
+            return analysis
+
+        stripped = cmap_text.strip()
+        if not stripped:
+            analysis.update({"meaningful": False, "reason": "empty"})
+            return analysis
+
+        targets, notdef_count = self._extract_cmap_targets(stripped)
+        analysis["mappingCount"] = len(targets)
+        analysis["validMappings"] = sum(1 for token in targets if self._is_valid_unicode_token(token))
+
+        if analysis["mappingCount"] == 0:
+            lowered = stripped.lower()
+            if "usecmap" in lowered:
+                analysis["reason"] = "delegated"
+                return analysis
+            analysis.update({"meaningful": False, "reason": "noMappings"})
+            return analysis
+
+        if analysis["validMappings"] > 0:
+            analysis["meaningful"] = True
+            return analysis
+
+        analysis["meaningful"] = False
+        analysis["reason"] = "notdefOnly" if notdef_count >= analysis["mappingCount"] else "noValidUnicode"
+        return analysis
+
+    def _evaluate_to_unicode_cmap(self, cmap_obj: Any) -> Dict[str, Any]:
+        """Evaluate a ToUnicode CMap stream for meaningful Unicode mappings."""
+        cmap_text = self._read_cmap_stream_text(cmap_obj)
+        return self._analyze_cmap_text(cmap_text)
+
+    def _is_identity_cid_map(self, value: Any) -> bool:
+        """Return True when the CIDToGIDMap explicitly references /Identity."""
+        if value is None:
+            return False
+        try:
+            text = str(value).strip()
+        except Exception:
+            return False
+        if not text:
+            return False
+        normalized = text[1:] if text.startswith("/") else text
+        return normalized.lower() == "identity"
+
+    def _font_identifier(self, font_obj: Any, fallback: Optional[Any] = None) -> Optional[str]:
+        """Return a stable identifier for a font dictionary."""
+        if font_obj is None:
+            return None if fallback is None else str(fallback)
+        try:
+            if hasattr(font_obj, "objgen"):
+                objnum, gennum = font_obj.objgen
+                return f"{objnum}-{gennum}"
+        except Exception:
+            pass
+        try:
+            ref = getattr(font_obj, "indirect_reference", None)
+            if ref:
+                return f"{ref.idnum}-{ref.generation}"
+        except Exception:
+            pass
+        try:
+            base_font = font_obj.get("/BaseFont")
+            if base_font:
+                return str(base_font)
+        except Exception:
+            pass
+        return None if fallback is None else str(fallback)
+
+    def _check_pdfua_font_mappings(self, pdf_path: str) -> None:
+        """Flag CIDFontType2 fonts missing ToUnicode or CIDToGIDMap entries."""
+        if self._analysis_errors:
+            return
+
+        try:
+            missing_fonts = self._find_cid_fonts_missing_maps(pdf_path)
+        except Exception as exc:
+            print(f"[Analyzer] Error while checking font mappings: {exc}")
+            self._record_analysis_error(exc, fatal=False)
+            return
+
+        if not missing_fonts:
+            return
+
+        description = (
+            "Font mapping is incomplete: CID fonts must include usable /ToUnicode mappings and "
+            "CIDFontType2 fonts also need /CIDToGIDMap entries (ISO 14289-1:7.11 Fonts)."
+        )
+        weak_mapping_description = (
+            "Unicode mapping exists but is not meaningful for assistive technology (ISO 14289-1:7.11 Fonts)."
+        )
+        remediation = (
+            "Re-embed each CID font with valid /ToUnicode and, for CIDFontType2 fonts, /CIDToGIDMap entries "
+            "so text maps reliably to Unicode."
+        )
+        weak_mapping_remediation = (
+            "Regenerate each font's ToUnicode CMap so it maps at least one CID/GID to a real Unicode codepoint; "
+            "avoid mapping everything to .notdef."
+        )
+
+        for font_info in missing_fonts:
+            issue_meta = {}
+            font_name = font_info.get("name")
+            font_key = font_info.get("id") or font_name or "cidfont"
+            if font_name:
+                issue_meta["fontName"] = font_name
+            if font_info.get("source"):
+                issue_meta["source"] = font_info["source"]
+            if font_info.get("toUnicodeStatus"):
+                issue_meta["toUnicodeStatus"] = font_info["toUnicodeStatus"]
+            if font_info.get("descendantSubtype"):
+                issue_meta["descendantSubtype"] = font_info["descendantSubtype"]
+            failed_requirements = font_info.get("failedRequirements") or []
+            if failed_requirements:
+                issue_meta["failedRequirements"] = failed_requirements
+            unusable_to_unicode = bool(font_info.get("unusableToUnicode"))
+            if unusable_to_unicode:
+                issue_meta["unusableToUnicode"] = True
+
+            issue_description = weak_mapping_description if unusable_to_unicode and not font_info.get("missingToUnicode") else description
+            issue_remediation = weak_mapping_remediation if unusable_to_unicode and not font_info.get("missingToUnicode") else remediation
+            issue = {
+                "severity": "high",
+                "clause": "ISO 14289-1:7.11",
+                "description": issue_description,
+                "pages": [],
+                "documentWide": True,
+                "autoFixAvailable": False,
+                "remediation": issue_remediation,
+                "extra": font_key,
+            }
+            if font_name:
+                issue["context"] = font_name
+            if issue_meta:
+                issue["meta"] = issue_meta
+            self.issues["pdfuaIssues"].append(issue)
+
+    def _find_cid_fonts_missing_maps(self, pdf_path: str) -> List[Dict[str, Any]]:
+        """Return CIDFontType2 fonts missing or misconfigured ToUnicode/CIDToGIDMap entries."""
+        fonts = self._find_cid_fonts_with_pikepdf(pdf_path)
+        if fonts is None:
+            fonts = self._find_cid_fonts_with_pypdf(pdf_path)
+        return fonts or []
+
+    def _find_cid_fonts_with_pikepdf(self, pdf_path: str) -> Optional[List[Dict[str, Any]]]:
+        if not PIKEPDF_AVAILABLE or not pikepdf:
+            return None
+
+        missing: List[Dict[str, Any]] = []
+        seen: Set[str] = set()
+        cid_subtypes = {"/CIDFontType2", "/CIDFontType0"}
+
+        try:
+            with pikepdf.open(pdf_path) as pdf_doc:
+                for page in pdf_doc.pages:
+                    resources = getattr(page, "Resources", None)
+                    if not resources or "/Font" not in resources:
+                        continue
+                    fonts = resources.Font
+                    for font_name, font_obj in fonts.items():
+                        subtype = str(font_obj.get("/Subtype") or "")
+                        if subtype != "/Type0":
+                            continue
+                        descendants = font_obj.get("/DescendantFonts")
+                        if not descendants:
+                            continue
+                        to_unicode = font_obj.get("/ToUnicode")
+                        for descendant in descendants:
+                            desc_subtype = str(descendant.get("/Subtype") or "")
+                            if desc_subtype not in cid_subtypes:
+                                continue
+                            desc_to_unicode = descendant.get("/ToUnicode")
+                            cid_map = descendant.get("/CIDToGIDMap")
+                            requires_cid_map = desc_subtype == "/CIDFontType2"
+                            has_to_unicode = self._has_pdf_value(to_unicode) or self._has_pdf_value(desc_to_unicode)
+                            has_cid_map = True
+                            if requires_cid_map:
+                                has_cid_map = self._has_pdf_value(cid_map) or self._is_identity_cid_map(cid_map)
+                            cmap_status = {"meaningful": None, "reason": None}
+                            if has_to_unicode:
+                                cmap_status = self._evaluate_to_unicode_cmap(desc_to_unicode or to_unicode)
+
+                            unusable_to_unicode = has_to_unicode and cmap_status.get("meaningful") is False
+                            if has_to_unicode and has_cid_map and not unusable_to_unicode:
+                                continue
+                            font_id = self._font_identifier(descendant, font_name)
+                            if font_id and font_id in seen:
+                                continue
+                            if font_id:
+                                seen.add(font_id)
+                            base_font = font_obj.get("/BaseFont") or descendant.get("/BaseFont")
+                            failed_requirements: List[str] = []
+                            if not has_to_unicode:
+                                failed_requirements.append("ToUnicodeMissing")
+                            elif unusable_to_unicode:
+                                failed_requirements.append("ToUnicodeUnusable")
+                            if requires_cid_map and not has_cid_map:
+                                failed_requirements.append("CIDToGIDMapMissing")
+                            missing.append({
+                                "id": font_id or str(font_name),
+                                "name": str(base_font) if base_font else None,
+                                "source": "pikepdf",
+                                "missingToUnicode": not has_to_unicode,
+                                "missingCidToGid": not has_cid_map,
+                                "unusableToUnicode": unusable_to_unicode,
+                                "descendantSubtype": desc_subtype,
+                                "failedRequirements": failed_requirements or None,
+                            })
+                            if cmap_status.get("reason"):
+                                missing[-1]["toUnicodeStatus"] = cmap_status["reason"]
+            return missing
+        except Exception as exc:
+            print(f"[Analyzer] Could not inspect fonts with pikepdf: {exc}")
+            return None
+
+    def _find_cid_fonts_with_pypdf(self, pdf_path: str) -> List[Dict[str, Any]]:
+        missing: List[Dict[str, Any]] = []
+        seen: Set[str] = set()
+        cid_subtypes = {"/CIDFontType2", "/CIDFontType0"}
+
+        def _resolve(value: Any) -> Any:
+            if IndirectObject is not None and isinstance(value, IndirectObject):
+                try:
+                    return value.get_object()
+                except Exception:
+                    return None
+            return value
+
+        try:
+            with open(pdf_path, "rb") as handle:
+                reader = PdfReader(handle)
+                for page in reader.pages:
+                    resources = _resolve(page.get("/Resources"))
+                    if not isinstance(resources, dict):
+                        continue
+                    fonts = _resolve(resources.get("/Font"))
+                    if not isinstance(fonts, dict):
+                        continue
+                    for font_name, font_obj in fonts.items():
+                        font_dict = _resolve(font_obj)
+                        if not isinstance(font_dict, dict):
+                            continue
+                        subtype = font_dict.get("/Subtype")
+                        if subtype != "/Type0":
+                            continue
+                        descendants = font_dict.get("/DescendantFonts") or []
+                        to_unicode = font_dict.get("/ToUnicode")
+                        for descendant in descendants:
+                            desc_dict = _resolve(descendant)
+                            if not isinstance(desc_dict, dict):
+                                continue
+                            desc_subtype = desc_dict.get("/Subtype")
+                            if desc_subtype not in cid_subtypes:
+                                continue
+                            desc_to_unicode = desc_dict.get("/ToUnicode")
+                            cid_map = desc_dict.get("/CIDToGIDMap")
+                            requires_cid_map = desc_subtype == "/CIDFontType2"
+                            has_to_unicode = self._has_pdf_value(to_unicode) or self._has_pdf_value(desc_to_unicode)
+                            has_cid_map = True
+                            if requires_cid_map:
+                                has_cid_map = self._has_pdf_value(cid_map) or self._is_identity_cid_map(cid_map)
+                            cmap_status = {"meaningful": None, "reason": None}
+                            if has_to_unicode:
+                                cmap_status = self._evaluate_to_unicode_cmap(desc_to_unicode or to_unicode)
+
+                            unusable_to_unicode = has_to_unicode and cmap_status.get("meaningful") is False
+                            if has_to_unicode and has_cid_map and not unusable_to_unicode:
+                                continue
+                            font_id = self._font_identifier(desc_dict, font_name)
+                            if font_id and font_id in seen:
+                                continue
+                            if font_id:
+                                seen.add(font_id)
+                            base_font = font_dict.get("/BaseFont") or desc_dict.get("/BaseFont")
+                            failed_requirements: List[str] = []
+                            if not has_to_unicode:
+                                failed_requirements.append("ToUnicodeMissing")
+                            elif unusable_to_unicode:
+                                failed_requirements.append("ToUnicodeUnusable")
+                            if requires_cid_map and not has_cid_map:
+                                failed_requirements.append("CIDToGIDMapMissing")
+                            missing.append({
+                                "id": font_id or str(font_name),
+                                "name": str(base_font) if base_font else None,
+                                "source": "pypdf",
+                                "missingToUnicode": not has_to_unicode,
+                                "missingCidToGid": not has_cid_map,
+                                "unusableToUnicode": unusable_to_unicode,
+                                "descendantSubtype": str(desc_subtype) if desc_subtype is not None else None,
+                                "failedRequirements": failed_requirements or None,
+                            })
+                            if cmap_status.get("reason"):
+                                missing[-1]["toUnicodeStatus"] = cmap_status["reason"]
+        except Exception as exc:
+            print(f"[Analyzer] Could not inspect fonts with pypdf: {exc}")
+
+        return missing
 
     def _collect_missing_alt_text_issues(
         self,
