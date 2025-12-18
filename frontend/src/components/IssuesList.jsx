@@ -105,6 +105,11 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
                 issue.message ||
                 issue.title ||
                 (issue.clause ? `Checkpoint: ${issue.clause}` : "Issue details unavailable")
+              const details =
+                issue.details ||
+                (Array.isArray(issue.cyclePath) && issue.cyclePath.length > 0
+                  ? `Path: ${issue.cyclePath.join(" -> ")}`
+                  : null)
 
               return (
                 <div key={idx} className={`p-4 rounded-lg border-l-4 ${getSeverityStyles(issue.severity)}`}>
@@ -112,6 +117,11 @@ export default function IssuesList({ results, selectedCategory, onSelectCategory
                     <span className="px-2 py-1 rounded text-xs font-bold uppercase">{issue.severity}</span>
                     <span className="font-semibold flex-1">{description}</span>
                   </div>
+                  {details && (
+                    <p className="text-sm opacity-75 ml-16">
+                      <strong>Details:</strong> {details}
+                    </p>
+                  )}
                   {issue.clause && (
                     <p className="text-sm opacity-75 ml-16">
                       <strong>Clause:</strong> {issue.clause}

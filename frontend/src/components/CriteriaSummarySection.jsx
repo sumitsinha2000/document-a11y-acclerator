@@ -264,6 +264,11 @@ export default function CriteriaSummarySection({
                             const clauseText = issue.clause || issue.criterion
                             const actionText = issue.recommendation || issue.remediation
                             const severityClasses = getSeverityClass(issue.severity)
+                            const detailText =
+                              issue.details ||
+                              (Array.isArray(issue.cyclePath) && issue.cyclePath.length > 0
+                                ? `Path: ${issue.cyclePath.join(" -> ")}`
+                                : null)
 
                             return (
                               <li
@@ -300,6 +305,11 @@ export default function CriteriaSummarySection({
                                     </p>
                                   )}
                                 </div>
+                                {detailText && (
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    <span className="font-semibold text-slate-600 dark:text-slate-300">Details:</span> {detailText}
+                                  </p>
+                                )}
                                 {actionText && (
                                   <p className="text-xs text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-700/60 pl-3">
                                     {actionText}

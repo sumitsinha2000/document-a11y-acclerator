@@ -4,7 +4,7 @@ Based on PDF Association's Matterhorn Protocol 1.02
 Inspired by iText's PDF/UA validation approach
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 import xml.etree.ElementTree as ET
 import pikepdf
 import logging
@@ -76,6 +76,12 @@ class MatterhornProtocol:
                 "description": "Tabs entry in page dictionary is not set to S",
                 "severity": "MEDIUM",
                 "wcag": "1.3.2"
+            },
+            "02-003": {
+                "category": "Structure",
+                "description": "Circular RoleMap mapping exists",
+                "severity": "HIGH",
+                "wcag": "1.3.1"
             },
             
             # 06: Structure tree requirements
@@ -314,6 +320,16 @@ class MatterhornProtocol:
         # 06-001: Structure tree has children
         if '/K' not in struct_tree_root:
             issues.append(self._create_issue("06-001", "Structure tree root"))
+        
+        role_map = getattr(struct_tree_root, "RoleMap", None)
+        if role_map:
+            normalized_map = self._normalize_role_map(role_map)
+            rolemap_cycles = self._find_rolemap_cycles(normalized_map)
+            for cycle in rolemap_cycles:
+                issue = self._create_issue("02-003", "StructTreeRoot RoleMap")
+                issue["details"] = " -> ".join(cycle)
+                issue["roleMapCycle"] = cycle
+                issues.append(issue)
         
         return issues
     
@@ -573,3 +589,52 @@ class MatterhornProtocol:
                 violating_pages.append(page_index)
 
         return violating_pages
+    
+    def _normalize_role_map(self, role_map: Any) -> Dict[str, str]:
+        """Return normalized RoleMap entries as direct strings."""
+        normalized: Dict[str, str] = {}
+        try:
+            for key, value in role_map.items():
+                key_str = str(key)
+                value_str = str(value)
+                if key_str and value_str:
+                    normalized[key_str] = value_str
+        except Exception as exc:
+            logger.debug(f"Failed to normalize RoleMap entries: {exc}")
+        return normalized
+
+    def _find_rolemap_cycles(self, mapping: Dict[str, str]) -> List[List[str]]:
+        """Detect all circular RoleMap chains."""
+        cycles: List[List[str]] = []
+        visited_global: Set[str] = set()
+        seen_cycles: Set[tuple] = set()
+
+        for start in mapping.keys():
+            if start in visited_global:
+                continue
+
+            path: List[str] = []
+            local_index: Dict[str, int] = {}
+            current = start
+
+            while True:
+                if current in local_index:
+                    cycle = path[local_index[current]:] + [current]
+                    cycle_key = tuple(cycle)
+                    if cycle_key not in seen_cycles:
+                        cycles.append(cycle)
+                        seen_cycles.add(cycle_key)
+                    break
+
+                local_index[current] = len(path)
+                path.append(current)
+
+                next_value = mapping.get(current)
+                if not next_value:
+                    break
+                current = next_value
+
+            visited_global.update(path)
+
+        return cycles
+

@@ -822,18 +822,14 @@ class PDFAccessibilityAnalyzer:
 
             role_map = getattr(struct_root, "RoleMap", None)
             missing_mappings: List[Dict[str, str]] = []
+            normalized_map: Dict[str, str] = {}
             if role_map is None:
                 missing_mappings = [
                     {"from": custom, "to": standard}
                     for custom, standard in COMMON_ROLEMAP_MAPPINGS.items()
                 ]
             else:
-                normalized_map: Dict[str, str] = {}
-                try:
-                    for key, value in role_map.items():
-                        normalized_map[str(key)] = str(value)
-                except Exception:
-                    normalized_map = {}
+                normalized_map = self._normalize_role_map(role_map)
 
                 for custom, standard in COMMON_ROLEMAP_MAPPINGS.items():
                     mapped_value = normalized_map.get(custom)
@@ -842,6 +838,9 @@ class PDFAccessibilityAnalyzer:
 
             if missing_mappings:
                 self._rolemap_missing_mappings = missing_mappings
+
+            if normalized_map:
+                self._record_rolemap_cycles(normalized_map)
         except Exception as exc:
             print(f"[Analyzer] Could not inspect RoleMap mappings: {exc}")
         finally:
@@ -850,6 +849,73 @@ class PDFAccessibilityAnalyzer:
                     pdf_doc.close()
                 except Exception:
                     pass
+
+    def _normalize_role_map(self, role_map: Any) -> Dict[str, str]:
+        """Return a normalized mapping of RoleMap entries as strings."""
+        normalized: Dict[str, str] = {}
+        try:
+            for key, value in role_map.items():
+                key_str = str(key)
+                value_str = str(value)
+                if key_str and value_str:
+                    normalized[key_str] = value_str
+        except Exception as exc:
+            print(f"[Analyzer] Could not normalize RoleMap entries: {exc}")
+        return normalized
+
+    def _find_rolemap_cycles(self, mapping: Dict[str, str]) -> List[List[str]]:
+        """Return all unique RoleMap cycles detected in the mapping graph."""
+        cycles: List[List[str]] = []
+        seen_cycles: Set[Tuple[str, ...]] = set()
+        visited: Set[str] = set()
+
+        for start in mapping.keys():
+            if start in visited:
+                continue
+
+            path: List[str] = []
+            local_index: Dict[str, int] = {}
+            current = start
+            while True:
+                if current in local_index:
+                    cycle_path = path[local_index[current]:] + [current]
+                    cycle_key = tuple(cycle_path)
+                    if cycle_key not in seen_cycles:
+                        cycles.append(cycle_path)
+                        seen_cycles.add(cycle_key)
+                    break
+
+                local_index[current] = len(path)
+                path.append(current)
+
+                next_tag = mapping.get(current)
+                if not next_tag:
+                    break
+                current = next_tag
+
+            visited.update(path)
+
+        return cycles
+
+    def _record_rolemap_cycles(self, normalized_map: Dict[str, str]) -> None:
+        """Add PDF/UA issues for any circular RoleMap references."""
+        cycles = self._find_rolemap_cycles(normalized_map)
+        if not cycles:
+            return
+
+        for cycle_path in cycles:
+            path_text = " -> ".join(cycle_path)
+            self.issues["pdfuaIssues"].append({
+                "severity": "high",
+                "description": f"Circular RoleMap mapping detected: {path_text}",
+                "details": f"Matterhorn 02-003 cycle: {path_text}",
+                "cyclePath": cycle_path,
+                "clause": "ISO 14289-1:7.2",
+                "matterhornId": "02-003",
+                "findingId": "pdfua.rolemap.circular",
+                "recommendation": "Update RoleMap so each custom structure type maps to a standard type without cycles.",
+                "extra": f"rolemap-circular-{path_text}",
+            })
 
     def _extract_text_from_operands(self, operands: Any) -> Optional[str]:
         """Return normalized text from a Tj/TJ operand list."""
