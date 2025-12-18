@@ -626,6 +626,7 @@ class WCAGValidator:
         self._page_drawn_image_cache: Dict[str, Set[str]] = {}
         self.navigation_aid_result: Optional[Dict[str, Any]] = None
         self.navigation_page_threshold = get_navigation_page_threshold()
+        self.artifact_report: Optional[Dict[str, Any]] = None
     
     def _get_role_map(self):
         """Return the PDF RoleMap dictionary, caching when possible."""
@@ -3100,12 +3101,198 @@ class WCAGValidator:
         Based on veraPDF rules: 7.3-1, 7.3-2, 7.3-3
         """
         try:
-            # This requires analyzing page content streams
-            # Simplified implementation - full version would parse content streams
-            logger.info("[WCAGValidator] Artifact validation requires content stream analysis")
-            
+            pdf = self.pdf
+            if pdf is None:
+                return
+
+            report = self._build_artifact_report(pdf)
+            self.artifact_report = report
+
+            if report["artifact_struct_refs"]:
+                self._add_pdfua_issue(
+                    "Artifacts referenced inside the structure tree (PDF/UA UA1:7.3-1)",
+                    "ISO 14289-1:7.3",
+                    "high",
+                    "Ensure /Artifact content stays outside the logical structure tree",
+                )
+                self.pdfua_compliance = False
+
+            if report["artifact_inside_tagged"]:
+                pages = sorted(set(report["artifact_inside_tagged"]))
+                self._add_pdfua_issue(
+                    "Artifacts are nested inside tagged content (PDF/UA UA1:7.3-2)",
+                    "ISO 14289-1:7.3",
+                    "high",
+                    "Close tagged BDC/EMC scopes before drawing /Artifact content",
+                    pages=pages,
+                )
+                self.pdfua_compliance = False
+
+            if report["artifact_with_mcid"]:
+                pages = sorted(set(report["artifact_with_mcid"]))
+                self._add_pdfua_issue(
+                    "Artifact marked content carries MCIDs or real-content tags",
+                    "ISO 14289-1:7.3",
+                    "medium",
+                    "Do not assign MCIDs to /Artifact BDC/BMC sequences",
+                    pages=pages,
+                )
+                self.pdfua_compliance = False
+
         except Exception as e:
             logger.error(f"[WCAGValidator] Error validating artifacts: {str(e)}")
+
+    def _build_artifact_report(self, pdf: pikepdf.Pdf) -> Dict[str, Any]:
+        """Inspect artifacts to enforce PDF/UA UA1:7.3 separation rules."""
+        report: Dict[str, Any] = {
+            "artifact_count": 0,
+            "tagged_mcid_count": 0,
+            "artifact_struct_refs": [],
+            "artifact_inside_tagged": [],
+            "artifact_with_mcid": [],
+        }
+        tagged_mcids: Set[int] = set()
+
+        def _collect_structure_flags(element: Any):
+            element = _resolve_pdf_object(element)
+            if not isinstance(element, pikepdf.Dictionary):
+                return
+
+            kids = element.get("/K")
+            if kids is None:
+                return
+
+            def _walk_kids(value: Any) -> None:
+                value = _resolve_pdf_object(value)
+                if value is None:
+                    return
+                if isinstance(value, (list, pikepdf.Array)):
+                    for child in _iter_array_items(value):
+                        _walk_kids(child)
+                    return
+                if isinstance(value, int):
+                    tagged_mcids.add(int(value))
+                    return
+                if isinstance(value, pikepdf.Dictionary):
+                    kid_type_str = str(value.get("/Type") or "")
+                    is_struct_elem = "/S" in value or kid_type_str == "/StructElem"
+                    is_mcr = kid_type_str == "/MCR" or (kid_type_str == "" and "/MCID" in value)
+
+                    # Only structure elements and marked-content references
+                    # belong in the structure tree. Any other object that
+                    # appears under /K is a structure-tree violation.
+                    if is_struct_elem:
+                        _collect_structure_flags(value)
+                        return
+                    if is_mcr:
+                        try:
+                            mcid_value = _resolve_pdf_object(value.get("/MCID"))
+                            if isinstance(mcid_value, int):
+                                tagged_mcids.add(int(mcid_value))
+                        except Exception:
+                            pass
+                        return
+                    report["artifact_struct_refs"].append(value)
+                    return
+
+                report["artifact_struct_refs"].append(value)
+
+            _walk_kids(kids)
+
+        try:
+            struct_tree_root = pdf.Root.get("/StructTreeRoot")
+        except Exception:
+            struct_tree_root = None
+
+        if struct_tree_root:
+            _collect_structure_flags(struct_tree_root)
+
+        def _scan_page(page_index: int, page: Any) -> None:
+            properties_lookup = _build_properties_lookup(page)
+            tag_scope_stack: List[str] = []
+            raw_bytes: bytes = b""
+            try:
+                raw_bytes = bytes(getattr(page, "Contents", b""))
+            except Exception:
+                try:
+                    raw_bytes = getattr(page, "Contents").read_bytes()
+                except Exception:
+                    raw_bytes = b""
+
+            try:
+                operations = pikepdf.parse_content_stream(page)
+            except Exception:
+                try:
+                    operations = pikepdf.parse_content_stream(getattr(page, "Contents", page))
+                except Exception:
+                    operations = []
+
+            try:
+                operations = list(operations)
+            except Exception:
+                operations = []
+
+            for operands, operator in operations:
+                name = _normalize_operator_name(operator)
+
+                if name in ("BDC", "BMC"):
+                    tag = ""
+                    if name == "BDC":
+                        try:
+                            tag = str(operands[0]) if operands else ""
+                        except Exception:
+                            tag = ""
+                    elif name == "BMC":
+                        # veraPDF UA1:7.3-2 is based on marked-content scope
+                        # nesting, not MCIDs.
+                        try:
+                            tag = str(operands[0]) if operands else ""
+                        except Exception:
+                            tag = ""
+                        if not tag:
+                            try:
+                                operator_tag = str(operator).strip()
+                                if operator_tag.startswith("/"):
+                                    tag = operator_tag
+                            except Exception:
+                                pass
+
+                    normalized_tag = tag.lstrip("/") if tag else ""
+                    is_artifact = normalized_tag == "Artifact"
+                    mcid_value = (
+                        _extract_mcid_from_bdc_operands(operands, properties_lookup)
+                        if name == "BDC"
+                        else None
+                    )
+
+                    tag_scope_stack.append(normalized_tag)
+
+                    if is_artifact:
+                        report["artifact_count"] += 1
+                        if any(scope != "Artifact" for scope in tag_scope_stack[:-1]):
+                            report["artifact_inside_tagged"].append(page_index)
+                        if mcid_value is not None:
+                            report["artifact_with_mcid"].append(page_index)
+
+                elif name == "EMC":
+                    if tag_scope_stack:
+                        tag_scope_stack.pop()
+
+            if raw_bytes:
+                artifact_hits = raw_bytes.count(b"/Artifact")
+                report["artifact_count"] = max(report["artifact_count"], artifact_hits)
+                # Byte-level scanning is informational only; compliance decisions
+                # must come from structured parsing.
+
+        try:
+            for idx, page in enumerate(pdf.pages, start=1):
+                _scan_page(idx, page)
+        except Exception as exc:
+            logger.debug(f"[WCAGValidator] Could not scan pages for artifact report: {exc}")
+
+        report["tagged_mcid_count"] = len(tagged_mcids)
+
+        return report
     
     def _add_wcag_issue(
         self,

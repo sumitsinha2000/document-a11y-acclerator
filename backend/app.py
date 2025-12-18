@@ -374,26 +374,33 @@ async def generate_pdf_endpoint(request: Request):
 
     pdf_type = (payload.get("pdfType") or "inaccessible").lower()
     company_name = payload.get("companyName") or "BrightPath Consulting"
-    services = (
-        payload.get("services") if isinstance(payload.get("services"), list) else None
-    )
-    accessibility_options = (
-        payload.get("accessibilityOptions")
-        if isinstance(payload.get("accessibilityOptions"), dict)
-        else None
-    )
+    services = payload.get("services") if isinstance(payload.get("services"), list) else None
+    accessibility_options = payload.get("accessibilityOptions") if isinstance(payload.get("accessibilityOptions"), dict) else None
 
     try:
+        # Prefer structured/tagged generation when content metadata is provided
+        has_structured_content = any(
+            key in payload for key in ("contentBlocks", "content", "html", "structuredContent")
+        ) or payload.get("mode") == "tagged"
+
+        if has_structured_content:
+            tagged_fn = getattr(pdf_generator, "generate_tagged_pdf_from_content", None)
+            if not callable(tagged_fn):
+                raise AttributeError("Tagged PDF generator unavailable")
+            result = await asyncio.to_thread(tagged_fn, payload)
+            output_path = result.get("output_path")
+            filename = os.path.basename(output_path) if output_path else None
+            report = result.get("report") or {}
+            if not filename:
+                raise RuntimeError("PDF generator returned no output path")
+            return SafeJSONResponse({"filename": filename, "report": report}, status_code=201)
+
         accessible_fn = getattr(pdf_generator, "create_accessible_pdf", None)
         inaccessible_fn = getattr(pdf_generator, "create_inaccessible_pdf", None)
         if pdf_type == "accessible":
             if not callable(accessible_fn):
                 raise AttributeError("Accessible PDF generator unavailable")
-            output_path = await asyncio.to_thread(
-                accessible_fn,
-                company_name,
-                services,
-            )
+            output_path = await asyncio.to_thread(accessible_fn, company_name, services)
         else:
             if not callable(inaccessible_fn):
                 raise AttributeError("Inaccessible PDF generator unavailable")
@@ -409,9 +416,7 @@ async def generate_pdf_endpoint(request: Request):
         return SafeJSONResponse({"filename": filename}, status_code=201)
     except Exception as exc:
         logger.exception("[Backend] PDF generation failed")
-        return JSONResponse(
-            {"error": str(exc) or "Failed to generate PDF"}, status_code=500
-        )
+        return JSONResponse({"error": str(exc) or "Failed to generate PDF"}, status_code=500)
 
 
 @app.get("/api/generated-pdfs")

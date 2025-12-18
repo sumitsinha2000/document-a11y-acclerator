@@ -4,7 +4,7 @@ Based on PDF Association's Matterhorn Protocol 1.02
 Inspired by iText's PDF/UA validation approach
 """
 
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 import pikepdf
 import logging
 
@@ -310,6 +310,19 @@ class MatterhornProtocol:
             issues.append(self._create_issue("07-001", "Document level"))
         elif not pdf.Root.MarkInfo.Marked:
             issues.append(self._create_issue("07-001", "MarkInfo"))
+
+        struct_artifacts = self._find_structure_artifacts(pdf)
+        if struct_artifacts:
+            location = "; ".join(struct_artifacts[:3])
+            remaining = len(struct_artifacts) - 3
+            if remaining > 0:
+                location = f"{location} (+{remaining} more)"
+            issues.append(self._create_issue("07-002", location or "Structure tree"))
+
+        nested_pages = self._find_artifacts_inside_tagged_scopes(pdf)
+        if nested_pages:
+            page_list = ", ".join(str(page) for page in nested_pages)
+            issues.append(self._create_issue("07-003", f"Pages {page_list}"))
         
         return issues
     
@@ -375,3 +388,136 @@ class MatterhornProtocol:
             cp for cp, info in self.checkpoints.items()
             if info.get("category") == category
         ]
+
+    # ------------------------------------------------------------------ Helpers
+    def _resolve_pdf_object(self, value: Any) -> Any:
+        """Return the underlying object for indirect pikepdf references."""
+        if value is None:
+            return None
+        try:
+            if hasattr(value, "get_object"):
+                return value.get_object()
+        except Exception:
+            return value
+        return value
+
+    def _iter_structure_children(self, value: Any) -> List[Any]:
+        """Return a list of children for a /K entry."""
+        resolved = self._resolve_pdf_object(value)
+        if resolved is None:
+            return []
+        if isinstance(resolved, pikepdf.Array):
+            return [self._resolve_pdf_object(item) for item in resolved]
+        if isinstance(resolved, list):
+            return [self._resolve_pdf_object(item) for item in resolved]
+        return [resolved]
+
+    def _find_structure_artifacts(self, pdf: pikepdf.Pdf) -> List[str]:
+        """Return structure tree paths where /Artifact elements appear."""
+        if '/StructTreeRoot' not in pdf.Root:
+            return []
+
+        artifacts: List[str] = []
+
+        def _walk(element: Any, path: List[str]) -> None:
+            element = self._resolve_pdf_object(element)
+            if element is None:
+                return
+            if isinstance(element, pikepdf.Dictionary):
+                struct_type = str(element.get("/S") or "").lstrip("/")
+                type_label = struct_type or str(element.get("/Type") or "").lstrip("/")
+                node_label = type_label or "StructElem"
+                current_path = path + [node_label]
+                if struct_type == "Artifact":
+                    artifacts.append(">".join(current_path))
+                kids = element.get("/K")
+                if kids is not None:
+                    for child in self._iter_structure_children(kids):
+                        _walk(child, current_path)
+            elif isinstance(element, (list, pikepdf.Array)):
+                for idx, child in enumerate(element):
+                    _walk(child, path + [f"Idx{idx}"])
+
+        try:
+            struct_root = pdf.Root.StructTreeRoot
+            _walk(struct_root, ["StructTreeRoot"])
+        except Exception as exc:
+            logger.debug(f"[Matterhorn] Unable to walk structure tree: {exc}")
+
+        return artifacts
+
+    def _find_artifacts_inside_tagged_scopes(self, pdf: pikepdf.Pdf) -> List[int]:
+        """
+        Return page numbers where /Artifact content is nested inside tagged scopes.
+        veraPDF UA1:7.3-2 is based on marked-content scope nesting, not MCIDs.
+        """
+        violating_pages: List[int] = []
+
+        def _extract_tag_name(operator_name: str, operands: Any, operator: Any) -> str:
+            tag_value = ""
+            if operator_name == "BDC":
+                try:
+                    if operands:
+                        tag_value = str(operands[0])
+                except Exception:
+                    tag_value = ""
+            elif operator_name == "BMC":
+                try:
+                    if operands:
+                        tag_value = str(operands[0])
+                except Exception:
+                    tag_value = ""
+                if not tag_value:
+                    try:
+                        operator_tag = str(operator).strip()
+                        if operator_tag.startswith("/"):
+                            tag_value = operator_tag
+                    except Exception:
+                        tag_value = ""
+            return tag_value.lstrip("/")
+
+        def _normalize_operator_name(operator: Any) -> str:
+            try:
+                raw_name = getattr(operator, "name", None)
+            except Exception:
+                raw_name = None
+            if raw_name is not None:
+                try:
+                    name = str(raw_name)
+                except Exception:
+                    name = ""
+            else:
+                try:
+                    name = str(operator)
+                except Exception:
+                    name = ""
+            if name.startswith("/"):
+                name = name[1:]
+            return name
+
+        for page_index, page in enumerate(pdf.pages, start=1):
+            tag_stack: List[str] = []
+            try:
+                operations = pikepdf.parse_content_stream(page)
+                operations = list(operations)
+            except Exception as exc:
+                logger.debug(f"[Matterhorn] Unable to parse content stream on page {page_index}: {exc}")
+                continue
+
+            page_violation = False
+            for operands, operator in operations:
+                operator_name = _normalize_operator_name(operator)
+                if operator_name in ("BDC", "BMC"):
+                    tag_name = _extract_tag_name(operator_name, operands, operator)
+                    normalized_tag = tag_name.lstrip("/") if tag_name else ""
+                    tag_stack.append(normalized_tag)
+                    if normalized_tag == "Artifact" and any(scope != "Artifact" for scope in tag_stack[:-1]):
+                        page_violation = True
+                elif operator_name == "EMC":
+                    if tag_stack:
+                        tag_stack.pop()
+
+            if page_violation:
+                violating_pages.append(page_index)
+
+        return violating_pages
