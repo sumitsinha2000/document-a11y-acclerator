@@ -151,3 +151,62 @@ def test_matterhorn_protocol_detects_rolemap_cycles(tmp_path):
     with pikepdf.open(pass_pdf) as pdf:
         pass_issues = MatterhornProtocol().validate(pdf)
     assert not any(issue.get("checkpoint") == "02-003" for issue in pass_issues)
+
+
+def test_scan_reports_standard_rolemap_remaps(tmp_path):
+    fail_pdf = _make_rolemap_fixture(
+        tmp_path,
+        "rolemap_standard_remap_fail.pdf",
+        {"/P": "/Span", "/H2": "/Div", "/CustomPara": "/P"},
+    )
+
+    results = PDFAccessibilityAnalyzer().analyze(str(fail_pdf))
+
+    pdfua_issues = results.get("pdfuaIssues") or []
+    remap_issue = next(
+        (
+            issue
+            for issue in pdfua_issues
+            if issue.get("findingId") == "pdfua.rolemap.standard_remap"
+        ),
+        None,
+    )
+    assert remap_issue is not None, "Standard RoleMap remap should emit pdfua.rolemap.standard_remap finding"
+    assert remap_issue.get("matterhornId") == "02-004"
+    offending = remap_issue.get("offendingMappings") or []
+    offending_pairs = {(entry.get("from"), entry.get("to")) for entry in offending}
+    assert ("/P", "/Span") in offending_pairs and ("/H2", "/Div") in offending_pairs
+    paths = {entry.get("objectPath") for entry in offending}
+    assert "StructTreeRoot.RoleMap.P" in paths
+    assert "StructTreeRoot.RoleMap.H2" in paths
+
+
+def test_matterhorn_protocol_detects_standard_rolemap_remaps(tmp_path):
+    fail_pdf = _make_rolemap_fixture(
+        tmp_path,
+        "matterhorn_rolemap_standard_remap_fail.pdf",
+        {"/Table": "/Figure"},
+    )
+    pass_pdf = _make_rolemap_fixture(
+        tmp_path,
+        "matterhorn_rolemap_standard_remap_pass.pdf",
+        {"/MyPara": "/P"},
+    )
+
+    with pikepdf.open(fail_pdf) as pdf:
+        fail_issues = MatterhornProtocol().validate(pdf)
+    remap_issue = next(
+        (issue for issue in fail_issues if issue.get("checkpoint") == "02-004"),
+        None,
+    )
+    assert remap_issue is not None, "Matterhorn protocol should emit 02-004 when standard RoleMap types are remapped"
+    assert any(
+        entry.get("from") == "/Table" for entry in remap_issue.get("roleMapRemaps") or []
+    )
+    assert "StructTreeRoot.RoleMap.Table" in (
+        entry.get("objectPath") for entry in remap_issue.get("roleMapRemaps") or []
+    )
+
+    with pikepdf.open(pass_pdf) as pdf:
+        pass_issues = MatterhornProtocol().validate(pdf)
+    assert not any(issue.get("checkpoint") == "02-004" for issue in pass_issues)

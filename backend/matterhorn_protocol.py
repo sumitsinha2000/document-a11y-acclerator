@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 import pikepdf
 import logging
 
+from backend.pdf_structure_standards import is_standard_type
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,6 +82,12 @@ class MatterhornProtocol:
             "02-003": {
                 "category": "Structure",
                 "description": "Circular RoleMap mapping exists",
+                "severity": "HIGH",
+                "wcag": "1.3.1"
+            },
+            "02-004": {
+                "category": "Structure",
+                "description": "Standard structure types are remapped in RoleMap",
                 "severity": "HIGH",
                 "wcag": "1.3.1"
             },
@@ -330,6 +338,17 @@ class MatterhornProtocol:
                 issue["details"] = " -> ".join(cycle)
                 issue["roleMapCycle"] = cycle
                 issues.append(issue)
+
+            remapped_types = self._find_standard_rolemap_remaps(normalized_map)
+            if remapped_types:
+                issue = self._create_issue("02-004", "StructTreeRoot RoleMap")
+                mapping_text = "; ".join(
+                    f"{entry['from']} -> {entry['to']} ({entry['objectPath']})"
+                    for entry in remapped_types
+                )
+                issue["details"] = mapping_text
+                issue["roleMapRemaps"] = remapped_types
+                issues.append(issue)
         
         return issues
     
@@ -513,6 +532,21 @@ class MatterhornProtocol:
             logger.debug(f"[Matterhorn] Unable to walk structure tree: {exc}")
 
         return artifacts
+
+    def _find_standard_rolemap_remaps(self, mapping: Dict[str, str]) -> List[Dict[str, str]]:
+        """Return RoleMap entries that remap standard structure types."""
+        offending: List[Dict[str, str]] = []
+        for tag_name, target in mapping.items():
+            if not tag_name:
+                continue
+            if is_standard_type(tag_name):
+                key_label = tag_name.lstrip("/") or tag_name
+                offending.append({
+                    "from": tag_name,
+                    "to": target,
+                    "objectPath": f"StructTreeRoot.RoleMap.{key_label}",
+                })
+        return offending
 
     def _find_artifacts_inside_tagged_scopes(self, pdf: pikepdf.Pdf) -> List[int]:
         """

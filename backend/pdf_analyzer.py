@@ -64,7 +64,10 @@ except ImportError:
 
 from backend.utils.compliance_scoring import derive_wcag_score
 from backend.utils.issue_registry import IssueRegistry
-from backend.pdf_structure_standards import COMMON_ROLEMAP_MAPPINGS
+from backend.pdf_structure_standards import (
+    COMMON_ROLEMAP_MAPPINGS,
+    is_standard_type,
+)
 from backend.utils.language_detection import (
     collect_script_hints,
     detect_script_hint,
@@ -841,6 +844,7 @@ class PDFAccessibilityAnalyzer:
 
             if normalized_map:
                 self._record_rolemap_cycles(normalized_map)
+                self._record_standard_rolemap_remaps(normalized_map)
         except Exception as exc:
             print(f"[Analyzer] Could not inspect RoleMap mappings: {exc}")
         finally:
@@ -916,6 +920,38 @@ class PDFAccessibilityAnalyzer:
                 "recommendation": "Update RoleMap so each custom structure type maps to a standard type without cycles.",
                 "extra": f"rolemap-circular-{path_text}",
             })
+
+    def _record_standard_rolemap_remaps(self, normalized_map: Dict[str, str]) -> None:
+        """Add PDF/UA issues for RoleMap entries remapping standard types."""
+        offending: List[Dict[str, str]] = []
+        for tag_name, target in normalized_map.items():
+            if not tag_name:
+                continue
+            if is_standard_type(tag_name):
+                key_label = tag_name.lstrip("/") or tag_name
+                offending.append({
+                    "from": tag_name,
+                    "to": target,
+                    "objectPath": f"StructTreeRoot.RoleMap.{key_label}",
+                })
+
+        if not offending:
+            return
+
+        mapping_text = "; ".join(
+            f"{entry['from']} -> {entry['to']} ({entry['objectPath']})" for entry in offending
+        )
+
+        self.issues["pdfuaIssues"].append({
+            "severity": "high",
+            "description": f"RoleMap remaps standard structure types: {mapping_text}",
+            "details": mapping_text,
+            "clause": "UA1:7.1-4",
+            "matterhornId": "02-004",
+            "findingId": "pdfua.rolemap.standard_remap",
+            "offendingMappings": offending,
+            "recommendation": "Remove RoleMap entries for standard tags; only custom structure types should map to standard PDF/UA tags.",
+        })
 
     def _extract_text_from_operands(self, operands: Any) -> Optional[str]:
         """Return normalized text from a Tj/TJ operand list."""

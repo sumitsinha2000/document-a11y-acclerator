@@ -45,6 +45,10 @@ PDFUA_CLAUSE_DETAILS: Dict[str, Dict[str, str]] = {
         "name": "Document Identification",
         "summary": "Metadata, tagging, and document title requirements.",
     },
+    "UA1:7.1-4": {
+        "name": "02-004 RoleMap Standard Type Remapping",
+        "summary": "One or more standard structure types are remapped.",
+    },
     "ISO 14289-1:7.2": {
         "name": "Structure Tree",
         "summary": "Structure element semantics, RoleMap, and reading order.",
@@ -77,6 +81,7 @@ PDFUA_CLAUSE_DETAILS: Dict[str, Dict[str, str]] = {
 
 PDFUA_CLAUSE_ORDER = [
     "ISO 14289-1:7.1",
+    "UA1:7.1-4",
     "ISO 14289-1:7.2",
     "ISO 14289-1:7.3",
     "ISO 14289-1:7.4",
