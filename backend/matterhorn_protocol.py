@@ -4,7 +4,8 @@ Based on PDF Association's Matterhorn Protocol 1.02
 Inspired by iText's PDF/UA validation approach
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+import xml.etree.ElementTree as ET
 import pikepdf
 import logging
 
@@ -239,10 +240,25 @@ class MatterhornProtocol:
     def _check_document_level(self, pdf: pikepdf.Pdf) -> List[Dict[str, Any]]:
         """Check document-level requirements (01-xxx)"""
         issues = []
-        
-        # 01-001: Metadata stream
-        if '/Metadata' not in pdf.Root:
-            issues.append(self._create_issue("01-001", "Document level"))
+
+        metadata_stream = self._get_catalog_metadata_stream(pdf)
+        if metadata_stream is None:
+            issues.append(
+                self._create_issue(
+                    "01-001",
+                    "Catalog",
+                    "Document does not contain an XMP metadata stream",
+                )
+            )
+        else:
+            if not self._metadata_includes_pdfua_identifier(metadata_stream):
+                issues.append(
+                    self._create_issue(
+                        "01-001",
+                        "Catalog metadata",
+                        "The XMP metadata stream in the Catalog dictionary does not include the PDF/UA identifier",
+                    )
+                )
         
         # 01-002 & 01-003: Document title
         try:
@@ -365,17 +381,18 @@ class MatterhornProtocol:
         
         return issues
     
-    def _create_issue(self, checkpoint: str, location: str) -> Dict[str, Any]:
+    def _create_issue(self, checkpoint: str, location: str, custom_description: Optional[str] = None) -> Dict[str, Any]:
         """Create an issue dictionary with checkpoint information"""
         checkpoint_info = self.checkpoints.get(checkpoint, {})
+        description = custom_description or checkpoint_info.get("description", "Unknown issue")
         return {
             "checkpoint": checkpoint,
             "category": checkpoint_info.get("category", "Unknown"),
-            "description": checkpoint_info.get("description", "Unknown issue"),
+            "description": description,
             "severity": checkpoint_info.get("severity", "MEDIUM"),
             "wcag": checkpoint_info.get("wcag", ""),
             "location": location,
-            "message": f"[{checkpoint}] {checkpoint_info.get('description', 'Unknown issue')} at {location}"
+            "message": f"[{checkpoint}] {description} at {location}"
         }
     
     def get_checkpoint_info(self, checkpoint: str) -> Dict[str, Any]:
@@ -400,6 +417,41 @@ class MatterhornProtocol:
         except Exception:
             return value
         return value
+
+    def _get_catalog_metadata_stream(self, pdf: pikepdf.Pdf) -> Optional[pikepdf.Stream]:
+        """Return the catalog /Metadata stream if it exists and is readable."""
+        try:
+            metadata_entry = getattr(pdf.Root, "Metadata", None)
+        except Exception:
+            metadata_entry = None
+        if metadata_entry is None:
+            return None
+        metadata_stream = self._resolve_pdf_object(metadata_entry)
+        if isinstance(metadata_stream, pikepdf.Stream):
+            return metadata_stream
+        return None
+
+    def _metadata_includes_pdfua_identifier(self, metadata_stream: pikepdf.Stream) -> bool:
+        """Check whether the metadata stream advertises pdfuaid:part=1."""
+        try:
+            xmp_bytes = metadata_stream.read_bytes()
+        except Exception as exc:
+            logger.debug(f"[Matterhorn] Unable to read catalog metadata stream: {exc}")
+            return False
+        if not xmp_bytes:
+            return False
+
+        try:
+            root = ET.fromstring(xmp_bytes.decode("utf-8", errors="ignore"))
+        except Exception as exc:
+            logger.debug(f"[Matterhorn] Unable to parse catalog XMP metadata: {exc}")
+            return False
+
+        ns = {"pdfuaid": "http://www.aiim.org/pdfua/ns/id/"}
+        for elem in root.findall(".//pdfuaid:part", ns):
+            if (elem.text or "").strip() == "1":
+                return True
+        return False
 
     def _iter_structure_children(self, value: Any) -> List[Any]:
         """Return a list of children for a /K entry."""
